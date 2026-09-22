@@ -49,6 +49,9 @@ bushwhack's `app:*` tools built on the API. Other projects later, once this has 
 
 ## Technology
 
-TypeScript on Node 22: the API decouples clients from the implementation language, and
-the first client and the existing composer are TypeScript. Go (single binary, Docker's
-own ecosystem) is the alternative to weigh before a first release.
+TypeScript on Node 22, settled before the first release. The API decouples clients from
+the implementation language; the first client, the console and the recipes are
+TypeScript, web and YAML; and what octopod costs is in Docker, not in its own runtime.
+Go (a single binary, Docker's own ecosystem) was weighed and set aside: a rewrite for a
+packaging benefit. Should a single binary become a real need, Node's single executable
+applications build one from the same code.
