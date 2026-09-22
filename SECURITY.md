@@ -25,13 +25,17 @@ whoever can reach it can already use Docker as that user. There is no TCP listen
 
 **The edge.** The shared Traefik publishes on loopback only (`127.0.0.1`, port 80 or
 8480): nothing on the network reaches it. It only routes containers labelled
-`octopod.edge=1`, so a container of another tool, even one labelled `traefik.enable=true`,
-is never exposed by it.
+`octopod.edge=<its instance>`, so a container of another tool, even one labelled
+`traefik.enable=true`, is never exposed by it — nor is another octopod edge's.
 
-**The web console** (`http://octopod.localhost`, where the version has it) is read-only:
-it shows projects, their state and their logs, and changes nothing. It is reachable
-through the edge only from the host, enforced by a Traefik `ipAllowList` on the edge
-network, and served with a strict Content Security Policy.
+**The edge's own pages** — the web console (`http://octopod.localhost`) and Traefik's
+dashboard (`http://traefik.localhost`) — answer only from the host. A Traefik
+`ipAllowList` lets through the edge's own network, where the host's requests arrive through
+the published port; a project's container, which reaches the edge over its edge network,
+gets a 403. The console is read-only: a relay (nginx, running as the operator, read-only
+root, no capability) passes GET and HEAD to the API's socket and refuses every other
+method, and the page is served with a strict Content Security Policy. Everything it shows
+comes from the projects (names, log lines) and is rendered as text, never as markup.
 
 **The Docker socket** is mounted read-only into Traefik, which needs it to discover
 containers. Read-only does not mean harmless: `:ro` only stops the socket file from being
