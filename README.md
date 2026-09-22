@@ -38,6 +38,12 @@ Status: MVP. Its first client is bushwhack. See [docs/ROADMAP.md](./docs/ROADMAP
 
 Requires Docker with Compose v2 (`docker compose`) and Node 22.
 
+```sh
+./setup.sh      # dependencies, `octopod` linked into ~/.local/bin, the edge started
+```
+
+The command runs the sources: a change to octopod needs no new setup.
+
 Next to a project's `docker-compose.yml`, an `octopod.yaml`:
 
 ```yaml
