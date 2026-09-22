@@ -1,0 +1,133 @@
+/**
+ * Against real Docker: two projects behind one edge. Uses its own instance prefix and
+ * port, so it never touches a real octopod edge. Skipped when Docker is not available.
+ */
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Octopod } from './octopod.js';
+
+const INSTANCE = 'octopodtest';
+const PORT = 18480;
+const NEIGHBOUR = 'octopodtest-neighbour';
+
+function dockerAvailable(): boolean {
+  try {
+    execFileSync('docker', ['version', '--format', '{{.Server.Version}}'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function docker(...args: string[]): string {
+  return execFileSync('docker', args, { encoding: 'utf8' });
+}
+
+async function get(host: string): Promise<{ status: number; body: string }> {
+  // Node's fetch refuses to set Host; a plain request to the edge with the header does it.
+  const { request } = await import('node:http');
+  return new Promise((resolve, reject) => {
+    const req = request({ host: '127.0.0.1', port: PORT, path: '/', headers: { Host: host }, timeout: 3000 }, (res) => {
+      let body = '';
+      res.on('data', (c) => (body += String(c)));
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+/** Traefik picks routes up asynchronously: ask until the answer is what we expect, or give up. */
+async function eventually(host: string, status: number): Promise<{ status: number; body: string }> {
+  let last = { status: 0, body: '' };
+  for (let i = 0; i < 40; i++) {
+    last = await get(host).catch(() => ({ status: 0, body: '' }));
+    if (last.status === status) return last;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return last;
+}
+
+async function project(base: string, name: string): Promise<string> {
+  const root = join(base, name);
+  await mkdir(root);
+  await writeFile(join(root, 'docker-compose.yml'), 'services:\n  web:\n    image: traefik/whoami:v1.10\n');
+  await writeFile(join(root, 'octopod.yaml'), `project: ${name}\nexpose:\n  - service: web\n    port: 80\n`);
+  return root;
+}
+
+describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)', { timeout: 300_000 }, () => {
+  let base: string;
+  let octopod: Octopod;
+
+  beforeAll(async () => {
+    base = await mkdtemp(join(tmpdir(), 'octopod-it-'));
+    octopod = new Octopod({ stateDir: join(base, 'state'), instance: INSTANCE, ports: [PORT] });
+    await octopod.register(await project(base, 'alpha'));
+    await octopod.register(await project(base, 'beta'));
+    await octopod.up('alpha');
+    await octopod.up('beta');
+    // A container labelled for some other Traefik, on a network the edge does reach — the
+    // case the label constraint exists for. (On a network the edge cannot reach, Traefik
+    // would drop it anyway, and the test would prove nothing.)
+    docker('run', '-d', '--rm', '--name', NEIGHBOUR, '--network', 'octopodtest-alpha-edge', '--label', 'traefik.enable=true', '--label', 'traefik.http.routers.nb.rule=Host(`neighbour.localhost`)', 'traefik/whoami:v1.10');
+  }, 300_000);
+
+  afterAll(async () => {
+    try {
+      docker('rm', '-f', NEIGHBOUR);
+    } catch {
+      // already gone
+    }
+    await octopod.unregister('alpha').catch(() => undefined);
+    await octopod.unregister('beta').catch(() => undefined);
+    await octopod.edgeDown();
+    await rm(base, { recursive: true, force: true });
+  }, 300_000);
+
+  it('serves each project on its own host', async () => {
+    const alpha = await eventually('alpha.localhost', 200);
+    const beta = await eventually('beta.localhost', 200);
+    expect(alpha.status).toBe(200);
+    expect(beta.status).toBe(200);
+    // whoami answers with its container's hostname: two different containers.
+    const host = (body: string): string | undefined => /Hostname: (\S+)/.exec(body)?.[1];
+    expect(host(alpha.body)).toBeDefined();
+    expect(host(alpha.body)).not.toBe(host(beta.body));
+  });
+
+  it('answers 404 for a host no project declared', async () => {
+    expect((await eventually('nobody.localhost', 404)).status).toBe(404);
+  });
+
+  it('does not adopt a neighbour labelled for another Traefik', async () => {
+    await eventually('alpha.localhost', 200);
+    // Give Traefik time to have seen the neighbour, then check it did not route to it.
+    await new Promise((r) => setTimeout(r, 2000));
+    expect((await get('neighbour.localhost')).status).toBe(404);
+  });
+
+  it('keeps projects off each other’s networks, with the edge on both', () => {
+    const networksOf = (container: string): string[] =>
+      Object.keys(JSON.parse(docker('inspect', '--format', '{{json .NetworkSettings.Networks}}', container)) as object);
+    expect(networksOf('alpha-web-1').sort()).toEqual(['alpha_default', 'octopodtest-alpha-edge']);
+    expect(networksOf('beta-web-1').sort()).toEqual(['beta_default', 'octopodtest-beta-edge']);
+    expect(networksOf('octopodtest-edge')).toEqual(expect.arrayContaining(['octopodtest-alpha-edge', 'octopodtest-beta-edge']));
+  });
+
+  it('reports what runs and where', async () => {
+    const status = await octopod.status('alpha');
+    expect(status.routes).toEqual([{ service: 'web', url: `http://alpha.localhost:${PORT}` }]);
+    expect(status.services).toEqual([expect.objectContaining({ service: 'web', state: 'running' })]);
+  });
+
+  it('brings a project down cleanly, network included, while the other keeps running', async () => {
+    await octopod.down('beta');
+    expect(docker('network', 'ls', '--format', '{{.Name}}').split('\n')).not.toContain('octopodtest-beta-edge');
+    expect((await eventually('alpha.localhost', 200)).status).toBe(200);
+    expect((await eventually('beta.localhost', 404)).status).toBe(404);
+  });
+});
