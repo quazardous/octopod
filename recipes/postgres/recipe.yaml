@@ -1,0 +1,30 @@
+# PostgreSQL, reachable inside the project as host `<service>` on 5432; its URL goes to
+# whoever requires `sql`. The data is kept in the project (.octopod/data) unless
+# `persist: false`.
+title: PostgreSQL 16
+summary: Relational database, reachable inside the project as host <service> on port 5432.
+image: postgres:16.4-bookworm
+unpinned: true
+build: true
+provides: [sql]
+params:
+  db: { type: ident, default: app }
+  user: { type: ident, default: app }
+  password: { type: secret, bytes: 24 }
+  persist: { type: bool, default: true }
+env:
+  POSTGRES_DB: "{{params.db}}"
+  POSTGRES_USER: "{{params.user}}"
+  POSTGRES_PASSWORD: "{{secrets.password}}"
+exports:
+  host: "{{service}}"
+  port: "5432"
+  url: "postgresql://{{params.user}}:{{secrets.password}}@{{service}}:5432/{{params.db}}"
+volumes:
+  - { name: data, path: /var/lib/postgresql/data, when: persist }
+port: 5432
+health:
+  test: [CMD-SHELL, "pg_isready -U {{params.user}} -d {{params.db}}"]
+  intervalMs: 2000
+  retries: 30
+limits: { memory: 512m, cpus: "1", pids: 256 }

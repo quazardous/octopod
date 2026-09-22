@@ -86,6 +86,36 @@ traefik.http.routers.<project>-<service>.service=<project>-<service>
 traefik.http.services.<project>-<service>.loadbalancer.server.port=<port>
 ```
 
+## Recipes
+
+A recipe is a folder: `<id>/recipe.yaml`, and its `Dockerfile` when it builds. Folders,
+from the most general to the closest (the closest wins a name, `octopod recipes` says
+which one it hides): octopod's own `recipes/`, `OCTOPOD_RECIPES` (PATH-like), the
+declaration's `recipes:` (relative to the project), the project's `.octopod/recipes/`.
+
+```yaml
+services:                  # instead of, or beside, the project's own compose files
+  app: { recipe: node-app }
+  db:  { recipe: postgres, persist: true, db: shop }   # parameters, typed by the recipe
+recipes: [../shared-recipes]
+workspace: .               # the folder a recipe's workspace mounts; the project's by default
+```
+
+- Rendered into `.octopod/recipes.<project>.json`, first of the compose files, with each
+  build context in `.octopod/build/<service>/` (the Dockerfile alone).
+- A recipe decides everything its service gets; the project gives a service name, a
+  recipe id and typed parameters — an unknown parameter, a wrong type or a value for a
+  generated secret is refused.
+- Built images get BASE_IMAGE, UID, GID and USER_NAME (the project's name, made a valid
+  Linux user name). Secrets are generated once and kept in octopod's state (`0600`),
+  never in the project.
+- Routed recipes are exposed without an `expose` entry, at the project's host or their
+  subdomain; two wanting the same host is an error. Their profiles are activated.
+- The recipe's digest covers its Dockerfile. `octopod plan [dir]` renders without writing
+  anything, for an approval.
+- No networks and no hardening: a client with stricter needs adds its own compose file.
+- `unregister` removes the images compose built for the project.
+
 ## The API
 
 HTTP with JSON bodies over a unix socket: `$XDG_RUNTIME_DIR/octopod/octopod.sock`
@@ -102,6 +132,8 @@ HTTP with JSON bodies over a unix socket: `$XDG_RUNTIME_DIR/octopod/octopod.sock
 | POST | `/v1/projects/:name/restart` | `{ service? }` | `ProjectStatus` |
 | POST | `/v1/projects/:name/exec` | `{ service, argv: string[], timeoutMs? }` | `{ ok, output, truncated }` — argv, never a shell string built by octopod; output bounded |
 | GET | `/v1/projects/:name/logs?service=&tail=` | | `{ lines: string[] }` |
+| GET | `/v1/recipes?root=` | | `{ recipes: {id,title,summary,dir,digest}[], shadowed: {id,dir,by}[] }` |
+| POST | `/v1/plan` | `{ root, instance? }` | `{ project, text, services, compose }` — writes nothing |
 | DELETE | `/v1/projects/:name` | | `{}` (brought down first) |
 
 ```ts

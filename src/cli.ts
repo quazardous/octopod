@@ -100,6 +100,20 @@ async function main(argv: string[]): Promise<void> {
       if (!result.ok) process.exitCode = 1;
       return;
     }
+    case 'recipes': {
+      // octopod recipes [dir]: the recipes a project in that folder (or any) can name.
+      const dir = positional(rest)[0];
+      const out = await octopod.recipes(dir ? resolve(dir) : undefined);
+      if (json) return print(out, true);
+      for (const r of out.recipes) console.log(`${r.id.padEnd(16)} ${r.title}  (${r.dir}, ${r.digest})`);
+      for (const h of out.shadowed) console.log(`! ${h.id} in ${h.dir} is hidden by ${h.by}`);
+      return;
+    }
+    case 'plan': {
+      // octopod plan [dir]: what up would run for that folder's octopod.yaml. Writes nothing.
+      const out = await octopod.plan(resolve(positional(rest)[0] ?? '.'), instanceOf(rest));
+      return json ? print(out, true) : console.log(out.text);
+    }
     case 'unregister':
       if (!positional(rest)[0]) throw new Error('usage: octopod unregister <project>');
       await octopod.unregister(positional(rest)[0]);

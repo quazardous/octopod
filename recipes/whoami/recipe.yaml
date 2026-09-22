@@ -1,0 +1,7 @@
+# Answers HTTP with what it received: to check routing, nothing else.
+title: whoami
+summary: Answers every HTTP request with its own details — a routing check.
+image: traefik/whoami:v1.10
+unpinned: true
+port: 80
+route: true

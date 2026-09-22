@@ -27,7 +27,15 @@ const Schema = z
           })
           .strict(),
       )
-      .min(1),
+      .default([]),
+    /** Services made of recipes: `app: { recipe: node-app }`, `db: { recipe: postgres, persist: true }`. */
+    services: z
+      .record(z.string(), z.object({ recipe: z.string().min(1).max(64) }).catchall(z.union([z.string().max(200), z.number(), z.boolean()])))
+      .optional(),
+    /** More recipe folders, relative to the project; after octopod's own and OCTOPOD_RECIPES, before `.octopod/recipes/`. */
+    recipes: z.array(z.string().min(1).max(400)).optional(),
+    /** The folder a recipe's workspace mounts; the project's folder by default. */
+    workspace: z.string().min(1).max(400).optional(),
   })
   .strict();
 
@@ -50,6 +58,14 @@ export interface Declaration {
   compose: string[];
   /** The declared env file, absolute: passed as --env-file. */
   envFile?: string;
+  /** Services made of recipes, with their parameters. */
+  services?: Record<string, { recipe: string; params: Record<string, string | number | boolean> }>;
+  /** Extra recipe folders, absolute, in the order declared. */
+  recipeDirs?: string[];
+  /** The folder a recipe's workspace mounts, absolute. */
+  workspace?: string;
+  /** Compose profiles the recipes put services in: activated, or those services would not start. */
+  profiles?: string[];
   expose: Exposure[];
 }
 
@@ -77,14 +93,17 @@ export async function loadDeclaration(root: string): Promise<Declaration> {
     for (const name of DEFAULT_COMPOSE) {
       if (await stat(join(root, name)).then(() => true, () => false)) found.push(join(root, name));
     }
-    if (found.length === 0) throw new DeclarationError(`${file}: no compose file in ${root} (${DEFAULT_COMPOSE.join(', ')})`);
+    if (found.length === 0 && !parsed.data.services) throw new DeclarationError(`${file}: no compose file in ${root} (${DEFAULT_COMPOSE.join(', ')}), and no services`);
     // As compose itself does without -f: the main file, then its override when there is
     // one. octopod passes -f, which turns that lookup off — so it does it here.
-    const prefix = basename(found[0]).replace(/\.ya?ml$/, '');
-    const override = [`${prefix}.override.yaml`, `${prefix}.override.yml`].map((n) => join(root, n));
-    const present = [];
-    for (const o of override) if (await stat(o).then(() => true, () => false)) present.push(o);
-    compose = [found[0], ...present.slice(0, 1)];
+    compose = [];
+    if (found.length > 0) {
+      const prefix = basename(found[0]).replace(/\.ya?ml$/, '');
+      const override = [`${prefix}.override.yaml`, `${prefix}.override.yml`].map((n) => join(root, n));
+      const present = [];
+      for (const o of override) if (await stat(o).then(() => true, () => false)) present.push(o);
+      compose = [found[0], ...present.slice(0, 1)];
+    }
   }
 
   const expose: Exposure[] = [];
@@ -107,7 +126,20 @@ export async function loadDeclaration(root: string): Promise<Declaration> {
       throw new DeclarationError(`${file}: env_file must be a path inside the project`);
     }
   }
-  return { project, root, compose, expose, ...(envFile ? { envFile } : {}) };
+  if (expose.length === 0 && !parsed.data.services) throw new DeclarationError(`${file}: nothing to serve — declare expose, or services made of recipes`);
+  const services = parsed.data.services
+    ? Object.fromEntries(Object.entries(parsed.data.services).map(([name, { recipe, ...params }]) => [name, { recipe, params }]))
+    : undefined;
+  return {
+    project,
+    root,
+    compose,
+    expose,
+    ...(envFile ? { envFile } : {}),
+    ...(services ? { services } : {}),
+    ...(parsed.data.recipes ? { recipeDirs: parsed.data.recipes.map((d) => resolve(root, d)) } : {}),
+    ...(parsed.data.workspace ? { workspace: resolve(root, parsed.data.workspace) } : {}),
+  };
 }
 
 /** The declaration of instance N: its name, and its hosts moved under that name. */

@@ -55,6 +55,16 @@ export function handler(octopod: Octopod) {
       if (resource === 'edge' && name === 'down' && method === 'POST') return send(res, 200, await octopod.edgeDown());
 
       if (resource === 'projects' && !name && method === 'GET') return send(res, 200, await octopod.list());
+      if (resource === 'recipes' && !name && method === 'GET') {
+        const root = url.searchParams.get('root');
+        if (root !== null && !root.startsWith('/')) return send(res, 400, { error: '"root" must be an absolute path' });
+        return send(res, 200, await octopod.recipes(root ?? undefined));
+      }
+      if (resource === 'plan' && !name && method === 'POST') {
+        const { root, instance } = await body(req);
+        if (typeof root !== 'string' || !root.startsWith('/')) return send(res, 400, { error: '"root" must be an absolute path' });
+        return send(res, 200, await octopod.plan(root, instanceValue(instance)));
+      }
       if (resource === 'projects' && !name && method === 'POST') {
         const { root } = await body(req);
         if (typeof root !== 'string' || !root.startsWith('/')) return send(res, 400, { error: '"root" must be an absolute path' });

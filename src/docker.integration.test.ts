@@ -261,3 +261,60 @@ describe.skipIf(!dockerAvailable())('data in the project (real docker)', { timeo
     await expect(octopod.up('gamma')).rejects.toThrow(/gamma_stale already holds data in Docker's storage/);
   });
 });
+
+describe.skipIf(!dockerAvailable())('a project made of recipes (real docker)', { timeout: 600_000 }, () => {
+  let base: string;
+  let root: string;
+  let octopod: Octopod;
+
+  beforeAll(async () => {
+    base = await mkdtemp(join(tmpdir(), 'octopod-recipes-'));
+    root = join(base, 'delta');
+    await mkdir(root);
+    // A Node project and nothing else: no compose file, no Dockerfile — only recipes.
+    await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'delta', scripts: { dev: 'node server.js' } }));
+    await writeFile(
+      join(root, 'server.js'),
+      "require('node:http').createServer((q, r) => r.end(`user=${require('node:os').userInfo().username} db=${process.env.DATABASE_URL ? 'wired' : 'none'}`)).listen(process.env.PORT, process.env.HOST);\n",
+    );
+    await writeFile(join(root, 'octopod.yaml'), 'services:\n  app: { recipe: node-app }\n  db: { recipe: postgres }\n');
+    octopod = new Octopod({ stateDir: join(base, 'state'), instance: INSTANCE, ports: [PORT] });
+  }, 600_000);
+
+  afterAll(async () => {
+    await octopod.unregister('delta').catch(() => undefined);
+    await octopod.edgeDown();
+    await rm(base, { recursive: true, force: true });
+  }, 600_000);
+
+  it('plans it before anything runs, writing nothing', async () => {
+    const plan = await octopod.plan(root);
+    expect(plan.text).toMatch(/\+ app  node-app@[0-9a-f]{12}/);
+    expect(plan.text).toContain('data    db-data (in .octopod/data)');
+    await expect(stat(join(root, '.octopod'))).rejects.toThrow();
+  });
+
+  it('serves the app as a user named after the project, wired to its database', async () => {
+    await octopod.register(root);
+    const status = await octopod.up('delta');
+    expect(status.routes).toEqual([expect.objectContaining({ service: 'app', url: `http://delta.localhost:${PORT}`, port: 3000, portSource: 'compose' })]);
+    const answer = await eventually('delta.localhost', 200);
+    expect(answer.body).toBe('user=delta db=wired');
+  });
+
+  it('keeps the database in the project, owned by the operator', async () => {
+    const data = join(root, '.octopod', 'data', 'db-data');
+    for (let i = 0; i < 60 && !(await stat(join(data, 'PG_VERSION')).catch(() => undefined)); i++) await new Promise((r) => setTimeout(r, 500));
+    expect((await stat(join(data, 'PG_VERSION'))).uid).toBe(process.getuid?.());
+    const status = await octopod.status('delta');
+    expect(status.warnings ?? []).toEqual([]);
+    expect(status.services).toEqual(expect.arrayContaining([expect.objectContaining({ service: 'db', state: 'running' })]));
+  });
+
+  it('removes what it built when the project is unregistered, and keeps the data', async () => {
+    await octopod.unregister('delta');
+    expect(docker('images', '--format', '{{.Repository}}').split('\n')).not.toEqual(expect.arrayContaining(['delta-app']));
+    expect(docker('volume', 'ls', '--format', '{{.Name}}').split('\n')).not.toContain('delta_db-data');
+    expect((await stat(join(root, '.octopod', 'data', 'db-data', 'PG_VERSION'))).isFile()).toBe(true);
+  });
+});

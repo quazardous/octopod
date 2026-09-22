@@ -61,6 +61,23 @@ octopod edge status         # the shared Traefik; dashboard at http://traefik.lo
 octopod serve               # the JSON API on a unix socket, for other tools
 ```
 
+**Recipes.** A project need not write a compose file at all: it names recipes.
+
+```yaml
+# octopod.yaml
+services:
+  app: { recipe: node-app }            # its npm run dev, at http://<project>.localhost
+  db:  { recipe: postgres }            # DATABASE_URL handed to the app; data in .octopod/data
+```
+
+octopod renders them into `.octopod/` (with a compose file of the project's own, if it
+has one): an app built with its user named after the project at your uid, nothing
+installed in its image, a database kept in the project unless `persist: false`, the
+`dev` profile. Built-in: `node-app`, `postgres`, `mariadb`, `whoami`. More recipe folders:
+`OCTOPOD_RECIPES` (a PATH-like list), `recipes:` in `octopod.yaml`, and the project's
+`.octopod/recipes/` — the closest wins a name. `octopod recipes` lists them, `octopod plan`
+shows what `up` would run.
+
 The edge listens on `127.0.0.1:80`, or `127.0.0.1:8480` when 80 is taken; URLs carry
 the port then.
 
