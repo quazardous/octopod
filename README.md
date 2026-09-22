@@ -26,7 +26,20 @@ the whole machine.
   `mariadb`) instead.
 
 octopod is only infrastructure: Traefik and Docker composition. It knows nothing about
-what runs in your containers, and injects no variable into them.
+what runs in your containers, and adds no variable to the services of your own compose
+files. Recipes are the one place where variables are passed: a recipe you chose hands its
+address to another (`DATABASE_URL` from `postgres` to `node-app`).
+
+## Why not…
+
+- **ddev, Lando, Laravel Valet?** They manage the stack: the language runtime, the
+  database, the tools, in their own format. octopod manages the edge — routing, networks,
+  where the data lives — and leaves your compose files as they are: they still run with
+  `docker compose` alone (the data octopod kept in `.octopod/data` stays where it is).
+- **A Traefik you set up yourself?** That is what octopod runs, with what each project
+  would otherwise write by hand: the labels, a network per project so projects cannot
+  reach each other, a filter on an exact label so another Traefik's containers are never
+  adopted, the data kept in the project, and a console.
 
 ## Quick start
 
@@ -43,7 +56,7 @@ Then try an example:
 
 ```sh
 cd examples/whoami       # in a clone, or copy the folder
-octopod register && octopod up
+octopod up               # registers the project the first time
 ```
 
 Open `http://whoami.localhost` and `http://api.whoami.localhost`, then
@@ -72,7 +85,9 @@ services:
 ```
 
 The app's image gets a user named after the project, at your uid, and nothing installed in
-it: its dependencies are the project's (`octopod shell -- npm install`). `octopod plan`
+it: its dependencies are the project's (`octopod shell -- npm install`). The user is the
+image's own, renamed and moved to your uid when the image is built — `node-app` starts from
+`node:22-bookworm-slim` for that reason: alpine images have no `usermod`. `octopod plan`
 shows what `up` would run, and `octopod recipes` lists the recipes. You can add your own
 recipe folders with `OCTOPOD_RECIPES`, `recipes:` in `octopod.yaml`, or the project's
 `.octopod/recipes/`.
@@ -82,8 +97,8 @@ See [`examples/`](./examples) for both kinds.
 ## Commands
 
 ```sh
-octopod register [dir]        # declare a project (its octopod.yaml)
-octopod up                    # start the edge if needed, then the project
+octopod up                    # start the edge if needed, then the project (registered the first time)
+octopod register [dir]        # declare a project without starting it
 octopod status                # its services, URLs and warnings
 octopod logs --service web --tail 100
 octopod shell [service]       # a shell in a service, as its user; --root; -- command…
