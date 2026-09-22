@@ -2,102 +2,132 @@
 
 > One local edge for all your Docker projects: a shared Traefik, declared projects and isolated networks — behind a small API.
 
-Every Docker project on a development machine tends to grow its own Traefik, its own
-labels, its own `.env` conventions — and they fight over port 80, adopt each other's
-routes, and repeat the same traps. octopod does that part once, for the whole machine:
+On a development machine, every Docker project grows its own Traefik, its own labels, its
+own ports. They fight over port 80, one Traefik adopts another project's routes, and each
+project repeats the same traps in its own compose file. octopod does that part once, for
+the whole machine.
 
-- **one shared Traefik**, on loopback, serving `http://<project>.localhost`, that only
-  sees the containers octopod labelled;
-- **projects declare themselves** in a small file next to their own
-  `docker-compose.yml`; octopod generates the compose override that carries the
-  labels, the routing rules and the networks — projects stop writing Traefik labels;
-- **projects are isolated from each other**: each has its own edge network, and the
-  shared Traefik is connected to each;
-- **an API** (JSON over a unix socket) and a CLI that speaks it, so any project — PHP,
-  Python, Node — and any tool can use it.
+- **One edge for every project.** A single Traefik on loopback serves each project at
+  `http://<project>.localhost` (and `http://<name>.<project>.localhost`). No DNS, no
+  `/etc/hosts`, no certificates: `*.localhost` resolves to your machine, and browsers treat
+  it as a secure context.
+- **Projects stay plain.** A project keeps its own compose file and adds a small
+  `octopod.yaml` that says what to expose. octopod generates the labels, the routes and the
+  networks. No Traefik label is written by hand.
+- **Projects are isolated.** Each has its own internal edge network: Traefik reaches every
+  project, and projects cannot reach each other.
+- **A container you can walk into.** `octopod shell` opens a shell in a service, as its
+  user, in its working directory, or as root without sudo in the image.
+- **A console.** `http://octopod.localhost` shows every project, the state of its services,
+  their URLs and their logs.
+- **Data in the project, nothing owned by root.** Named volumes are kept in the project's
+  `.octopod/data`, created as you. A service that writes there as root is reported.
+- **Or no compose file at all.** A project can name recipes (`node-app`, `postgres`,
+  `mariadb`) instead.
 
-octopod is only that: an infrastructure provider — Traefik and Docker composition. It
-knows nothing about what runs in the containers or what their environment files hold —
-secrets and the like are the business of the tools that use it.
+octopod is only infrastructure: Traefik and Docker composition. It knows nothing about
+what runs in your containers, and injects no variable into them.
 
-Two rules it holds projects to:
+## Quick start
 
-- **A project's data lives in the project.** Named volumes are bound to
-  `.octopod/data/<volume>` in the project folder (git-ignored), not kept in Docker's own
-  storage: the data moves, is backed up and is deleted with the project, even a
-  database's. A volume the project configured itself (external, another driver, its own
-  options) is left alone.
-- **Nothing in the project is owned by root.** octopod creates the data folders as you;
-  a service that writes there as root (or as its image's own user) is reported by
-  `status`, to be run as your user — `user:` in compose, or its Dockerfile adjusted.
-
-Status: MVP. Its first client is bushwhack. See [docs/ROADMAP.md](./docs/ROADMAP.md),
-[docs/CONTRACT.md](./docs/CONTRACT.md) and [docs/PATTERNS.md](./docs/PATTERNS.md).
-
-## Use
-
-Requires Docker with Compose v2 (`docker compose`) and Node 22.
+You need Linux, Docker with Compose v2 (`docker compose`), and Node.js 22 or later.
 
 ```sh
-./setup.sh      # dependencies, `octopod` linked into ~/.local/bin, the edge started
+npm i -g https://github.com/quazardous/octopod/archive/refs/tags/v0.1.0.tar.gz
+octopod setup      # checks Docker, runs the API as a user service, starts the edge
 ```
 
-The command runs the sources: a change to octopod needs no new setup.
+Or from a clone: `git clone https://github.com/quazardous/octopod && cd octopod && ./setup.sh`.
 
-Next to a project's `docker-compose.yml`, an `octopod.yaml`:
+Then try an example:
+
+```sh
+cd examples/whoami       # in a clone, or copy the folder
+octopod register && octopod up
+```
+
+Open `http://whoami.localhost` and `http://api.whoami.localhost`, then
+`http://octopod.localhost` for the console. If port 80 was taken, the edge is on 8480, and
+the URLs carry `:8480`: `octopod edge status` gives them.
+
+## Your project
+
+Next to your compose file, an `octopod.yaml`:
 
 ```yaml
-project: demo
+project: demo            # optional: the folder's name by default
 expose:
-  - service: web
-    port: 3000          # → http://demo.localhost (optional: found in the compose file or the image)
+  - service: web         # → http://demo.localhost
   - service: api
-    port: 8080
-    host: api           # → http://api.demo.localhost
+    host: api            # → http://api.demo.localhost
+    port: 8080           # optional: found in the compose file or the image otherwise
 ```
 
-```sh
-octopod register            # in the project folder
-octopod up                  # starts the edge if needed, then the project
-octopod status              # services and URLs
-octopod logs --service web --tail 100
-octopod shell                # a shell in the first routed service, as its user (--root, or a service name)
-octopod down                # --volumes removes the Docker volumes; the data in .octopod/data stays
-octopod up --instance 2     # the same project a second time, at http://demo-2.localhost
-octopod edge status         # the shared Traefik: the console and the dashboard's addresses
-octopod serve               # the JSON API on a unix socket, for other tools and the console
-```
-
-**The console.** `http://octopod.localhost` shows every project and its instances, the
-state and health of each service, their URLs, the warnings, and the logs — read-only, with
-a link to Traefik's dashboard at `http://traefik.localhost`. Both answer only from the
-host, never from a project's containers. The console reads the API: `setup.sh` runs
-`octopod serve` as a systemd user service.
-
-**Recipes.** A project need not write a compose file at all: it names recipes.
+Or no compose file at all, only recipes:
 
 ```yaml
-# octopod.yaml
 services:
-  app: { recipe: node-app }            # its npm run dev, at http://<project>.localhost
-  db:  { recipe: postgres }            # DATABASE_URL handed to the app; data in .octopod/data
+  app: { recipe: node-app }   # npm run dev, at http://<project>.localhost
+  db:  { recipe: postgres }   # its URL handed to the app as DATABASE_URL
 ```
 
-octopod renders them into `.octopod/` (with a compose file of the project's own, if it
-has one): an app built with its user named after the project at your uid, nothing
-installed in its image, a database kept in the project unless `persist: false`, the
-`dev` profile. Built-in: `node-app`, `postgres`, `mariadb`, `whoami`. More recipe folders:
-`OCTOPOD_RECIPES` (a PATH-like list), `recipes:` in `octopod.yaml`, and the project's
-`.octopod/recipes/` — the closest wins a name. `octopod recipes` lists them, `octopod plan`
-shows what `up` would run.
+The app's image gets a user named after the project, at your uid, and nothing installed in
+it: its dependencies are the project's (`octopod shell -- npm install`). `octopod plan`
+shows what `up` would run, and `octopod recipes` lists the recipes. You can add your own
+recipe folders with `OCTOPOD_RECIPES`, `recipes:` in `octopod.yaml`, or the project's
+`.octopod/recipes/`.
 
-The edge listens on `127.0.0.1:80`, or `127.0.0.1:8480` when 80 is taken; URLs carry
-the port then.
+See [`examples/`](./examples) for both kinds.
 
-**Networks.** Each project gets its own edge network, and octopod attaches the shared
-Traefik to it on `up` and detaches it on `down`. Bring projects down through octopod: a
-plain `docker compose down` cannot remove a network the edge is still attached to.
+## Commands
 
-## License
+```sh
+octopod register [dir]        # declare a project (its octopod.yaml)
+octopod up                    # start the edge if needed, then the project
+octopod status                # its services, URLs and warnings
+octopod logs --service web --tail 100
+octopod shell [service]       # a shell in a service, as its user; --root; -- command…
+octopod restart [--service s]
+octopod down                  # --volumes removes Docker's volume objects; the data stays
+octopod up --instance 2       # the same project a second time, at demo-2.localhost
+octopod unregister <project>
+octopod edge status           # the edge, the console and the dashboard's addresses
+octopod version
+```
 
-MIT. See [LICENSE](./LICENSE).
+Commands run in a project's folder act on that project; elsewhere, name it
+(`octopod status demo`). All but `shell` take `--json`. The same operations are an HTTP API on a unix
+socket (`octopod serve`), for other tools: see [docs/CONTRACT.md](./docs/CONTRACT.md).
+
+## The console
+
+`http://octopod.localhost` lists every project and instance, the state and health of each
+service, their URLs, what octopod warns about, and the logs, which it refreshes. It is
+read-only, and links to Traefik's dashboard at `http://traefik.localhost`. Both answer only
+from your machine, never from a project's container. The console reads the API, which
+`octopod setup` runs as the `octopod` systemd user service.
+
+## How it works
+
+- **The edge** is one Traefik container, published on `127.0.0.1:80` (or 8480). It reads
+  the Docker socket read-only, and only considers containers carrying its own label, so
+  other Traefiks on the machine and their containers are left alone.
+- **`octopod up`** runs `docker compose` with your files plus a generated override that
+  adds, to each exposed service, the routing labels and the project's edge network. The
+  override lives in octopod's state directory, not in your project.
+- **Data**: each named volume of the project is bound to `.octopod/data/<volume>`, which
+  is git-ignored. The data is deleted with the project, not with a `docker volume prune`.
+
+The lessons behind these choices are in [docs/PATTERNS.md](./docs/PATTERNS.md).
+
+## Status
+
+0.1 is a preview. It is tested on Linux with Docker; Docker Desktop (macOS, Windows) and
+rootless Docker are not tested yet. Until 1.0, the contract may change between minor
+versions; every change is in the [changelog](./CHANGELOG.md), and a breaking one says what
+to do. The plan is in [docs/ROADMAP.md](./docs/ROADMAP.md).
+
+## Contributing, security, license
+
+[CONTRIBUTING.md](./CONTRIBUTING.md) · [SECURITY.md](./SECURITY.md) · MIT, see
+[LICENSE](./LICENSE).
