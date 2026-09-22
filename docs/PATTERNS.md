@@ -39,7 +39,13 @@ project do not collide.
   command-line flags for it were tried and had no effect once the file existed.
 - **HTTP on `*.localhost` is enough.** It resolves to loopback without DNS setup, and
   browsers treat it as a secure context. Local HTTPS costs a local CA in every browser
-  and certificates to renew, for traffic that never leaves the machine.
+  and certificates to renew, for traffic that never leaves the machine. Measured on
+  `http://<name>.<project>.localhost` in Chrome 153 and Firefox 156: `isSecureContext`,
+  `crypto.subtle`, a `Secure; SameSite=None` cookie (set by the server and sent back, or
+  set from JavaScript), a service worker and the clipboard API all work. Safari is not
+  measured. What still needs HTTPS is anything that is not this browser on this machine: an
+  OAuth provider that only accepts `https://` redirects, a phone on the local network, a
+  webhook from outside.
 - **`host.docker.internal` needs `extra_hosts: host-gateway` on Linux** to route to
   something running on the host (a dev server outside Docker).
 - **A route to a port that moved fails as a 502, not at start-up** — pin the ports routes
