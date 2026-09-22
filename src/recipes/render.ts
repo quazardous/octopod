@@ -48,6 +48,8 @@ export interface RenderedService {
   port?: number;
   /** Routed: at the project's host (`''`) or at a subdomain. */
   route?: string;
+  /** The services it waits for at start: those that provide what it requires. */
+  waits?: { service: string; healthy: boolean }[];
 }
 
 export interface Rendered {
@@ -134,6 +136,7 @@ export function renderServices(options: RenderOptions): Rendered {
   for (const r of resolved) {
     const recipe: Recipe = r.entry.recipe;
     const env = renderMap(recipe.env, scopes(r), `${r.name}.env`);
+    const waits: { service: string; healthy: boolean }[] = [];
     for (const requirement of recipe.requires) {
       const providers = resolved.filter((o) => o.name !== r.name && o.entry.recipe.provides.includes(requirement.capability));
       if (providers.length === 0) {
@@ -144,6 +147,9 @@ export function renderServices(options: RenderOptions): Rendered {
       const provider = providers[0];
       const exported = renderMap(provider.entry.recipe.exports, scopes(provider), `${provider.name}.exports`);
       Object.assign(env, renderMap(requirement.env, { ...scopes(r), provider: exported }, `${r.name}.requires.${requirement.capability}`));
+      // What it requires is there: it starts once its provider is ready — healthy when the
+      // provider can say so, started otherwise — not before, to fail on a refused connection.
+      if (!waits.some((w) => w.service === provider.name)) waits.push({ service: provider.name, healthy: Boolean(provider.entry.recipe.health) });
     }
 
     const service: Record<string, unknown> = { restart: 'unless-stopped' };
@@ -187,6 +193,9 @@ export function renderServices(options: RenderOptions): Rendered {
         retries: recipe.health.retries,
       };
     }
+    if (waits.length > 0) {
+      service.depends_on = Object.fromEntries(waits.map((w) => [w.service, { condition: w.healthy ? 'service_healthy' : 'service_started' }]));
+    }
     if (recipe.port) service.expose = [String(recipe.port)];
     if (recipe.profiles.length > 0) service.profiles = recipe.profiles;
     if (recipe.limits.memory) service.mem_limit = recipe.limits.memory;
@@ -207,6 +216,7 @@ export function renderServices(options: RenderOptions): Rendered {
       ...(recipe.workspace ? { workspace: recipe.workspace } : {}),
       ...(recipe.port ? { port: recipe.port } : {}),
       ...(recipe.route ? { route: recipe.route === true ? '' : recipe.route.subdomain } : {}),
+      ...(waits.length > 0 ? { waits } : {}),
     });
   }
 
@@ -227,6 +237,7 @@ export function formatPlan(project: string, services: RenderedService[], workspa
     if (s.volumes.length > 0) lines.push(`    data    ${s.volumes.join(', ')} (in .octopod/data)`);
     if (s.ephemeral.length > 0) lines.push(`    NOT KEPT ${s.ephemeral.join(', ')} — lost when the container is recreated`);
     if (s.workspace) lines.push(`    files   ${workspace} → ${s.workspace}  READ-WRITE`);
+    if (s.waits) lines.push(`    waits   for ${s.waits.map((w) => `${w.service} (${w.healthy ? 'healthy' : 'started'})`).join(', ')}`);
     if (s.route !== undefined) lines.push(`    served  ${s.route ? `${s.route}.` : ''}${project}.localhost, port ${s.port ?? 'from the image'}`);
   }
   return lines.join('\n');

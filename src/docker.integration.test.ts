@@ -340,9 +340,17 @@ describe.skipIf(!dockerAvailable())('a project made of recipes (real docker)', {
     await mkdir(root);
     // A Node project and nothing else: no compose file, no Dockerfile — only recipes.
     await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'delta', scripts: { dev: 'node server.js' } }));
+    // It tries its database once, at start — as an app that connects on boot does, and fails
+    // on a refused connection when it starts before its database is ready.
     await writeFile(
       join(root, 'server.js'),
-      "require('node:http').createServer((q, r) => r.end(`user=${require('node:os').userInfo().username} db=${process.env.DATABASE_URL ? 'wired' : 'none'}`)).listen(process.env.PORT, process.env.HOST);\n",
+      [
+        "const url = process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL) : null;",
+        "let db = url ? 'trying' : 'none';",
+        "if (url) require('node:net').connect(Number(url.port), url.hostname).on('connect', function () { db = 'ready-at-start'; this.end(); }).on('error', () => (db = 'refused-at-start'));",
+        "require('node:http').createServer((q, r) => r.end(`user=${require('node:os').userInfo().username} db=${db}`)).listen(process.env.PORT, process.env.HOST);",
+        '',
+      ].join('\n'),
     );
     await writeFile(join(root, 'octopod.yaml'), 'services:\n  app: { recipe: node-app }\n  db: { recipe: postgres }\n');
     octopod = new Octopod({ stateDir: join(base, 'state'), instance: INSTANCE, ports: [PORT] });
@@ -366,7 +374,8 @@ describe.skipIf(!dockerAvailable())('a project made of recipes (real docker)', {
     const status = await octopod.up('delta');
     expect(status.routes).toEqual([expect.objectContaining({ service: 'app', url: `http://delta.localhost:${PORT}`, port: 3000, portSource: 'compose' })]);
     const answer = await eventually('delta.localhost', 200);
-    expect(answer.body).toBe('user=delta db=wired');
+    // Started once its database was healthy: its first connection was answered.
+    expect(answer.body).toBe('user=delta db=ready-at-start');
   });
 
   it('keeps the database in the project, owned by the operator', async () => {

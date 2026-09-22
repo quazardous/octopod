@@ -102,6 +102,25 @@ describe('rendering services', () => {
     expect((again.compose.services.app.environment as Record<string, string>).DATABASE_URL).toBe('postgresql://app:kept@db:5432/app');
   });
 
+  it('starts the app once its database is healthy, and the plan says so', async () => {
+    const book = await loadRecipes([BUILTIN_RECIPES]);
+    const out = renderServices({ project: 'shop', book, services: { app: { recipe: 'node-app' }, db: { recipe: 'postgres' } }, workspace: '/w', secretFactory: secrets });
+    expect(out.compose.services.app.depends_on).toEqual({ db: { condition: 'service_healthy' } });
+    expect(out.compose.services.db.depends_on).toBeUndefined();
+    expect(formatPlan('shop', out.services, '/w')).toContain('waits   for db (healthy)');
+    // Alone, the app requires nothing it would wait for: its database is optional.
+    expect(renderServices({ project: 'shop', book, services: { app: { recipe: 'node-app' } }, workspace: '/w' }).compose.services.app.depends_on).toBeUndefined();
+  });
+
+  it('waits only for its provider to start when the provider has no health check', async () => {
+    const dir = join(base, 'recipes');
+    await recipe(dir, 'queue', 'title: Queue\nsummary: s\nimage: q:1\nunpinned: true\nprovides: [queue]\nexports: { url: "q://{{service}}" }\n');
+    await recipe(dir, 'worker', 'title: Worker\nsummary: s\nimage: w:1\nunpinned: true\nrequires:\n  - capability: queue\n    env: { QUEUE_URL: "{{provider.url}}" }\n');
+    const out = renderServices({ project: 'shop', book: await loadRecipes([dir]), services: { jobs: { recipe: 'worker' }, q: { recipe: 'queue' } }, workspace: '/w' });
+    expect(out.compose.services.jobs.depends_on).toEqual({ q: { condition: 'service_started' } });
+    expect(out.compose.services.jobs.environment).toEqual({ QUEUE_URL: 'q://q' });
+  });
+
   it('throws a database\'s data away only when asked, and the plan says so in capitals', async () => {
     const book = await loadRecipes([BUILTIN_RECIPES]);
     const out = renderServices({ project: 'shop', book, services: { db: { recipe: 'mariadb', params: { persist: false } } }, workspace: '/w', secretFactory: secrets });
