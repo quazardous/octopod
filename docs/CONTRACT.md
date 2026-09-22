@@ -130,7 +130,7 @@ HTTP with JSON bodies over a unix socket: `$XDG_RUNTIME_DIR/octopod/octopod.sock
 | GET | `/v1/projects/:name` | | `ProjectStatus` |
 | POST | `/v1/projects/:name/up` · `/down` | `{ volumes?: boolean }` for down | `ProjectStatus` |
 | POST | `/v1/projects/:name/restart` | `{ service? }` | `ProjectStatus` |
-| POST | `/v1/projects/:name/exec` | `{ service, argv: string[], timeoutMs? }` | `{ ok, output, truncated }` — argv, never a shell string built by octopod; output bounded |
+| POST | `/v1/projects/:name/exec` | `{ service, argv: string[], timeoutMs? }` | `{ ok, mode, output, truncated }` — argv, never a shell string built by octopod; output bounded; a failure says how it ended (exit code, timeout). `mode: "run"` when the service was not running (stopped, restarting in a loop): the command ran in a one-off container of it (same image, mounts, user, network), kept out of the edge's routes |
 | GET | `/v1/projects/:name/logs?service=&tail=` | | `{ lines: string[] }` |
 | GET | `/v1/recipes?root=` | | `{ recipes: {id,title,summary,dir,digest}[], shadowed: {id,dir,by}[] }` |
 | POST | `/v1/plan` | `{ root, instance? }` | `{ project, text, services, compose }` — writes nothing |

@@ -164,11 +164,34 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
     const ok = await octopod.exec('alpha', 'web', ['/whoami', '--help']);
     expect(ok.ok).toBe(true);
     expect(ok.output).toMatch(/Usage|port/i);
+    expect(ok.mode).toBe('exec');
     const bad = await octopod.exec('alpha', 'web', ['/does-not-exist']);
     expect(bad.ok).toBe(false);
+    // However it failed, it says how it ended.
+    expect(bad.output).toMatch(/\(exit code \d+\)/);
     const restarted = await octopod.restart('alpha', 'web');
     expect(restarted.services).toEqual([expect.objectContaining({ service: 'web', state: 'running' })]);
     expect((await eventually('alpha.localhost', 200)).status).toBe(200);
+  });
+
+  it('runs a command in a service that restarts in a loop, in a one-off container the edge does not route to', async () => {
+    // An app that dies at start — as one does before its dependencies are installed.
+    const gamma = join(base, 'gamma');
+    await mkdir(gamma);
+    await writeFile(join(gamma, 'docker-compose.yml'), 'services:\n  web:\n    image: traefik/whoami:v1.10\n    command: ["--port", "not-a-port"]\n    restart: always\n');
+    await writeFile(join(gamma, 'octopod.yaml'), 'project: gamma\nexpose:\n  - service: web\n    port: 80\n');
+    await octopod.register(gamma);
+    try {
+      await octopod.up('gamma').catch(() => undefined);
+      const result = await octopod.exec('gamma', 'web', ['/whoami', '--help']);
+      expect(result).toEqual(expect.objectContaining({ ok: true, mode: 'run' }));
+      expect(result.output).toMatch(/Usage|port/i);
+      // Gone once done: nothing left beside the service's own container.
+      const left = docker('ps', '-a', '--filter', 'label=com.docker.compose.project=octopodtest-gamma', '--format', '{{.Names}}').trim().split('\n').filter(Boolean);
+      expect(left.every((n) => !n.includes('run'))).toBe(true);
+    } finally {
+      await octopod.unregister('gamma').catch(() => undefined);
+    }
   });
 
   it('puts the edge network in internal mode: routing works, and it is no way out', () => {

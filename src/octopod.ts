@@ -45,8 +45,17 @@ export interface ProjectStatus extends Project {
   warnings?: string[];
 }
 
+/** What docker says when a service's container cannot take an exec right now. */
+const NOT_RUNNING = /is restarting|is not running|no container found|service ".*" is not running/i;
+
 export interface ExecResult {
   ok: boolean;
+  /**
+   * `exec`: in the running service. `run`: the service was not running (stopped, or
+   * restarting in a loop), so in a one-off container of it — same image, mounts, user,
+   * network — kept out of the edge's routes.
+   */
+  mode: 'exec' | 'run';
   /** Output (or the error), the end of it when longer than the bound. */
   output: string;
   truncated: boolean;
@@ -557,23 +566,38 @@ export class Octopod {
   }
 
   /**
-   * Run a command in a running service: argv, never a shell string octopod would build.
-   * Output is bounded; a command that runs past `timeoutMs` is killed.
+   * Run a command in a service: argv, never a shell string octopod would build. Output is
+   * bounded; a command that runs past `timeoutMs` is killed.
+   *
+   * A service that is not running — stopped, or restarting in a loop, as an app does
+   * before its dependencies are installed — cannot take an exec: the command then runs in
+   * a one-off container of the service (its image, mounts, user, network), with argv as
+   * the whole command as exec would, and a label that keeps the edge from routing to it.
    */
   async exec(name: string, service: string, argv: string[], options: { timeoutMs?: number; maxBytes?: number; instance?: number } = {}): Promise<ExecResult> {
     if (argv.length === 0) throw new OctopodError('exec needs a command');
-    const declaration = await this.declaration(name, options.instance ?? 1);
+    const instance = options.instance ?? 1;
+    const declaration = await this.declaration(name, instance);
     const maxBytes = options.maxBytes ?? 64 * 1024;
-    try {
-      const out = await this.docker.run([...this.composeArgs(declaration, true), 'exec', '-T', service, ...argv], {
-        timeoutMs: options.timeoutMs ?? 60_000,
-        withStderr: true,
-      });
-      return { ok: true, output: out.length > maxBytes ? out.slice(-maxBytes) : out, truncated: out.length > maxBytes };
-    } catch (e) {
-      const message = (e as Error).message;
-      return { ok: false, output: message.length > maxBytes ? message.slice(-maxBytes) : message, truncated: message.length > maxBytes };
-    }
+    const bounded = (text: string): Pick<ExecResult, 'output' | 'truncated'> => ({ output: text.length > maxBytes ? text.slice(-maxBytes) : text, truncated: text.length > maxBytes });
+    const attempt = async (mode: ExecResult['mode']): Promise<ExecResult> => {
+      const command =
+        mode === 'exec'
+          ? ['exec', '-T', service, ...argv]
+          : ['run', '--rm', '--no-deps', '-T', '--label', 'traefik.enable=false', '--entrypoint', argv[0], service, ...argv.slice(1)];
+      try {
+        const out = await this.docker.run([...this.composeArgs(declaration, true), ...command], { timeoutMs: options.timeoutMs ?? 60_000, withStderr: true });
+        return { ok: true, mode, ...bounded(out) };
+      } catch (e) {
+        return { ok: false, mode, ...bounded((e as Error).message) };
+      }
+    };
+    // A service in a crash loop is "running" between two restarts: its state, read first,
+    // cannot be trusted. Exec when it looks up, and fall back when docker says it is not.
+    const running = (await this.status(name, instance)).services.some((s) => s.service === service && s.state === 'running');
+    if (!running) return attempt('run');
+    const first = await attempt('exec');
+    return !first.ok && NOT_RUNNING.test(first.output) ? attempt('run') : first;
   }
 
   async logs(name: string, service: string | undefined, tail: number, instance = 1): Promise<string[]> {

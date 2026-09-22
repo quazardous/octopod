@@ -6,7 +6,17 @@ summary: Runs the project's dev script (npm run dev) with HOST=0.0.0.0 and PORT=
 image: node:22-bookworm-slim
 unpinned: true
 build: true
-command: [npm, run, dev]
+# The project's dev script. Before it, a word in the logs when the dependencies are not
+# installed yet: the app will most likely die at start, and the way out is to install
+# them (octopod exec, which works while the app restarts).
+command:
+  - sh
+  - -c
+  - >-
+    if [ -f package.json ] && [ ! -d node_modules ]; then
+    echo "node-app: no node_modules yet — install the dependencies (npm install) in this app" >&2;
+    fi;
+    exec npm run dev
 env:
   HOST: 0.0.0.0
   PORT: "3000"

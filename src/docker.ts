@@ -39,8 +39,16 @@ export function cliDocker(binary = 'docker'): Docker {
           { maxBuffer: 32 * 1024 * 1024, timeout: options.timeoutMs ?? 5 * 60_000, env: dockerEnv() },
           (error, stdout, stderr) => {
             if (error) {
-              const detail = options.withStderr ? `${stdout}${stderr}` : stderr || error.message;
-              reject(new DockerError(`docker ${args.slice(0, 3).join(' ')}: ${detail.trim() || error.message}`));
+              // What it printed, then how it ended: a command that prints nothing (a timeout,
+              // a quiet failure) must still say why it failed.
+              const detail = (options.withStderr ? `${stdout}${stderr}` : stderr).trim();
+              const failed = error as NodeJS.ErrnoException & { killed?: boolean; code?: number | string };
+              const how = failed.killed
+                ? `timed out after ${Math.round((options.timeoutMs ?? 5 * 60_000) / 1000)} s`
+                : typeof failed.code === 'number'
+                  ? `exit code ${failed.code}`
+                  : error.message;
+              reject(new DockerError(`docker ${args.slice(0, 3).join(' ')}: ${detail ? `${detail}\n` : ''}(${how})`));
             } else {
               resolve(options.withStderr ? `${stdout}${stderr}` : stdout);
             }
