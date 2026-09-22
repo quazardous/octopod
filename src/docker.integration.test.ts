@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Server } from 'node:http';
@@ -154,6 +154,9 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
   it('refuses anything but reading through the console', async () => {
     // Up to the API's socket, this would take the project down: the relay stops it first.
     expect((await get('octopod.localhost', '/v1/projects/alpha/down', 'POST')).status).toBe(403);
+    // Nor the secrets octopod generated: they are for local clients, on the socket.
+    expect((await get('octopod.localhost', '/v1/projects/alpha/secrets')).status).toBe(403);
+    expect((await get('octopod.localhost', '/v1/projects/alpha/%73ecrets')).status).toBe(403);
     expect((await octopod.status('alpha')).services).toEqual([expect.objectContaining({ state: 'running' })]);
   });
 
@@ -395,5 +398,44 @@ describe.skipIf(!dockerAvailable())('a project made of recipes (real docker)', {
     expect(docker('images', '--format', '{{.Repository}}').split('\n')).not.toEqual(expect.arrayContaining(['delta-app']));
     expect(docker('volume', 'ls', '--format', '{{.Name}}').split('\n')).not.toContain('delta_db-data');
     expect((await stat(join(root, '.octopod', 'data', 'db-data', 'PG_VERSION'))).isFile()).toBe(true);
+  });
+});
+
+describe.skipIf(!dockerAvailable())('the examples (real docker)', { timeout: 600_000 }, () => {
+  const EXAMPLES = new URL('../examples/', import.meta.url);
+  let base: string;
+  let octopod: Octopod;
+
+  beforeAll(async () => {
+    // Copies: running an example writes its .octopod/ into it, and the repository stays clean.
+    base = await mkdtemp(join(tmpdir(), 'octopod-examples-'));
+    await cp(EXAMPLES, base, { recursive: true });
+    octopod = new Octopod({ stateDir: join(base, '.state'), instance: INSTANCE, ports: [PORT], socket: join(base, '.run', 'octopod.sock') });
+  }, 600_000);
+
+  afterAll(async () => {
+    for (const name of await octopod.names()) await octopod.unregister(name).catch(() => undefined);
+    await octopod.edgeDown();
+    await rm(base, { recursive: true, force: true });
+  }, 600_000);
+
+  it('covers every example: a new one needs its test here', async () => {
+    const examples = (await readdir(EXAMPLES, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name).sort();
+    expect(examples).toEqual(['node-postgres', 'whoami']);
+  });
+
+  it('whoami: its two services, each on its own host', async () => {
+    const { name } = await octopod.ensureRegistered(join(base, 'whoami'));
+    await octopod.up(name);
+    expect((await eventually('whoami.localhost', 200)).body).toMatch(/Hostname:/);
+    expect((await eventually('api.whoami.localhost', 200)).body).toContain('Name: api');
+  });
+
+  it('node-postgres: the app, as its own user, finds its database from the first request', async () => {
+    const { name } = await octopod.ensureRegistered(join(base, 'node-postgres'));
+    await octopod.up(name);
+    const answer = await eventually('node-postgres.localhost', 200);
+    expect(answer.body).toContain('Hello from node-postgres, the user named after the project.');
+    expect(answer.body).toContain('Database: db:5432/app');
   });
 });
