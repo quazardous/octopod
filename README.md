@@ -22,8 +22,8 @@ the whole machine.
   their URLs and their logs.
 - **Data in the project, nothing owned by root.** Named volumes are kept in the project's
   `.octopod/data`, created as you. A service that writes there as root is reported.
-- **Or no compose file at all.** A project can name recipes (`node-app`, `postgres`,
-  `mariadb`) instead.
+- **Or no compose file at all.** A project can name recipes (`node-app`, `php-app`,
+  `postgres`, `mariadb`) instead.
 
 octopod is only infrastructure: Traefik and Docker composition. It knows nothing about
 what runs in your containers, and adds no variable to the services of your own compose

@@ -103,13 +103,25 @@ describe('the recipe folders', () => {
 });
 
 describe('the built-in recipes', () => {
-  it('load, and install no dependency in an image', async () => {
+  it('load, and install none of a project\'s dependencies in an image — system packages and extensions make the environment', async () => {
     const book = await loadRecipes([BUILTIN_RECIPES]);
-    expect([...book.recipes.keys()].sort()).toEqual(['mariadb', 'node-app', 'postgres', 'whoami']);
+    expect([...book.recipes.keys()].sort()).toEqual(['mariadb', 'node-app', 'php-app', 'postgres', 'whoami']);
     for (const id of await readdir(BUILTIN_RECIPES)) {
       const dockerfile = await readFile(join(BUILTIN_RECIPES, id, 'Dockerfile'), 'utf8').catch(() => '');
-      expect(dockerfile.replace(/^#.*$/gm, ''), id).not.toMatch(/\b(npm (install|ci)|yarn( install)?\b|pnpm (install|i)\b|pip3? install|composer install|bundle install|apt-get install|apk add)/);
+      expect(dockerfile.replace(/^#.*$/gm, ''), id).not.toMatch(/\b(npm (install|ci)|yarn( install)?\b|pnpm (install|i)\b|pip3? install|composer (install|update|require)|bundle install)/);
     }
+  });
+
+  it('renders php-app: its version, its extensions and docroot to the build, served on 8080 as the project\'s user', async () => {
+    const book = await loadRecipes([BUILTIN_RECIPES]);
+    const out = renderServices({ project: 'shop', book, services: { app: { recipe: 'php-app', params: { php: '8.2', extensions: ['pdo_mysql', 'gd'] } }, db: { recipe: 'mariadb' } }, workspace: '/w', owner: '1234:5678', secretFactory: (n) => `s${n}` });
+    const app = out.compose.services.app as Record<string, unknown> & { build: { args: Record<string, string> } };
+    expect(app.build.args).toEqual(expect.objectContaining({ BASE_IMAGE: 'php:8.2-fpm', EXTENSIONS: 'pdo_mysql gd', DOCROOT: 'public', UID: '1234', GID: '5678', USER_NAME: 'shop' }));
+    expect(app.user).toBe('1234:5678');
+    expect(app.expose).toEqual(['8080']);
+    expect(app.volumes).toEqual(['/w:/app']);
+    expect((app.environment as Record<string, string>).DATABASE_URL).toMatch(/^mysql:\/\/app:s24@db:3306\/app$/);
+    expect(app.depends_on).toEqual({ db: { condition: 'service_healthy' } });
   });
 });
 

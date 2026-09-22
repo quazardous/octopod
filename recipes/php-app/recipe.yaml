@@ -1,0 +1,32 @@
+# A PHP web app: PHP-FPM and nginx in one container, run by supervisord, the project
+# mounted at /app and its docroot served at http://<project>.localhost. The PHP version,
+# the extensions and the docroot are parameters; composer is in the image. The project's
+# dependencies are the project's: installed in the running app (composer install), never
+# in the image. A project that needs more — or a PHP older than 8.1, whose images sit on a
+# Debian out of support — copies this recipe into .octopod/recipes/ and adapts it.
+title: PHP web app
+summary: PHP-FPM and nginx run by supervisord, serving the project's docroot (public/) at http://<project>.localhost; composer in the image.
+image: "php:{{params.php}}-fpm"
+unpinned: true
+build: true
+params:
+  php: { type: enum, values: ["8.4", "8.3", "8.2", "8.1"], default: "8.4" }
+  extensions:
+    type: set
+    values: [apcu, bcmath, exif, gd, imagick, intl, memcached, mongodb, mysqli, opcache, pcntl, pdo_mysql, pdo_pgsql, redis, soap, sockets, xdebug, zip]
+    default: [intl, opcache, pdo_mysql, pdo_pgsql, zip]
+  docroot: { type: ident, default: public }
+buildArgs:
+  EXTENSIONS: "{{params.extensions}}"
+  DOCROOT: "{{params.docroot}}"
+command: [supervisord, -c, /etc/octopod/supervisord.conf]
+workspace: /app
+port: 8080
+route: true
+profiles: [dev]
+requires:
+  - capability: sql
+    env: { DATABASE_URL: "{{provider.url}}" }
+    optional: true
+tmpfs: [/tmp]
+limits: { memory: 2g, cpus: "2", pids: 1024 }

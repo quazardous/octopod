@@ -439,3 +439,47 @@ describe.skipIf(!dockerAvailable())('the examples (real docker)', { timeout: 600
     expect(answer.body).toContain('Database: db:5432/app');
   });
 });
+
+describe.skipIf(!dockerAvailable())('a PHP project made of recipes (real docker)', { timeout: 900_000 }, () => {
+  let base: string;
+  let root: string;
+  let octopod: Octopod;
+
+  beforeAll(async () => {
+    base = await mkdtemp(join(tmpdir(), 'octopod-php-'));
+    root = join(base, 'phpapp');
+    await mkdir(join(root, 'public'), { recursive: true });
+    // The app says who runs it, on which PHP, whether its database answers, and writes a
+    // file into the project — which must end up the operator's.
+    await writeFile(
+      join(root, 'public', 'index.php'),
+      [
+        '<?php',
+        '$u = parse_url(getenv("DATABASE_URL"));',
+        'try {',
+        '  new PDO("mysql:host={$u["host"]};port={$u["port"]};dbname=" . ltrim($u["path"], "/"), $u["user"], $u["pass"]);',
+        '  $db = "ok";',
+        '} catch (Throwable $e) { $db = "error: " . $e->getMessage(); }',
+        'file_put_contents(__DIR__ . "/../written.txt", "x");',
+        'echo "user=" . posix_getpwuid(posix_geteuid())["name"] . " php=" . PHP_MAJOR_VERSION . "." . PHP_MINOR_VERSION . " db=$db";',
+        '',
+      ].join('\n'),
+    );
+    await writeFile(join(root, 'octopod.yaml'), 'services:\n  app: { recipe: php-app, extensions: [pdo_mysql] }\n  db: { recipe: mariadb }\n');
+    octopod = new Octopod({ stateDir: join(base, 'state'), instance: INSTANCE, ports: [PORT], socket: join(base, 'run', 'octopod.sock') });
+  }, 900_000);
+
+  afterAll(async () => {
+    await octopod.unregister('phpapp').catch(() => undefined);
+    await octopod.edgeDown();
+    await rm(base, { recursive: true, force: true });
+  }, 900_000);
+
+  it('serves the app as a user named after the project, with its extensions and its database', async () => {
+    const { name } = await octopod.ensureRegistered(root);
+    await octopod.up(name);
+    const answer = await eventually('phpapp.localhost', 200);
+    expect(answer.body).toBe('user=phpapp php=8.4 db=ok');
+    expect((await stat(join(root, 'written.txt'))).uid).toBe(process.getuid?.());
+  });
+});

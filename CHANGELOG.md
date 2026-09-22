@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The `php-app` recipe: PHP-FPM and nginx in one container run by supervisord, the project mounted at `/app` and its docroot (`public` by default) served at `http://<project>.localhost`. The PHP version (`8.4` by default, down to `8.1`; older PHP images sit on a Debian out of support, whose packages no longer install) and the extensions (`intl`, `pdo_mysql`, `redis`…) are parameters; composer is in the image; `DATABASE_URL` comes from a database recipe. A project that needs more copies it into `.octopod/recipes/` and adapts its Dockerfile.
+- Recipe images may install system packages and language extensions; never a project's dependencies (`npm install`, `composer install`…), which stay the project's.
+
 - Recipes can take a version: their image may name an enum param (`php:{{params.php}}-fpm`), so a project picks among the versions the recipe lists. Recipes can also pass their params to the build (`buildArgs`), never their secrets. A `set` param takes several of the values a recipe lists (`extensions: [intl, gd]`).
 
 ## [0.2.0] - 2026-09-22
