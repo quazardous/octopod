@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Recipes can take a version: their image may name an enum param (`php:{{params.php}}-fpm`), so a project picks among the versions the recipe lists. Recipes can also pass their params to the build (`buildArgs`), never their secrets.
+- Recipes can take a version: their image may name an enum param (`php:{{params.php}}-fpm`), so a project picks among the versions the recipe lists. Recipes can also pass their params to the build (`buildArgs`), never their secrets. A `set` param takes several of the values a recipe lists (`extensions: [intl, gd]`).
 
 ## [0.2.0] - 2026-09-22
 

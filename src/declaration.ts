@@ -30,7 +30,7 @@ const Schema = z
       .default([]),
     /** Services made of recipes: `app: { recipe: node-app }`, `db: { recipe: postgres, persist: true }`. */
     services: z
-      .record(z.string(), z.object({ recipe: z.string().min(1).max(64) }).catchall(z.union([z.string().max(200), z.number(), z.boolean()])))
+      .record(z.string(), z.object({ recipe: z.string().min(1).max(64) }).catchall(z.union([z.string().max(200), z.number(), z.boolean(), z.array(z.string().max(64)).max(128)])))
       .optional(),
     /** More recipe folders, relative to the project; after octopod's own and OCTOPOD_RECIPES, before `.octopod/recipes/`. */
     recipes: z.array(z.string().min(1).max(400)).optional(),
@@ -59,7 +59,7 @@ export interface Declaration {
   /** The declared env file, absolute: passed as --env-file. */
   envFile?: string;
   /** Services made of recipes, with their parameters. */
-  services?: Record<string, { recipe: string; params: Record<string, string | number | boolean> }>;
+  services?: Record<string, { recipe: string; params: Record<string, string | number | boolean | string[]> }>;
   /** Extra recipe folders, absolute, in the order declared. */
   recipeDirs?: string[];
   /** The folder a recipe's workspace mounts, absolute. */

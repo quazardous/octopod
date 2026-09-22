@@ -76,6 +76,19 @@ describe('the recipe folders', () => {
     await expect(loadRecipes([dir])).rejects.toThrow(/build argument UID is octopod's/);
   });
 
+  it('takes several listed values for a set param, and nothing it does not list', async () => {
+    const dir = join(base, 'recipes');
+    await recipe(dir, 'php', 'title: T\nsummary: s\nimage: base:1\nunpinned: true\nbuild: true\nparams:\n  extensions: { type: set, values: [intl, gd, zip], default: [intl, zip] }\nbuildArgs: { EXTENSIONS: "{{params.extensions}}" }\n', 'FROM x\n');
+    const book = await loadRecipes([dir]);
+    const args = (extensions?: string[]) =>
+      (renderServices({ project: 'shop', book, services: { app: { recipe: 'php', ...(extensions ? { params: { extensions } } : {}) } }, workspace: '/w' }).compose.services.app.build as { args: Record<string, string> }).args.EXTENSIONS;
+    expect(args()).toBe('intl zip');
+    expect(args(['gd', 'gd', 'intl'])).toBe('gd intl');
+    expect(() => args(['gd', 'evil; rm -rf /'])).toThrow(/takes values among intl, gd, zip/);
+    await recipe(dir, 'bad', 'title: T\nsummary: s\nimage: base:1\nunpinned: true\nparams:\n  extensions: { type: set, values: [intl], default: [gd] }\n');
+    await expect(loadRecipes([dir])).rejects.toThrow(/its default names a value it does not list/);
+  });
+
   it('refuses a conditional volume whose condition is not a bool param', async () => {
     await recipe(base, 'db', `${WEB}params: { name: { type: ident } }\nvolumes: [{ name: data, path: /d, when: name }]\n`);
     await expect(loadRecipes([base])).rejects.toThrow(/must name a bool param/);

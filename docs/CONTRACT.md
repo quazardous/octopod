@@ -123,6 +123,9 @@ workspace: .               # the folder a recipe's workspace mounts; the project
 - Built images get BASE_IMAGE, UID, GID and USER_NAME (the project's name, made a valid
   Linux user name), plus the recipe's `buildArgs`, made of its params — never of its
   secrets, which would stay in the image's history.
+- Param types: `enum`, `ident`, `int`, `bool`, `secret` (generated), and `set` — several
+  of the values the recipe lists (`extensions: [intl, gd]` in `octopod.yaml`), rendered
+  space-separated.
 - A recipe's image may name an **enum** param, and only that: `php:{{params.php}}-fpm`
   with `php` one of the versions the recipe lists. A project picks among them; it never
   writes an image. Secrets are generated once and kept in octopod's state (`0600`),

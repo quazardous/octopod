@@ -86,6 +86,12 @@ function coerce(name: string, spec: Exclude<ParamSpec, { type: 'secret' }>, give
     case 'bool':
       if (typeof value !== 'boolean') throw new RenderError(`${where}: '${name}' must be true or false`);
       return value;
+    case 'set': {
+      const list = Array.isArray(value) ? value : [value];
+      const unknown = list.filter((v) => typeof v !== 'string' || !spec.values.includes(v));
+      if (unknown.length > 0) throw new RenderError(`${where}: '${name}' takes values among ${spec.values.join(', ')}, not ${unknown.join(', ')}`);
+      return [...new Set(list as string[])].join(' ');
+    }
   }
 }
 

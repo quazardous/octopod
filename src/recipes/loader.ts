@@ -87,6 +87,11 @@ export async function loadRecipe(dir: string, id: string): Promise<RecipeEntry> 
   if (!recipe.unpinned && !recipe.image.includes('@sha256:')) {
     throw new RecipeError(`${file}: image '${recipe.image}' is a moving tag — pin a digest or set "unpinned: true"`);
   }
+  for (const [key, spec] of Object.entries(recipe.params)) {
+    if (spec.type === 'set' && spec.default?.some((v) => !spec.values.includes(v))) {
+      throw new RecipeError(`${file}: param '${key}': its default names a value it does not list`);
+    }
+  }
   for (const volume of recipe.volumes) {
     if (volume.when && recipe.params[volume.when]?.type !== 'bool') {
       throw new RecipeError(`${file}: volume '${volume.name}': "when" must name a bool param, not '${volume.when}'`);
