@@ -11,7 +11,8 @@
   },
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:leaks": "scripts/check-leaks.sh"
   },
   "devDependencies": {
     "@types/node": "^22.20.4",
