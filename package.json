@@ -7,14 +7,18 @@
   "author": "David Berlioz",
   "type": "module",
   "bin": {
-    "octopod": "dist/cli.js"
+    "octopod": "bin/octopod.js"
   },
   "files": [
+    "bin",
+    "src",
+    "!src/**/*.test.ts",
     "dist",
     "!dist/**/*.test.*",
     "recipes",
     "console",
     "docs",
+    "tsconfig.json",
     "README.md",
     "LICENSE",
     "CHANGELOG.md"
@@ -24,18 +28,17 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "prepare": "npm run build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "check:leaks": "scripts/check-leaks.sh"
   },
   "devDependencies": {
     "@types/node": "^22.20.4",
-    "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vitest": "^3.2.7"
   },
   "dependencies": {
+    "tsx": "^4.23.15",
     "yaml": "^2.9.1",
     "zod": "^4.6.5"
   },

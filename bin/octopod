@@ -1,6 +1,3 @@
 #!/usr/bin/env bash
-# Runs the TypeScript sources directly; tsx is loaded by absolute path so this works from
-# any folder.
-set -euo pipefail
-ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
-exec node --import "file://$ROOT/node_modules/tsx/dist/esm/index.mjs" "$ROOT/src/cli.ts" "$@"
+# Kept for the tools that call bin/octopod by path: the command is bin/octopod.js.
+exec node "$(dirname "$(readlink -f "$0")")/octopod.js" "$@"

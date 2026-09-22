@@ -17,10 +17,10 @@ Or by hand, without touching your PATH:
 
 ```sh
 npm ci
-bin/octopod edge status
+bin/octopod.js edge status
 ```
 
-`bin/octopod` runs the TypeScript sources through tsx: there is no build step, and a
+`bin/octopod.js` runs the TypeScript sources through tsx: there is no build step, and a
 change to `src/` is live on the next command.
 
 Enable the repository's hooks once, so a commit that would leak something is refused:

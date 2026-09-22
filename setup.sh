@@ -9,7 +9,7 @@
 #   ./setup.sh --no-service    # … without the user service (run `octopod serve` yourself)
 #   BIN_DIR=~/bin ./setup.sh   # … or elsewhere
 #
-# The command is a link to bin/octopod, which runs the sources: a change to the code needs
+# The command is a link to bin/octopod.js, which runs the sources: a change to the code needs
 # no new setup. Run it again after a dependency change.
 set -euo pipefail
 
@@ -42,17 +42,21 @@ say "Installing dependencies"
 say "Linking the octopod command"
 mkdir -p "$BIN_DIR"
 target="$BIN_DIR/octopod"
-if [ -e "$target" ] && [ "$(readlink -f "$target")" != "$ROOT/bin/octopod" ]; then
-  fail "$target exists and is not this octopod; move it away, or run with BIN_DIR=<another folder>"
+# A link to this clone's former launcher (bin/octopod) is ours too: it is moved on.
+if [ -e "$target" ] || [ -L "$target" ]; then
+  case "$(readlink -m "$target")" in
+    "$ROOT/bin/octopod.js"|"$ROOT/bin/octopod") ;;
+    *) fail "$target exists and is not this octopod; move it away, or run with BIN_DIR=<another folder>" ;;
+  esac
 fi
-ln -sfn "$ROOT/bin/octopod" "$target"
-echo "  $target → $ROOT/bin/octopod"
+ln -sfn "$ROOT/bin/octopod.js" "$target"
+echo "  $target → $ROOT/bin/octopod.js"
 case ":$PATH:" in
   *":$BIN_DIR:"*) ;;
   *) warn "$BIN_DIR is not on your PATH: add  export PATH=\"$BIN_DIR:\$PATH\"  to your shell's profile" ;;
 esac
 
-"$ROOT/bin/octopod" setup ${SETUP_ARGS[@]+"${SETUP_ARGS[@]}"}
+"$ROOT/bin/octopod.js" setup ${SETUP_ARGS[@]+"${SETUP_ARGS[@]}"}
 
 cat <<EOF
 
