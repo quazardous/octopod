@@ -4,13 +4,16 @@ octopod started as the environment composer of bushwhack, a bridge that lets a w
 model work on a local project. It became its own project because every Docker + Traefik
 project on a machine needs the same thing.
 
+For now its only client is bushwhack: the design keeps the door open for other projects,
+but no other project is migrated until octopod has proven itself there.
+
 Scope: Traefik and Docker composition, nothing else. What the containers run and what
 their environment files hold is the business of the tools that use octopod — secret
 handling, in particular, stays in those tools.
 
 ## 1. Survey the patterns already in use
 
-Read-only review of existing Docker + Traefik development setups: the conventions that
+Read-only review of existing Docker + Traefik development setups, as inspiration: the conventions that
 work (a `dev.project` label per instance, `DEV_PROJECT` and `SITE_BASE_DOMAIN` variables,
 versioned templates copied to local files), and the traps already paid for:
 
@@ -37,11 +40,12 @@ Deliverable: `docs/PATTERNS.md`.
 
 The shared edge (Traefik on `127.0.0.1:80`, fallback port when taken, label constraint,
 per-project edge networks connected to it), registration, the generated compose
-override. One existing project migrated as the pilot, its own Traefik removed.
+override — driven by what bushwhack's sessions need: one web app per project, reachable
+at `http://<project>.localhost`.
 
-## 4. Clients
+## 4. bushwhack
 
-bushwhack's `app:*` tools built on the API.
+bushwhack's `app:*` tools built on the API. Other projects later, once this has held.
 
 ## Technology
 
