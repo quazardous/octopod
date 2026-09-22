@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { edgeCompose, projectOverride, traefikConfig } from './generate.js';
+import { dataVolumes, edgeCompose, projectOverride, traefikConfig } from './generate.js';
 import { fullHost, slugify } from './names.js';
 import type { Declaration } from './declaration.js';
 
@@ -66,5 +66,25 @@ describe('a project override', () => {
 
   it('refuses an exposure of a service the project does not have', () => {
     expect(() => projectOverride('octopod', DEMO, { web: {} })).toThrow(/service "api" is not in/);
+  });
+});
+
+describe('data', () => {
+  it('binds the project\'s own named volumes to folders in the project', () => {
+    const data = dataVolumes('/p/demo', {
+      db: { name: 'demo_db' },
+      cache: { name: 'demo_cache', driver: 'local' },
+      shared: { name: 'shared', external: true },
+      nfs: { name: 'demo_nfs', driver_opts: { type: 'nfs', o: 'addr=10.0.0.1' } },
+      plugin: { name: 'demo_plugin', driver: 'rexray' },
+    });
+    expect(data).toEqual({ db: '/p/demo/.octopod/data/db', cache: '/p/demo/.octopod/data/cache' });
+    const override = projectOverride('octopod', DEMO, { web: {}, api: {} }, data) as { volumes: Record<string, unknown> };
+    expect(override.volumes.db).toEqual({ driver: 'local', driver_opts: { type: 'none', o: 'bind', device: '/p/demo/.octopod/data/db' } });
+    expect(Object.keys(override.volumes)).toEqual(['db', 'cache']);
+  });
+
+  it('adds no volumes section to a project that has none', () => {
+    expect(projectOverride('octopod', DEMO, { web: {}, api: {} })).not.toHaveProperty('volumes');
   });
 });

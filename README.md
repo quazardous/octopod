@@ -16,9 +16,20 @@ routes, and repeat the same traps. octopod does that part once, for the whole ma
 - **an API** (JSON over a unix socket) and a CLI that speaks it, so any project — PHP,
   Python, Node — and any tool can use it.
 
-octopod is only that: Traefik and Docker composition. It knows nothing about what runs in
-the containers or what their environment files hold — secrets and the like are the
-business of the tools that use it.
+octopod is only that: an infrastructure provider — Traefik and Docker composition. It
+knows nothing about what runs in the containers or what their environment files hold —
+secrets and the like are the business of the tools that use it.
+
+Two rules it holds projects to:
+
+- **A project's data lives in the project.** Named volumes are bound to
+  `.octopod/data/<volume>` in the project folder (git-ignored), not kept in Docker's own
+  storage: the data moves, is backed up and is deleted with the project, even a
+  database's. A volume the project configured itself (external, another driver, its own
+  options) is left alone.
+- **Nothing in the project is owned by root.** octopod creates the data folders as you;
+  a service that writes there as root (or as its image's own user) is reported by
+  `status`, to be run as your user — `user:` in compose, or its Dockerfile adjusted.
 
 Status: MVP. Its first client is bushwhack. See [docs/ROADMAP.md](./docs/ROADMAP.md),
 [docs/CONTRACT.md](./docs/CONTRACT.md) and [docs/PATTERNS.md](./docs/PATTERNS.md).
@@ -44,7 +55,7 @@ octopod register            # in the project folder
 octopod up                  # starts the edge if needed, then the project
 octopod status              # services and URLs
 octopod logs --service web --tail 100
-octopod down                # --volumes to drop them too
+octopod down                # --volumes removes the Docker volumes; the data in .octopod/data stays
 octopod edge status         # the shared Traefik; dashboard at http://traefik.localhost
 octopod serve               # the JSON API on a unix socket, for other tools
 ```

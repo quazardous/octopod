@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Octopod } from './octopod.js';
@@ -145,5 +145,83 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
     expect(docker('network', 'ls', '--format', '{{.Name}}').split('\n')).not.toContain('octopodtest-beta-edge');
     expect((await eventually('alpha.localhost', 200)).status).toBe(200);
     expect((await eventually('beta.localhost', 404)).status).toBe(404);
+  });
+});
+
+describe.skipIf(!dockerAvailable())('data in the project (real docker)', { timeout: 300_000 }, () => {
+  let base: string;
+  let root: string;
+  let octopod: Octopod;
+  const me = `${process.getuid?.()}:${process.getgid?.()}`;
+
+  beforeAll(async () => {
+    base = await mkdtemp(join(tmpdir(), 'octopod-data-'));
+    root = join(base, 'gamma');
+    await mkdir(root);
+    await writeFile(
+      join(root, 'docker-compose.yml'),
+      [
+        'services:',
+        '  web:',
+        '    image: traefik/whoami:v1.10',
+        '  store:',
+        '    image: alpine:3.20',
+        `    user: "${me}"`,
+        '    command: sh -c "echo kept > /data/row && sleep 600"',
+        '    volumes: [db:/data]',
+        '  rooted:',
+        '    image: alpine:3.20',
+        '    command: sh -c "echo mine > /logs/root-file && sleep 600"',
+        '    volumes: [logs:/logs]',
+        'volumes:',
+        '  db: {}',
+        '  logs: {}',
+        '',
+      ].join('\n'),
+    );
+    await writeFile(join(root, 'octopod.yaml'), 'expose:\n  - service: web\n    port: 80\n');
+    octopod = new Octopod({ stateDir: join(base, 'state'), instance: INSTANCE, ports: [PORT] });
+    await octopod.register(root);
+  }, 300_000);
+
+  afterAll(async () => {
+    await octopod.down('gamma', { volumes: true }).catch(() => undefined);
+    await octopod.unregister('gamma').catch(() => undefined);
+    await octopod.edgeDown();
+    // What a root service wrote, only root can delete: the case the warning is about.
+    docker('run', '--rm', '-v', `${base}:/base`, 'alpine:3.20', 'rm', '-rf', '/base/gamma/.octopod');
+    await rm(base, { recursive: true, force: true });
+    try {
+      docker('volume', 'rm', 'gamma_stale');
+    } catch {
+      // not created
+    }
+  }, 300_000);
+
+  it('keeps named volumes in the project, out of git, owned by the operator', async () => {
+    await octopod.up('gamma');
+    const row = join(root, '.octopod', 'data', 'db', 'row');
+    for (let i = 0; i < 40 && !(await stat(row).catch(() => undefined)); i++) await new Promise((r) => setTimeout(r, 250));
+    expect(await readFile(row, 'utf8')).toBe('kept\n');
+    expect((await stat(row)).uid).toBe(process.getuid?.());
+    expect(await readFile(join(root, '.octopod', '.gitignore'), 'utf8')).toBe('*\n');
+  });
+
+  it('says which data folder holds files the operator does not own', async () => {
+    const file = join(root, '.octopod', 'data', 'logs', 'root-file');
+    for (let i = 0; i < 40 && !(await stat(file).catch(() => undefined)); i++) await new Promise((r) => setTimeout(r, 250));
+    const status = await octopod.status('gamma');
+    expect(status.warnings).toEqual([expect.stringMatching(/^\.octopod\/data\/logs holds files owned by uid 0/)]);
+  });
+
+  it('keeps the data through down --volumes: it is the project\'s', async () => {
+    await octopod.down('gamma', { volumes: true });
+    expect(await readFile(join(root, '.octopod', 'data', 'db', 'row'), 'utf8')).toBe('kept\n');
+  });
+
+  it('refuses to bind over a volume that already holds data in Docker', async () => {
+    await writeFile(join(root, 'docker-compose.yml'), 'services:\n  web:\n    image: traefik/whoami:v1.10\n    volumes: [stale:/x]\nvolumes:\n  stale: {}\n');
+    docker('volume', 'create', 'gamma_stale');
+    await expect(octopod.up('gamma')).rejects.toThrow(/gamma_stale already holds data in Docker's storage/);
   });
 });

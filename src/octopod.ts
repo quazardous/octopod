@@ -5,13 +5,13 @@
  * the registry of projects, each project's generated override. Nothing is written into a
  * project.
  */
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createConnection } from 'node:net';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { loadDeclaration, type Declaration } from './declaration.js';
 import { cliDocker, DockerError, type Docker } from './docker.js';
-import { edgeCompose, edgeContainer, projectOverride, traefikConfig, type ComposeService } from './generate.js';
+import { DATA_DIR, dataVolumes, edgeCompose, edgeContainer, projectOverride, traefikConfig, type ComposeService, type ComposeVolume } from './generate.js';
 import { edgeNetwork } from './names.js';
 
 export const PREFERRED_PORT = 80;
@@ -30,6 +30,8 @@ export interface Project {
 
 export interface ProjectStatus extends Project {
   services: { service: string; state: string; health?: string }[];
+  /** Things the operator should fix, e.g. data written by a service that runs as another user. */
+  warnings?: string[];
 }
 
 export interface ExecResult {
@@ -233,13 +235,72 @@ export class Octopod {
     const declaration = await this.declaration(name);
     const config = JSON.parse(await this.docker.run([...this.composeArgs(declaration, false), 'config', '--format', 'json'])) as {
       services?: Record<string, ComposeService>;
+      volumes?: Record<string, ComposeVolume>;
     };
-    const override = projectOverride(this.instance, declaration, config.services ?? {});
+    const data = dataVolumes(declaration.root, config.volumes ?? {});
+    await this.prepareData(declaration, config.volumes ?? {}, data);
+    const override = projectOverride(this.instance, declaration, config.services ?? {}, data);
     await this.writeJson(join('projects', declaration.project, 'override.json'), override);
     await this.edgeUp();
     await this.docker.run([...this.composeArgs(declaration, true), 'up', '-d']);
     await this.connect(declaration.project);
     return this.status(name);
+  }
+
+  /**
+   * The data folders, in the project, before compose binds them; and a refusal when a
+   * volume of the same name already holds data in Docker's storage — binding over it would
+   * hide that data, and moving it is the operator's call.
+   */
+  private async prepareData(declaration: Declaration, volumes: Record<string, ComposeVolume>, data: Record<string, string>): Promise<void> {
+    if (Object.keys(data).length === 0) return;
+    const dir = join(declaration.root, '.octopod');
+    await mkdir(dir, { recursive: true });
+    // The data is the project's, not its history: git leaves the folder alone, and the
+    // project's own .gitignore is not touched.
+    await writeFile(join(dir, '.gitignore'), '*\n', { flag: 'wx' }).catch(() => undefined);
+    for (const [key, device] of Object.entries(data)) {
+      const volume = volumes[key]?.name ?? `${declaration.project}_${key}`;
+      const found = await this.docker.run(['volume', 'inspect', volume, '--format', '{{json .Options}}']).catch(() => undefined);
+      if (found !== undefined) {
+        const options = (JSON.parse(found.trim() || 'null') ?? {}) as Record<string, string>;
+        if (options.device !== device) {
+          throw new OctopodError(
+            `volume ${volume} already holds data in Docker's storage; octopod keeps data in the project (${DATA_DIR}/${key}). ` +
+              `Copy it there and remove the volume, then up again: ` +
+              `docker run --rm -v ${volume}:/from -v ${device}:/to alpine cp -a /from/. /to/ && docker volume rm ${volume}`,
+          );
+        }
+      }
+      await mkdir(device, { recursive: true });
+    }
+  }
+
+  /**
+   * Data folders holding files the operator does not own: a service that writes as root
+   * (or as its image's own user) leaves files in the project that only root can delete.
+   * octopod does not force a user on an image; it says which folder, so the service gets
+   * a `user:` or its Dockerfile is adjusted.
+   */
+  private async foreignData(declaration: Declaration): Promise<string[]> {
+    const uid = process.getuid?.();
+    if (uid === undefined) return [];
+    const base = join(declaration.root, DATA_DIR);
+    const folders = await readdir(base).catch(() => [] as string[]);
+    const out: string[] = [];
+    for (const folder of folders) {
+      const dir = join(base, folder);
+      const entries = [dir, ...(await readdir(dir).catch(() => [] as string[])).map((e) => join(dir, e))];
+      const owners = new Set<number>();
+      for (const entry of entries) {
+        const info = await lstat(entry).catch(() => undefined);
+        if (info && info.uid !== uid) owners.add(info.uid);
+      }
+      if (owners.size > 0) {
+        out.push(`${DATA_DIR}/${folder} holds files owned by uid ${[...owners].join(', ')}, not you: run the service that writes it as your user (user: in compose, or in its Dockerfile)`);
+      }
+    }
+    return out;
   }
 
   async down(name: string, options: { volumes?: boolean } = {}): Promise<ProjectStatus> {
@@ -259,9 +320,11 @@ export class Octopod {
     const rows = out.trim().startsWith('[')
       ? (JSON.parse(out) as Record<string, string>[])
       : out.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l) as Record<string, string>);
+    const warnings = await this.foreignData(declaration);
     return {
       ...(await this.project(declaration)),
       services: rows.map((r) => ({ service: r.Service, state: r.State, ...(r.Health ? { health: r.Health } : {}) })),
+      ...(warnings.length > 0 ? { warnings } : {}),
     };
   }
 

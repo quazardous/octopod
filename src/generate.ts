@@ -60,6 +60,36 @@ export function edgeCompose(settings: EdgeSettings): Record<string, unknown> {
   };
 }
 
+/**
+ * Where a project's data lives: in the project, never in Docker's own storage. octopod is
+ * an infrastructure provider; the data is the project's, and moves, is backed up and is
+ * deleted with it.
+ */
+export const DATA_DIR = '.octopod/data';
+
+/** A top-level volume as `docker compose config` sees it. */
+export interface ComposeVolume {
+  name?: string;
+  external?: unknown;
+  driver?: string;
+  driver_opts?: Record<string, string>;
+}
+
+/**
+ * The project's own named volumes, each with the folder it is bound to. A volume the
+ * project configured itself — external, another driver, its own options — is left alone.
+ */
+export function dataVolumes(root: string, volumes: Record<string, ComposeVolume>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, volume] of Object.entries(volumes)) {
+    if (volume.external) continue;
+    if (volume.driver && volume.driver !== 'local') continue;
+    if (volume.driver_opts && Object.keys(volume.driver_opts).length > 0) continue;
+    out[key] = `${root}/${DATA_DIR}/${key}`;
+  }
+  return out;
+}
+
 /** A service of the project as `docker compose config` sees it: only what the override needs. */
 export interface ComposeService {
   networks?: Record<string, unknown> | string[];
@@ -74,6 +104,8 @@ export function projectOverride(
   instance: string,
   declaration: Declaration,
   services: Record<string, ComposeService>,
+  /** From `dataVolumes`: each named volume becomes a bind to its folder in the project. */
+  data: Record<string, string> = {},
 ): Record<string, unknown> {
   const network = edgeNetwork(instance, declaration.project);
   const out: Record<string, unknown> = {};
@@ -103,5 +135,12 @@ export function projectOverride(
   // `internal`: Traefik reaches the project's containers over it, and nothing else does —
   // the edge network must not become a way out to the internet for a project that has no
   // egress of its own.
-  return { services: out, networks: { octopod_edge: { name: network, internal: true } } };
+  const volumes = Object.fromEntries(
+    Object.entries(data).map(([key, device]) => [key, { driver: 'local', driver_opts: { type: 'none', o: 'bind', device } }]),
+  );
+  return {
+    services: out,
+    networks: { octopod_edge: { name: network, internal: true } },
+    ...(Object.keys(volumes).length > 0 ? { volumes } : {}),
+  };
 }

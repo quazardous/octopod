@@ -32,13 +32,23 @@ Rules, checked when the project is registered and every time it is brought up:
   read-only. Only containers labelled `octopod.edge=1` are considered.
 - **A project**, brought up:
   1. `docker compose -p <project> -f <its files> -f <override> up -d`, where the override
-     (generated, kept in octopod's state directory, never in the project) adds to each
+     (generated, kept in octopod's state directory, not in the project) adds to each
      exposed service the labels below and the network `octopod-<project>-edge` —
      **`internal`**: Traefik reaches the service over it, and it is no way out to the
      internet for a project that declared none;
   2. the edge is connected to that network.
-- **Down**: the edge is disconnected, then `docker compose … down`. Volumes are kept
-  unless asked.
+- **Data**: each of the project's own named volumes (not external, local driver, no
+  options of its own) is bound to `<root>/.octopod/data/<volume>`, created by octopod as
+  the operator, with `<root>/.octopod/.gitignore` (`*`) so git leaves it alone. This is the
+  only thing octopod writes into a project. When a volume of the same name already exists
+  in Docker's storage, `up` refuses and says how to move its data: binding over it would
+  hide it.
+- **Down**: the edge is disconnected, then `docker compose … down`. `volumes: true`
+  removes the Docker volume objects; the data in `.octopod/data` is the project's and
+  stays.
+- **Ownership**: `status` reports, in `warnings`, each data folder holding files the
+  operator does not own — a service writing as root leaves files only root can delete.
+  octopod does not force a user on an image.
 
 Labels generated on an exposed service (never written by hand):
 
@@ -75,6 +85,7 @@ HTTP with JSON bodies over a unix socket: `$XDG_RUNTIME_DIR/octopod/octopod.sock
 interface Project { name: string; root: string; routes: { service: string; url: string }[] }
 interface ProjectStatus extends Project {
   services: { service: string; state: string; health?: string }[];
+  warnings?: string[];
 }
 ```
 
