@@ -21,9 +21,23 @@ import { edgeNetwork, fullHost, instanceName } from './names.js';
 export const CONTRACT = 1;
 
 /** octopod's own version, from its package.json — the same file from the sources and from dist/. */
-export async function version(): Promise<{ version: string; contract: number }> {
+/**
+ * What this octopod adds to contract 1, by name: a client checks for the feature it needs,
+ * since an older octopod speaks contract 1 too without it. Absent before 0.2.0: none.
+ */
+export const FEATURES = ['secrets'];
+
+export async function version(): Promise<{ version: string; contract: number; features: string[] }> {
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
-  return { version: pkg.version, contract: CONTRACT };
+  return { version: pkg.version, contract: CONTRACT, features: FEATURES };
+}
+
+/** A secret octopod generated for a project's recipe: where it belongs, and its value. */
+export interface Secret {
+  project: string;
+  service: string;
+  name: string;
+  value: string;
 }
 
 export const PREFERRED_PORT = 80;
@@ -483,6 +497,19 @@ export class Octopod {
     return this.project(await this.withRecipes(declaration, false));
   }
 
+  /**
+   * The project declared in a folder, registered if it is not yet — what `octopod up` does
+   * in a freshly cloned project. A name already registered from another folder is refused,
+   * as `register` refuses it.
+   */
+  async ensureRegistered(root: string): Promise<{ name: string; registered: boolean }> {
+    const declaration = await loadDeclaration(root);
+    const registry = await this.registry();
+    if (registry[declaration.project] === root) return { name: declaration.project, registered: false };
+    await this.register(root);
+    return { name: declaration.project, registered: true };
+  }
+
   async list(): Promise<Project[]> {
     const out: Project[] = [];
     for (const name of Object.keys(await this.registry())) out.push(await this.project(await this.declaration(name)));
@@ -675,6 +702,25 @@ export class Octopod {
     if (!running) return attempt('run');
     const first = await attempt('exec');
     return !first.ok && NOT_RUNNING.test(first.output) ? attempt('run') : first;
+  }
+
+  /**
+   * The secrets octopod generated for a project (the `secret` params of its recipes), kept
+   * in its state: for a client to mask them, never to show them. Every running instance's,
+   * unless one is named — for masking, one forgotten would be a leak.
+   */
+  async secrets(name: string, instance?: number): Promise<Secret[]> {
+    if (!(await this.names()).includes(name)) throw new OctopodError(`no project "${name}"; register it first`);
+    const instances = instance !== undefined ? [instance] : [1, ...(await this.instances(name))];
+    const out: Secret[] = [];
+    for (const n of instances) {
+      const project = instanceName(name, n);
+      const kept = await this.readJson<Record<string, Record<string, string>>>(join('projects', project, 'secrets.json'), {});
+      for (const [service, values] of Object.entries(kept)) {
+        for (const [key, value] of Object.entries(values)) out.push({ project, service, name: key, value });
+      }
+    }
+    return out;
   }
 
   /** The names of the registered projects. */

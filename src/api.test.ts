@@ -59,6 +59,29 @@ describe('the API', () => {
     expect((await call('GET', '/v1/projects')).json).toEqual([created.json]);
   });
 
+  it('registers the project of a folder when it is not yet, once, and refuses its name from another folder', async () => {
+    const octopod = new Octopod({ stateDir: join(base, 'state'), docker: idleDocker, ports: [18499] });
+    expect(await octopod.ensureRegistered(join(base, 'demo'))).toEqual({ name: 'demo', registered: true });
+    expect(await octopod.ensureRegistered(join(base, 'demo'))).toEqual({ name: 'demo', registered: false });
+    await mkdir(join(base, 'elsewhere'));
+    await writeFile(join(base, 'elsewhere', 'docker-compose.yml'), 'services: {}\n');
+    await writeFile(join(base, 'elsewhere', 'octopod.yaml'), 'project: demo\nexpose:\n  - {service: web, port: 1}\n');
+    await expect(octopod.ensureRegistered(join(base, 'elsewhere'))).rejects.toThrow(/already registered from/);
+  });
+
+  it('gives the secrets octopod generated, of every running instance or of one, and only the values', async () => {
+    await call('POST', '/v1/projects', { root: join(base, 'demo') });
+    const state = join(base, 'state', 'projects');
+    await mkdir(join(state, 'demo'), { recursive: true });
+    await mkdir(join(state, 'demo-2'), { recursive: true });
+    await writeFile(join(state, 'demo', 'secrets.json'), JSON.stringify({ db: { password: 'p1', 'root-password': 'r1' } }));
+    await writeFile(join(state, 'demo-2', 'secrets.json'), JSON.stringify({ db: { password: 'p2' } }));
+    await writeFile(join(state, 'demo', 'instances.json'), '[2]');
+    expect((await call('GET', '/v1/projects/demo/secrets')).json).toEqual({ values: ['p1', 'r1', 'p2'] });
+    expect((await call('GET', '/v1/projects/demo/secrets?instance=2')).json).toEqual({ values: ['p2'] });
+    expect((await call('GET', '/v1/projects/nope/secrets')).status).toBe(409);
+  });
+
   it('answers 400 for a relative root, a broken body or a broken declaration', async () => {
     expect((await call('POST', '/v1/projects', { root: 'demo' })).status).toBe(400);
     expect((await call('POST', '/v1/projects', '{not json')).status).toBe(400);
@@ -73,7 +96,7 @@ describe('the API', () => {
 
   it('says its version and the contract it speaks, from package.json', async () => {
     const { version } = JSON.parse(await readFile(join(import.meta.dirname, '..', 'package.json'), 'utf8')) as { version: string };
-    expect((await call('GET', '/v1/version')).json).toEqual({ version, contract: 1 });
+    expect((await call('GET', '/v1/version')).json).toEqual({ version, contract: 1, features: ['secrets'] });
   });
 
   it('reports the edge as stopped when nothing runs', async () => {

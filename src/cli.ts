@@ -10,6 +10,7 @@
  *   octopod list
  *   octopod serve [--socket path]
  *   octopod shell [project] [service] [--root] [--oneshot] [-- command…]
+ *   octopod secrets [project] [--instance N]
  *   octopod version
  *   octopod setup [--no-service] [--no-edge]
  *
@@ -107,6 +108,17 @@ async function main(argv: string[]): Promise<void> {
       });
       return;
     }
+    case 'secrets': {
+      // octopod secrets <project> [--instance N]: the names; with --json, the values, for a
+      // client to mask them. Never the values on a screen.
+      const name = await projectName(rest);
+      const raw = flag(rest, '--instance');
+      const secrets = await octopod.secrets(name, raw === undefined ? undefined : instanceOf(rest));
+      if (json) return print({ values: [...new Set(secrets.map((s) => s.value))] }, true);
+      for (const s of secrets) console.log(`${s.project} ${s.service}.${s.name}`);
+      if (secrets.length === 0) console.log(`no secret generated for ${name}`);
+      return;
+    }
     case 'setup':
       return setup(octopod, { service: !rest.includes('--no-service'), edge: !rest.includes('--no-edge'), log: (l) => console.log(l) });
     case 'edge': {
@@ -119,8 +131,16 @@ async function main(argv: string[]): Promise<void> {
       return print(await octopod.register(resolve(positional(rest)[0] ?? '.')), json);
     case 'list':
       return print(await octopod.list(), json);
-    case 'up':
-      return print(await octopod.up(await projectName(rest), instanceOf(rest)), json);
+    case 'up': {
+      // No name: the project declared here, registered first if it is not yet (a fresh clone).
+      let name = positional(rest)[0];
+      if (!name) {
+        const found = await octopod.ensureRegistered(process.cwd());
+        if (found.registered) console.error(`registered ${found.name} from ${process.cwd()}`);
+        name = found.name;
+      }
+      return print(await octopod.up(name, instanceOf(rest)), json);
+    }
     case 'down':
       return print(await octopod.down(await projectName(rest), { volumes: rest.includes('--volumes'), instance: instanceOf(rest) }), json);
     case 'status':

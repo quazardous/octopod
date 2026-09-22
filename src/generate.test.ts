@@ -79,6 +79,8 @@ describe('the edge', () => {
     const conf = consoleNginxConfig('octopod.sock');
     expect(conf).toContain('proxy_pass http://unix:/run/octopod/octopod.sock;');
     expect(conf).toContain('limit_except GET { deny all; }');
+    // The generated secrets are for local clients on the socket, never for the console.
+    expect(conf).toMatch(/location ~ \^\/v1\/projects\/\[\^\/\]\+\/secrets \{\s*return 403;/);
   });
 
   it('recreates the edge when its configuration changes', () => {

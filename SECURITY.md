@@ -61,7 +61,9 @@ it. `octopod plan` shows what would run, with each recipe's digest, before anyth
 
 **Generated secrets** (a database password, for instance) are generated once, kept in
 octopod's state directory (`$XDG_STATE_HOME/octopod`, by default `~/.local/state/octopod`)
-in files of mode `0600`, and never written into the project.
+in files of mode `0600`, and never written into the project. A local client can read
+their values (`octopod secrets --json`, or the API on the socket) to mask them; the
+console's relay refuses that route.
 
 ## Out of scope
 

@@ -137,7 +137,7 @@ HTTP with JSON bodies over a unix socket: `$XDG_RUNTIME_DIR/octopod/octopod.sock
 
 | Method | Path | Body | Answer |
 |---|---|---|---|
-| GET | `/v1/version` | | `{ version, contract }` — octopod's version (semver) and this contract's (`1`) |
+| GET | `/v1/version` | | `{ version, contract, features }` — octopod's version (semver), this contract's (`1`), and what it adds to it (`features`, from 0.2.0) |
 | GET | `/v1/edge` | | `{ running, port, dashboard, console }` |
 | POST | `/v1/edge/up` · `/v1/edge/down` | | `{ running, port, dashboard, console }` |
 | GET | `/v1/projects` | | `Project[]` |
@@ -147,6 +147,7 @@ HTTP with JSON bodies over a unix socket: `$XDG_RUNTIME_DIR/octopod/octopod.sock
 | POST | `/v1/projects/:name/restart` | `{ service? }` | `ProjectStatus` |
 | POST | `/v1/projects/:name/exec` | `{ service, argv: string[], timeoutMs? }` | `{ ok, mode, output, truncated }` — argv, never a shell string built by octopod; output bounded; a failure says how it ended (exit code, timeout). `mode: "run"` when the service was not running (stopped, restarting in a loop): the command ran in a one-off container of it (same image, mounts, user, network), kept out of the edge's routes |
 | GET | `/v1/projects/:name/logs?service=&tail=` | | `{ lines: string[] }` |
+| GET | `/v1/projects/:name/secrets?instance=` | | `{ values: string[] }` — the secrets octopod generated for the project's recipes, every running instance's unless one is named: for a client to mask them. Refused (403) through the console's relay |
 | GET | `/v1/recipes?root=` | | `{ recipes: {id,title,summary,dir,digest}[], shadowed: {id,dir,by}[] }` |
 | POST | `/v1/plan` | `{ root, instance? }` | `{ project, text, services, compose }` — writes nothing |
 | DELETE | `/v1/projects/:name` | | `{}` (brought down first) |
@@ -181,6 +182,10 @@ another instance (tests, a second edge).
 A client — a tool built on octopod — checks `octopod version --json` (or `GET /v1/version`)
 and refuses to run below the version it needs. What it may rely on, from 0.1.0:
 
+- **Features.** From 0.2.0, `version --json` lists `features`: what this octopod adds to
+  contract 1. An older octopod speaks contract 1 without them, and has no `features`
+  field — none. Check for the feature you use, not for a version number:
+  - `secrets` (0.2.0): `octopod secrets <project> [--instance N] --json` → `{ values }`.
 - **The CLI, with `--json`**: `version`, `register <dir>`, `plan <dir>`, `recipes`,
   `up <project>`, `status <project>`, `restart <project> --service <s>`,
   `exec <project> <service> --timeout <ms> -- <argv…>` (its answer's `mode` included),

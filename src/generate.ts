@@ -101,6 +101,10 @@ http {
   scgi_temp_path /tmp/scgi;
   server {
     listen 8080;
+    # The generated secrets are for local clients, on the socket; the console never needs them.
+    location ~ ^/v1/projects/[^/]+/secrets {
+      return 403;
+    }
     location / {
       limit_except GET { deny all; }
       proxy_pass http://unix:/run/octopod/${socketName};

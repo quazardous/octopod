@@ -118,6 +118,11 @@ export function handler(octopod: Octopod) {
         const timeout = typeof timeoutMs === 'number' ? Math.min(Math.max(timeoutMs, 1000), 600_000) : undefined;
         return send(res, 200, await octopod.exec(name, service, argv as string[], { timeoutMs: timeout, instance: instanceValue(instance) }));
       }
+      if (resource === 'projects' && name && action === 'secrets' && method === 'GET') {
+        const raw = url.searchParams.get('instance');
+        const secrets = await octopod.secrets(name, raw === null ? undefined : instanceValue(raw));
+        return send(res, 200, { values: [...new Set(secrets.map((s) => s.value))] });
+      }
       if (resource === 'projects' && name && action === 'logs' && method === 'GET') {
         const tail = Math.min(Math.max(Number(url.searchParams.get('tail') ?? 200) || 200, 1), 5000);
         return send(res, 200, { lines: await octopod.logs(name, url.searchParams.get('service') ?? undefined, tail, queryInstance()) });
