@@ -47,6 +47,35 @@ describe('the recipe folders', () => {
     await expect(loadRecipes([base])).rejects.toThrow(RecipeError);
   });
 
+  it('lets an enum param choose the image\'s version, and nothing else choose it', async () => {
+    const dir = join(base, 'recipes');
+    const versioned = 'title: T\nsummary: s\nimage: "php:{{params.php}}-fpm"\nunpinned: true\nparams:\n  php: { type: enum, values: ["8.4", "7.4"], default: "8.4" }\n';
+    await recipe(dir, 'php', versioned);
+    const book = await loadRecipes([dir]);
+    const render = (params?: Record<string, string>) =>
+      renderServices({ project: 'shop', book, services: { app: { recipe: 'php', ...(params ? { params } : {}) } }, workspace: '/w' }).compose.services.app.image;
+    expect(render()).toBe('php:8.4-fpm');
+    expect(render({ php: '7.4' })).toBe('php:7.4-fpm');
+    expect(() => render({ php: '5.6' })).toThrow();
+    await recipe(dir, 'loose', versioned.replace('{ type: enum, values: ["8.4", "7.4"], default: "8.4" }', '{ type: ident, default: "latest" }'));
+    await expect(loadRecipes([dir])).rejects.toThrow(/image may only name an enum param/);
+  });
+
+  it('passes params to the build, never a secret: a build argument stays in the image\'s history', async () => {
+    const dir = join(base, 'recipes');
+    const base_ = 'title: T\nsummary: s\nimage: base:1\nunpinned: true\nbuild: true\nparams:\n  docroot: { type: ident, default: public }\n  pass: { type: secret }\n';
+    await recipe(dir, 'app', `${base_}buildArgs: { DOCROOT: "{{params.docroot}}" }\n`, 'FROM x\n');
+    const book = await loadRecipes([dir]);
+    const build = renderServices({ project: 'shop', book, services: { app: { recipe: 'app' } }, workspace: '/w', secretFactory: (n) => `s${n}` }).compose.services.app.build as { args: Record<string, string> };
+    expect(build.args.DOCROOT).toBe('public');
+    expect(build.args.BASE_IMAGE).toBe('base:1');
+    await recipe(dir, 'leak', `${base_}buildArgs: { PASS: "{{params.pass}}" }\n`, 'FROM x\n');
+    await expect(loadRecipes([dir])).rejects.toThrow(/uses the secret 'pass'/);
+    await rm(join(dir, 'leak'), { recursive: true });
+    await recipe(dir, 'grab', `${base_}buildArgs: { UID: "0" }\n`, 'FROM x\n');
+    await expect(loadRecipes([dir])).rejects.toThrow(/build argument UID is octopod's/);
+  });
+
   it('refuses a conditional volume whose condition is not a bool param', async () => {
     await recipe(base, 'db', `${WEB}params: { name: { type: ident } }\nvolumes: [{ name: data, path: /d, when: name }]\n`);
     await expect(loadRecipes([base])).rejects.toThrow(/must name a bool param/);

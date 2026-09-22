@@ -68,6 +68,22 @@ export async function loadRecipe(dir: string, id: string): Promise<RecipeEntry> 
     throw new RecipeError(`${file}: ${parsed.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join('; ')}`);
   }
   const recipe = parsed.data;
+  // What a project can put in the image or the build: params only, bounded ones in the image.
+  const tokens = (value: string): { scope: string; key: string }[] =>
+    [...value.matchAll(/\{\{\s*([a-z][a-z0-9]*)(?:\.([A-Za-z_][A-Za-z0-9_-]*))?\s*\}\}/g)].map((m) => ({ scope: m[1], key: m[2] ?? '' }));
+  for (const t of tokens(recipe.image)) {
+    if (t.scope !== 'params' || recipe.params[t.key]?.type !== 'enum') {
+      throw new RecipeError(`${file}: image may only name an enum param ({{params.<enum>}}), not '${t.scope}${t.key ? `.${t.key}` : ''}'`);
+    }
+  }
+  for (const [key, value] of Object.entries(recipe.buildArgs)) {
+    if (['BASE_IMAGE', 'UID', 'GID', 'USER_NAME'].includes(key)) throw new RecipeError(`${file}: build argument ${key} is octopod's`);
+    for (const t of tokens(value)) {
+      const spec = recipe.params[t.key];
+      if (t.scope !== 'params' || !spec) throw new RecipeError(`${file}: build argument ${key} may only use params, not '${t.scope}${t.key ? `.${t.key}` : ''}'`);
+      if (spec.type === 'secret') throw new RecipeError(`${file}: build argument ${key} uses the secret '${t.key}': a build argument stays in the image's history`);
+    }
+  }
   if (!recipe.unpinned && !recipe.image.includes('@sha256:')) {
     throw new RecipeError(`${file}: image '${recipe.image}' is a moving tag — pin a digest or set "unpinned: true"`);
   }

@@ -34,7 +34,10 @@ export const RecipeSchema = z
     title: z.string().min(1).max(120),
     /** One line a reader (or a model) reads to choose. */
     summary: z.string().min(1).max(400),
-    /** Image reference. A moving tag is accepted only with `unpinned: true`, visibly. */
+    /**
+     * Image reference. A moving tag is accepted only with `unpinned: true`, visibly. It may
+     * name an enum param (`php:{{params.php}}-fpm`): a version among the few the recipe lists.
+     */
     image: z.string().min(1).max(400),
     unpinned: z.boolean().default(false),
     /**
@@ -43,6 +46,12 @@ export const RecipeSchema = z
      * context holds the Dockerfile alone — nothing of the project goes to the daemon.
      */
     build: z.boolean().default(false),
+    /**
+     * More build arguments, from the recipe's params (`{{params.x}}`), never from its secrets:
+     * a build argument stays readable in the image's history. BASE_IMAGE, UID, GID and
+     * USER_NAME are octopod's.
+     */
+    buildArgs: z.record(z.string().regex(/^[A-Z][A-Z0-9_]*$/), z.string().max(400)).default({}),
     command: z.array(z.string().max(4_000)).max(64).optional(),
     params: z.record(Ident, ParamSpecSchema).default({}),
     /** Structural variables only (where to listen, which mode); `{{params.x}}`, `{{secrets.x}}`, `{{service}}`. */

@@ -153,13 +153,15 @@ export function renderServices(options: RenderOptions): Rendered {
     }
 
     const service: Record<string, unknown> = { restart: 'unless-stopped' };
+    const image = render(recipe.image, { params: r.params }, `${r.name}.image`);
     if (recipe.build) {
       // An empty context: the Dockerfile alone. The project never goes to the Docker daemon.
       const context = `.octopod/build/${r.name}`;
       files[`${context}/Dockerfile`] = r.entry.dockerfile!;
-      service.build = { context, args: { BASE_IMAGE: recipe.image, UID: uid, GID: gid, USER_NAME: userNameOf(options.project) } };
+      const extra = renderMap(recipe.buildArgs, { params: r.params }, `${r.name}.buildArgs`);
+      service.build = { context, args: { ...extra, BASE_IMAGE: image, UID: uid, GID: gid, USER_NAME: userNameOf(options.project) } };
     } else {
-      service.image = recipe.image;
+      service.image = image;
     }
     if (recipe.command) service.command = recipe.command.map((c, i) => render(c, scopes(r), `${r.name}.command[${i}]`));
     if (Object.keys(env).length > 0) service.environment = env;
@@ -207,7 +209,7 @@ export function renderServices(options: RenderOptions): Rendered {
       name: r.name,
       recipe: r.entry.id,
       digest: r.entry.digest,
-      image: recipe.image,
+      image,
       build: recipe.build,
       params: r.params,
       secrets: Object.keys(r.secrets),

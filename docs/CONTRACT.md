@@ -121,7 +121,11 @@ workspace: .               # the folder a recipe's workspace mounts; the project
   recipe id and typed parameters — an unknown parameter, a wrong type or a value for a
   generated secret is refused.
 - Built images get BASE_IMAGE, UID, GID and USER_NAME (the project's name, made a valid
-  Linux user name). Secrets are generated once and kept in octopod's state (`0600`),
+  Linux user name), plus the recipe's `buildArgs`, made of its params — never of its
+  secrets, which would stay in the image's history.
+- A recipe's image may name an **enum** param, and only that: `php:{{params.php}}-fpm`
+  with `php` one of the versions the recipe lists. A project picks among them; it never
+  writes an image. Secrets are generated once and kept in octopod's state (`0600`),
   never in the project.
 - Routed recipes are exposed without an `expose` entry, at the project's host or their
   subdomain; two wanting the same host is an error. Their profiles are activated.
