@@ -63,9 +63,15 @@ octopod status              # services and URLs
 octopod logs --service web --tail 100
 octopod down                # --volumes removes the Docker volumes; the data in .octopod/data stays
 octopod up --instance 2     # the same project a second time, at http://demo-2.localhost
-octopod edge status         # the shared Traefik; dashboard at http://traefik.localhost
-octopod serve               # the JSON API on a unix socket, for other tools
+octopod edge status         # the shared Traefik: the console and the dashboard's addresses
+octopod serve               # the JSON API on a unix socket, for other tools and the console
 ```
+
+**The console.** `http://octopod.localhost` shows every project and its instances, the
+state and health of each service, their URLs, the warnings, and the logs — read-only, with
+a link to Traefik's dashboard at `http://traefik.localhost`. Both answer only from the
+host, never from a project's containers. The console reads the API: `setup.sh` runs
+`octopod serve` as a systemd user service.
 
 **Recipes.** A project need not write a compose file at all: it names recipes.
 

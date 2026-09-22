@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>octopod</title>
+  <link rel="stylesheet" href="/console.css">
+  <script src="/console.js" defer></script>
+</head>
+<body>
+  <header class="bar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">◉</span>
+      <strong>octopod</strong>
+      <span id="edge" class="pill">edge …</span>
+    </div>
+    <nav class="links">
+      <a id="dashboard" href="http://traefik.localhost" target="_blank" rel="noreferrer">Traefik dashboard ↗</a>
+    </nav>
+    <div class="tools">
+      <input id="filter" type="search" placeholder="Filter projects" aria-label="Filter projects">
+      <button id="pause" type="button" aria-pressed="false" title="Pause the refresh">Pause</button>
+      <span id="updated" class="muted" aria-live="polite"></span>
+    </div>
+  </header>
+
+  <main>
+    <p id="summary" class="summary muted"></p>
+    <p id="error" class="error" hidden></p>
+    <section id="projects" class="projects" aria-label="Projects"></section>
+    <p id="empty" class="empty muted" hidden>No project registered yet. In a project folder: <code>octopod register &amp;&amp; octopod up</code>.</p>
+  </main>
+
+  <aside id="logs" class="logs" hidden aria-label="Logs">
+    <div class="logs-bar">
+      <strong id="logs-title">Logs</strong>
+      <label>Lines
+        <select id="logs-tail">
+          <option>100</option>
+          <option selected>300</option>
+          <option>1000</option>
+          <option>5000</option>
+        </select>
+      </label>
+      <label><input id="logs-follow" type="checkbox" checked> Follow</label>
+      <button id="logs-close" type="button">Close</button>
+    </div>
+    <pre id="logs-lines" tabindex="0"></pre>
+  </aside>
+
+  <footer class="foot muted">Read-only: octopod's console shows the projects; <code>octopod up|down|restart</code> act on them.</footer>
+</body>
+</html>

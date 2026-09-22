@@ -15,16 +15,21 @@ let server: Server;
 /** Docker that has nothing running: enough for everything but up/down. */
 const idleDocker: Docker = { run: async () => '' };
 
-function call(method: string, path: string, body?: unknown): Promise<{ status: number; json: unknown }> {
+function raw(method: string, path: string, body?: unknown): Promise<{ status: number; headers: Record<string, unknown>; text: string }> {
   return new Promise((resolve, reject) => {
     const req = request({ socketPath: socket, method, path, headers: { 'content-type': 'application/json' } }, (res) => {
       let text = '';
       res.on('data', (c) => (text += String(c)));
-      res.on('end', () => resolve({ status: res.statusCode ?? 0, json: JSON.parse(text) }));
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: res.headers, text }));
     });
     req.on('error', reject);
     req.end(body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body));
   });
+}
+
+async function call(method: string, path: string, body?: unknown): Promise<{ status: number; json: unknown }> {
+  const { status, text } = await raw(method, path, body);
+  return { status, json: JSON.parse(text) };
 }
 
 beforeEach(async () => {
@@ -67,6 +72,19 @@ describe('the API', () => {
   });
 
   it('reports the edge as stopped when nothing runs', async () => {
-    expect((await call('GET', '/v1/edge')).json).toEqual({ running: false, port: null, dashboard: null });
+    expect((await call('GET', '/v1/edge')).json).toEqual({ running: false, port: null, dashboard: null, console: null });
+  });
+
+  it('serves the console: its page and the two files it loads, under a policy that allows nothing else', async () => {
+    const page = await raw('GET', '/');
+    expect(page.status).toBe(200);
+    expect(page.headers['content-type']).toBe('text/html; charset=utf-8');
+    expect(page.headers['content-security-policy']).toContain("default-src 'self'");
+    expect(page.headers['content-security-policy']).toContain("frame-ancestors 'none'");
+    expect(page.text).toContain('<script src="/console.js" defer></script>');
+    expect((await raw('GET', '/console.js')).headers['content-type']).toBe('text/javascript; charset=utf-8');
+    expect((await raw('GET', '/console.css')).status).toBe(200);
+    expect((await raw('GET', '/package.json')).status).toBe(404);
+    expect((await raw('GET', '/../src/api.ts')).status).toBe(404);
   });
 });

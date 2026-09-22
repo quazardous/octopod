@@ -5,16 +5,17 @@
  * the registry of projects, each project's generated override. Nothing is written into a
  * project.
  */
-import { lstat, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { createConnection } from 'node:net';
-import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { homedir, tmpdir } from 'node:os';
+import { basename, dirname, join } from 'node:path';
 import { loadDeclaration, withInstance, type Declaration } from './declaration.js';
 import { BUILTIN_RECIPES, envRecipeDirs, loadRecipes, type Shadowed } from './recipes/loader.js';
 import { formatPlan, renderServices, type RenderedService } from './recipes/render.js';
 import { cliDocker, DockerError, type Docker } from './docker.js';
-import { choosePort, composePorts, DATA_DIR, dataVolumes, duplicationBlockers, edgeCompose, edgeContainer, imagePorts, projectOverride, traefikConfig, type ComposeService, type ComposeVolume, type ResolvedPort } from './generate.js';
-import { edgeNetwork, fullHost } from './names.js';
+import { choosePort, composePorts, CONSOLE_HOST, consoleNginxConfig, DASHBOARD_HOST, DATA_DIR, dataVolumes, duplicationBlockers, edgeCompose, edgeContainer, imagePorts, localOnlyConfig, projectOverride, traefikConfig, type ComposeService, type ComposeVolume, type ResolvedPort } from './generate.js';
+import { edgeNetwork, fullHost, instanceName } from './names.js';
 
 export const PREFERRED_PORT = 80;
 export const FALLBACK_PORT = 8480;
@@ -64,7 +65,10 @@ export interface ExecResult {
 export interface EdgeStatus {
   running: boolean;
   port: number | null;
+  /** Traefik's dashboard. */
   dashboard: string | null;
+  /** octopod's console: the projects, their services and logs (it needs `octopod serve`). */
+  console: string | null;
 }
 
 export interface OctopodOptions {
@@ -74,6 +78,13 @@ export interface OctopodOptions {
   docker?: Docker;
   /** Ports to try for the edge, in order. */
   ports?: number[];
+  /** The API's unix socket, which the console relays to. */
+  socket?: string;
+}
+
+/** Where `octopod serve` listens, and the console finds it. */
+export function defaultSocket(): string {
+  return join(process.env.XDG_RUNTIME_DIR || join(tmpdir(), `octopod-${process.getuid?.() ?? 'user'}`), 'octopod', 'octopod.sock');
 }
 
 /** The operator's `uid:gid`, where there is one (not on Windows). */
@@ -117,8 +128,10 @@ export class Octopod {
   readonly instance: string;
   private readonly docker: Docker;
   private readonly ports: number[];
+  readonly socket: string;
 
   constructor(options: OctopodOptions = {}) {
+    this.socket = options.socket ?? defaultSocket();
     this.stateDir = options.stateDir ?? defaultStateDir();
     this.instance = options.instance ?? process.env.OCTOPOD_INSTANCE ?? 'octopod';
     this.docker = options.docker ?? cliDocker();
@@ -160,7 +173,8 @@ export class Octopod {
   async edgeStatus(): Promise<EdgeStatus> {
     const running = await this.edgeRunning();
     const { port } = await this.readJson<{ port: number | null }>('edge/edge.json', { port: null });
-    return { running, port: running ? port : null, dashboard: running && port ? this.url('traefik.localhost', port) : null };
+    const up = running && port;
+    return { running, port: running ? port : null, dashboard: up ? this.url(DASHBOARD_HOST, port) : null, console: up ? this.url(CONSOLE_HOST, port) : null };
   }
 
   private url(host: string, port: number): string {
@@ -186,15 +200,52 @@ export class Octopod {
 
   async edgeUp(): Promise<EdgeStatus> {
     const port = await this.edgePort({ choose: true });
-    const configFile = this.path('edge', 'traefik.yml');
-    await this.writeJson('edge/traefik.yml', traefikConfig());
-    await this.writeJson('edge/compose.json', edgeCompose({ instance: this.instance, port, configFile }));
-    if (!(await this.edgeRunning())) {
-      await this.docker.run(['compose', '-f', this.path('edge', 'compose.json'), 'up', '-d']);
+    // The socket's folder, before Docker binds it into the console: Docker would create it as root.
+    const socketDir = dirname(this.socket);
+    await mkdir(socketDir, { recursive: true, mode: 0o700 });
+    await chmod(socketDir, 0o700);
+    const traefik = JSON.stringify(traefikConfig(this.instance), null, 2) + '\n';
+    const nginx = consoleNginxConfig(basename(this.socket));
+    await mkdir(this.path('edge', 'dynamic'), { recursive: true });
+    await writeFile(this.path('edge', 'traefik.yml'), traefik);
+    await writeFile(this.path('edge', 'console.conf'), nginx);
+    const compose = edgeCompose({
+      instance: this.instance,
+      port,
+      configFile: this.path('edge', 'traefik.yml'),
+      dynamicDir: this.path('edge', 'dynamic'),
+      consoleConfig: this.path('edge', 'console.conf'),
+      socketDir,
+      owner: currentOwner(),
+      digest: createHash('sha256').update(traefik).update(nginx).digest('hex').slice(0, 12),
+    });
+    await this.writeJson('edge/compose.json', compose);
+    // Always: compose leaves what has not changed alone, and brings what has — a console
+    // added, a configuration changed — up to date.
+    await this.docker.run(['compose', '-f', this.path('edge', 'compose.json'), 'up', '-d', '--remove-orphans']);
+    await this.writeLocalOnly();
+    // After a restart the edge has lost its project networks: connect it to each again,
+    // every instance of each included.
+    for (const name of Object.keys(await this.registry())) {
+      await this.connect(name);
+      for (const n of await this.instances(name)) await this.connect(instanceName(name, n));
     }
-    // After a restart the edge has lost its project networks: connect it to each again.
-    for (const name of Object.keys(await this.registry())) await this.connect(name);
     return this.edgeStatus();
+  }
+
+  /**
+   * The middleware that keeps the console and the dashboard to the host, from the edge
+   * network's subnets — known once compose has created it. Written in place atomically:
+   * Traefik watches the folder.
+   */
+  private async writeLocalOnly(): Promise<void> {
+    const network = `${this.instance}-edge_default`;
+    const out = await this.docker.run(['network', 'inspect', network, '--format', '{{json .IPAM.Config}}']);
+    const subnets = ((JSON.parse(out.trim() || 'null') ?? []) as { Subnet?: string }[]).map((c) => c.Subnet).filter((s): s is string => !!s);
+    if (subnets.length === 0) throw new OctopodError(`network ${network} has no subnet: the console and the dashboard stay closed`);
+    const file = this.path('edge', 'dynamic', 'local.yml');
+    await writeFile(`${file}.tmp`, JSON.stringify(localOnlyConfig(subnets), null, 2) + '\n');
+    await rename(`${file}.tmp`, file);
   }
 
   async edgeDown(): Promise<EdgeStatus> {

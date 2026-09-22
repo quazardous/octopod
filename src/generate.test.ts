@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { choosePort, composePorts, dataVolumes, duplicationBlockers, edgeCompose, imagePorts, projectOverride, traefikConfig } from './generate.js';
+import { choosePort, composePorts, consoleNginxConfig, dataVolumes, duplicationBlockers, edgeCompose, imagePorts, LOCAL_ONLY, localOnlyConfig, projectOverride, traefikConfig } from './generate.js';
 import { withInstance } from './declaration.js';
 import { instanceName } from './names.js';
 import { fullHost, slugify } from './names.js';
@@ -31,16 +31,59 @@ describe('names', () => {
 });
 
 describe('the edge', () => {
-  it('only considers containers carrying the exact octopod label', () => {
-    const docker = (traefikConfig().providers as { docker: Record<string, unknown> }).docker;
+  it('only considers containers carrying its own exact label: not another edge\'s', () => {
+    const docker = (traefikConfig('octopod').providers as { docker: Record<string, unknown> }).docker;
     expect(docker.exposedByDefault).toBe(false);
-    expect(docker.constraints).toBe('Label(`octopod.edge`, `1`)');
+    expect(docker.constraints).toBe('Label(`octopod.edge`, `octopod`)');
+    expect((traefikConfig('octopodtest').providers as { docker: Record<string, unknown> }).docker.constraints).toBe('Label(`octopod.edge`, `octopodtest`)');
   });
 
+  const settings = { instance: 'octopod', port: 80, configFile: '/s/traefik.yml', dynamicDir: '/s/dynamic', consoleConfig: '/s/console.conf', socketDir: '/run/user/1000/octopod', owner: '1000:1000' };
+  type Service = Record<string, string[] & Record<string, string>>;
+  const services = (): Record<string, Service> => edgeCompose(settings).services as Record<string, Service>;
+
   it('listens on loopback only, and reads the docker socket read-only', () => {
-    const traefik = (edgeCompose({ instance: 'octopod', port: 80, configFile: '/s/traefik.yml' }).services as Record<string, Record<string, string[]>>).traefik;
+    const { traefik } = services();
     expect(traefik.ports).toEqual(['127.0.0.1:80:80']);
     expect(traefik.volumes).toContain('/var/run/docker.sock:/var/run/docker.sock:ro');
+  });
+
+  it('reads octopod\'s own middlewares from a folder it watches', () => {
+    expect((traefikConfig('octopod').providers as Record<string, unknown>).file).toEqual({ directory: '/etc/traefik/dynamic', watch: true });
+    expect(services().traefik.volumes).toContain('/s/dynamic:/etc/traefik/dynamic:ro');
+  });
+
+  it('serves the console at octopod.localhost and the dashboard at traefik.localhost, to the host only', () => {
+    const { traefik, console: relay } = services();
+    expect(traefik.labels['traefik.http.routers.octopod-dashboard.rule']).toBe('Host(`traefik.localhost`)');
+    expect(traefik.labels['traefik.http.routers.octopod-dashboard.middlewares']).toBe(LOCAL_ONLY);
+    expect(relay.labels['traefik.http.routers.octopod-console.rule']).toBe('Host(`octopod.localhost`)');
+    expect(relay.labels['traefik.http.routers.octopod-console.middlewares']).toBe(LOCAL_ONLY);
+    expect(relay.labels['octopod.edge']).toBe('octopod');
+  });
+
+  it('lets through only loopback and the edge network, where the host\'s requests come from', () => {
+    expect(localOnlyConfig(['10.195.64.0/20'])).toEqual({ http: { middlewares: { 'octopod-local': { ipAllowList: { sourceRange: ['127.0.0.1/32', '10.195.64.0/20'] } } } } });
+  });
+
+  it('runs the console relay as the operator, read-only, with no capability, on the socket\'s folder', () => {
+    const relay = services().console as unknown as Record<string, unknown>;
+    expect(relay.user).toBe('1000:1000');
+    expect(relay.read_only).toBe(true);
+    expect(relay.cap_drop).toEqual(['ALL']);
+    expect(relay.ports).toBeUndefined();
+    expect(relay.volumes).toEqual(['/s/console.conf:/etc/nginx/nginx.conf:ro', '/run/user/1000/octopod:/run/octopod:ro']);
+  });
+
+  it('relays GET to the socket and refuses every other method', () => {
+    const conf = consoleNginxConfig('octopod.sock');
+    expect(conf).toContain('proxy_pass http://unix:/run/octopod/octopod.sock;');
+    expect(conf).toContain('limit_except GET { deny all; }');
+  });
+
+  it('recreates the edge when its configuration changes', () => {
+    const labels = (edgeCompose({ ...settings, digest: 'abc' }).services as Record<string, Service>).traefik.labels;
+    expect(labels['octopod.config']).toBe('abc');
   });
 });
 
@@ -52,7 +95,7 @@ describe('a project override', () => {
 
   it('routes each exposure to its host and port, on the project’s own edge network', () => {
     const web = override.services.web.labels;
-    expect(web['octopod.edge']).toBe('1');
+    expect(web['octopod.edge']).toBe('octopod');
     expect(web['traefik.docker.network']).toBe('octopod-demo-edge');
     expect(web['traefik.http.routers.demo-demo.rule']).toBe('Host(`demo.localhost`)');
     expect(web['traefik.http.services.demo-demo.loadbalancer.server.port']).toBe('3000');

@@ -7,6 +7,8 @@ import { execFileSync } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { Server } from 'node:http';
+import { listen } from './api.js';
 import { Octopod } from './octopod.js';
 
 const INSTANCE = 'octopodtest';
@@ -26,11 +28,11 @@ function docker(...args: string[]): string {
   return execFileSync('docker', args, { encoding: 'utf8' });
 }
 
-async function get(host: string): Promise<{ status: number; body: string }> {
+async function get(host: string, path = '/', method = 'GET'): Promise<{ status: number; body: string }> {
   // Node's fetch refuses to set Host; a plain request to the edge with the header does it.
   const { request } = await import('node:http');
   return new Promise((resolve, reject) => {
-    const req = request({ host: '127.0.0.1', port: PORT, path: '/', headers: { Host: host }, timeout: 3000 }, (res) => {
+    const req = request({ host: '127.0.0.1', port: PORT, path, method, headers: { Host: host }, timeout: 3000 }, (res) => {
       let body = '';
       res.on('data', (c) => (body += String(c)));
       res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
@@ -41,10 +43,10 @@ async function get(host: string): Promise<{ status: number; body: string }> {
 }
 
 /** Traefik picks routes up asynchronously: ask until the answer is what we expect, or give up. */
-async function eventually(host: string, status: number): Promise<{ status: number; body: string }> {
+async function eventually(host: string, status: number, path = '/', method = 'GET'): Promise<{ status: number; body: string }> {
   let last = { status: 0, body: '' };
   for (let i = 0; i < 40; i++) {
-    last = await get(host).catch(() => ({ status: 0, body: '' }));
+    last = await get(host, path, method).catch(() => ({ status: 0, body: '' }));
     if (last.status === status) return last;
     await new Promise((r) => setTimeout(r, 250));
   }
@@ -62,10 +64,11 @@ async function project(base: string, name: string, port?: number): Promise<strin
 describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)', { timeout: 300_000 }, () => {
   let base: string;
   let octopod: Octopod;
+  let api: Server | undefined;
 
   beforeAll(async () => {
     base = await mkdtemp(join(tmpdir(), 'octopod-it-'));
-    octopod = new Octopod({ stateDir: join(base, 'state'), instance: INSTANCE, ports: [PORT] });
+    octopod = new Octopod({ stateDir: join(base, 'state'), instance: INSTANCE, ports: [PORT], socket: join(base, 'run', 'octopod.sock') });
     const alpha = await project(base, 'alpha', 80);
     // The project's own override, which compose loads by itself and octopod must too.
     await writeFile(join(alpha, 'docker-compose.override.yml'), 'services:\n  web:\n    environment:\n      WHOAMI_NAME: from-override\n');
@@ -87,6 +90,7 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
   }, 300_000);
 
   afterAll(async () => {
+    if (api) await new Promise((r) => api?.close(r));
     try {
       docker('rm', '-f', NEIGHBOUR);
     } catch {
@@ -131,6 +135,37 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
     expect((await eventually('alpha-2.localhost', 404)).status).toBe(404);
     expect((await eventually('alpha.localhost', 200)).status).toBe(200);
     expect((await octopod.status('alpha')).instances).toBeUndefined();
+  });
+
+  it('serves the console at octopod.localhost, says how to start the API when it is not running, and reads through it once it is', async () => {
+    const down = await eventually('octopod.localhost', 503);
+    expect(down.body).toContain('octopod serve');
+    api = await listen(octopod, octopod.socket);
+    const page = await eventually('octopod.localhost', 200);
+    expect(page.body).toContain('<script src="/console.js" defer></script>');
+    const projects = JSON.parse((await eventually('octopod.localhost', 200, '/v1/projects')).body) as { name: string }[];
+    expect(projects.map((p) => p.name).sort()).toEqual(['alpha', 'beta']);
+    expect(JSON.parse((await get('octopod.localhost', '/v1/edge')).body)).toEqual(expect.objectContaining({ running: true, console: `http://octopod.localhost:${PORT}` }));
+  });
+
+  it('refuses anything but reading through the console', async () => {
+    // Up to the API's socket, this would take the project down: the relay stops it first.
+    expect((await get('octopod.localhost', '/v1/projects/alpha/down', 'POST')).status).toBe(403);
+    expect((await octopod.status('alpha')).services).toEqual([expect.objectContaining({ state: 'running' })]);
+  });
+
+  it('keeps the console and the dashboard from the projects\' containers', async () => {
+    await eventually('octopod.localhost', 200);
+    // From a project's edge network, where its containers reach the edge. A raw request
+    // (busybox wget sends its own Host header before any given one), its input kept open
+    // until the answer is in: a closed one reads to Traefik as a client gone (499).
+    const from = (host: string): string =>
+      execFileSync('docker', ['run', '--rm', '--network', 'octopodtest-alpha-edge', 'alpine:3.20', 'sh', '-c', `(printf 'GET / HTTP/1.0\\r\\nHost: ${host}\\r\\n\\r\\n'; sleep 3) | nc -w 5 ${INSTANCE}-edge 80 | head -1`], { encoding: 'utf8' });
+    expect(from('octopod.localhost')).toMatch(/403/);
+    expect(from('traefik.localhost')).toMatch(/403/);
+    expect(from('alpha.localhost')).toMatch(/200/);
+    // From the host, both answer.
+    expect((await eventually('traefik.localhost', 302)).status).toBe(302);
   });
 
   it('answers 404 for a host no project declared', async () => {

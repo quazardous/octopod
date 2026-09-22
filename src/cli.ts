@@ -13,7 +13,7 @@
  */
 import { basename, resolve } from 'node:path';
 import { loadDeclaration } from './declaration.js';
-import { defaultSocket, listen } from './api.js';
+import { listen } from './api.js';
 import { Octopod, type EdgeStatus, type Project, type ProjectStatus } from './octopod.js';
 
 function flag(args: string[], name: string): string | undefined {
@@ -25,7 +25,7 @@ function print(value: unknown, json: boolean): void {
   if (json) return console.log(JSON.stringify(value, null, 2));
   const edge = value as EdgeStatus;
   if ('running' in (value as object) && 'dashboard' in (value as object)) {
-    console.log(edge.running ? `edge running on 127.0.0.1:${edge.port} — dashboard ${edge.dashboard}` : 'edge stopped');
+    console.log(edge.running ? `edge running on 127.0.0.1:${edge.port} — console ${edge.console}, Traefik dashboard ${edge.dashboard}` : 'edge stopped');
     return;
   }
   const projects = (Array.isArray(value) ? value : [value]) as (Project | ProjectStatus)[];
@@ -64,7 +64,9 @@ async function projectName(args: string[]): Promise<string> {
 async function main(argv: string[]): Promise<void> {
   const json = argv.includes('--json');
   const [command, ...rest] = argv.filter((a) => a !== '--json');
-  const octopod = new Octopod();
+  // The socket `serve` listens on is the one the edge's console relays to.
+  const socket = flag(rest, '--socket');
+  const octopod = new Octopod(socket ? { socket: resolve(socket) } : {});
   switch (command) {
     case 'edge': {
       const sub = positional(rest)[0] ?? 'status';
@@ -119,9 +121,9 @@ async function main(argv: string[]): Promise<void> {
       await octopod.unregister(positional(rest)[0]);
       return print({}, json);
     case 'serve': {
-      const socket = flag(rest, '--socket') ?? defaultSocket();
-      await listen(octopod, socket);
-      console.log(`octopod API on ${socket}`);
+      await listen(octopod, octopod.socket);
+      const edge = await octopod.edgeStatus();
+      console.log(`octopod API on ${octopod.socket}${edge.console ? ` — console ${edge.console}` : ''}`);
       return;
     }
     default:

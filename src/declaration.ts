@@ -6,7 +6,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { parse } from 'yaml';
 import { z } from 'zod';
-import { fullHost, instanceName, LABEL_RE, slugify } from './names.js';
+import { fullHost, instanceName, LABEL_RE, RESERVED_PROJECTS, slugify } from './names.js';
 
 export const DECLARATION_FILE = 'octopod.yaml';
 const DEFAULT_COMPOSE = ['compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml'];
@@ -84,6 +84,9 @@ export async function loadDeclaration(root: string): Promise<Declaration> {
     throw new DeclarationError(`${file}: ${parsed.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join('; ')}`);
   }
   const project = parsed.data.project ?? slugify(basename(root));
+  if (RESERVED_PROJECTS.includes(project)) {
+    throw new DeclarationError(`${file}: "${project}" is the edge's own name (${project}.localhost); give the project another with project:`);
+  }
 
   let compose: string[];
   if (parsed.data.compose) {

@@ -38,7 +38,21 @@ Rules, checked when the project is registered and every time it is brought up:
 
 - **The edge**: one Traefik (`traefik:v3.6.1`), container `octopod-edge`, published on
   `127.0.0.1:<port>` — 80 when free, 8480 otherwise (the choice is kept). Docker socket
-  read-only. Only containers labelled `octopod.edge=1` are considered.
+  read-only. Only containers labelled `octopod.edge=<instance>` (`octopod.edge=octopod` for
+  the default instance) are considered: another octopod edge on the machine — a test, a
+  second instance — never sees this one's containers, nor this one its.
+- **The edge's own pages**, reachable from the host only — a project's containers reach the
+  edge over their edge network, and get a 403 there:
+  - `http://traefik.localhost`: Traefik's dashboard;
+  - `http://octopod.localhost`: the console — every project and instance, its services,
+    routes, warnings and logs. Read-only. Served by `octopod serve` (the API), through
+    `octopod-console`, a relay (nginx, running as the operator, read-only, no capability)
+    that passes GET to the API's socket and refuses every other method. When the API is
+    not running, the console says how to start it.
+
+  "From the host" is a Traefik middleware (`octopod-local`, in the file provider): the
+  edge's own network, where the host's requests come from through the published port.
+  The names `octopod` and `traefik` are the edge's: no project can take them.
 - **A project**, brought up:
   1. `docker compose -p <project> -f <its files> -f <override> up -d`, where the override
      (generated, kept in octopod's state directory, not in the project) adds to each
@@ -76,7 +90,7 @@ Rules, checked when the project is registered and every time it is brought up:
 Labels generated on an exposed service (never written by hand):
 
 ```
-octopod.edge=1
+octopod.edge=<instance>        # octopod, unless OCTOPOD_INSTANCE says otherwise
 octopod.project=<project>
 traefik.enable=true
 traefik.docker.network=octopod-<project>-edge
@@ -123,8 +137,8 @@ HTTP with JSON bodies over a unix socket: `$XDG_RUNTIME_DIR/octopod/octopod.sock
 
 | Method | Path | Body | Answer |
 |---|---|---|---|
-| GET | `/v1/edge` | | `{ running, port, dashboard }` |
-| POST | `/v1/edge/up` · `/v1/edge/down` | | `{ running, port, dashboard }` |
+| GET | `/v1/edge` | | `{ running, port, dashboard, console }` |
+| POST | `/v1/edge/up` · `/v1/edge/down` | | `{ running, port, dashboard, console }` |
 | GET | `/v1/projects` | | `Project[]` |
 | POST | `/v1/projects` | `{ root }` | `Project` (registered from `root/octopod.yaml`) |
 | GET | `/v1/projects/:name` | | `ProjectStatus` |
@@ -135,6 +149,7 @@ HTTP with JSON bodies over a unix socket: `$XDG_RUNTIME_DIR/octopod/octopod.sock
 | GET | `/v1/recipes?root=` | | `{ recipes: {id,title,summary,dir,digest}[], shadowed: {id,dir,by}[] }` |
 | POST | `/v1/plan` | `{ root, instance? }` | `{ project, text, services, compose }` — writes nothing |
 | DELETE | `/v1/projects/:name` | | `{}` (brought down first) |
+| GET | `/` · `/console.js` · `/console.css` | | the console's page and files |
 
 ```ts
 interface Project {
@@ -153,5 +168,6 @@ The CLI speaks the same operations and prints the same JSON with `--json`:
 `octopod edge up|down|status`, `octopod register [dir]`, `octopod up|down|status|logs|restart
 [project]`, `octopod exec <project> <service> -- <command…>`, `octopod unregister <project>` —
 `up`, `down`, `status`, `logs`, `restart` and `exec` take `--instance N`;
-`octopod serve` (the API). `OCTOPOD_STATE_DIR`, `OCTOPOD_INSTANCE` and `OCTOPOD_PORTS` select
+`octopod serve [--socket path]` (the API, and the console's data; `setup.sh` installs it
+as the `octopod` systemd user service). `OCTOPOD_STATE_DIR`, `OCTOPOD_INSTANCE` and `OCTOPOD_PORTS` select
 another instance (tests, a second edge).

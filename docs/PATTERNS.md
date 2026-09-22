@@ -61,7 +61,7 @@ project do not collide.
   and a fixed fallback otherwise — projects stop competing for it.
 - **Docker socket read-only**; dashboard reachable only through a router on
   `traefik.localhost`, never on an open API port.
-- **One exact label for everything octopod manages** (`octopod.edge=1`), so the shared
+- **One exact label for everything octopod manages** (`octopod.edge=<instance>`), so the shared
   Traefik never adopts a container it was not given — including every project still
   running its own Traefik.
 - **Projects declare what to expose** (service, port, host) and octopod generates the

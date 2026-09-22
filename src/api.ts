@@ -3,16 +3,13 @@
  * one to one onto the Octopod operations; errors are `{ error }` with a 4xx/5xx status.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { chmod, mkdir, rm } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { chmod, mkdir, readFile, rm } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { DeclarationError } from './declaration.js';
 import { DockerError } from './docker.js';
-import { Octopod, OctopodError } from './octopod.js';
+import { defaultSocket, Octopod, OctopodError } from './octopod.js';
 
-export function defaultSocket(): string {
-  return join(process.env.XDG_RUNTIME_DIR || join(tmpdir(), `octopod-${process.getuid?.() ?? 'user'}`), 'octopod', 'octopod.sock');
-}
+export { defaultSocket };
 
 const MAX_BODY = 64 * 1024;
 
@@ -36,6 +33,26 @@ async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
   return parsed as Record<string, unknown>;
 }
 
+/** The console's files, served at the root: the page and what it loads, nothing else. */
+const CONSOLE_FILES: Record<string, { file: string; type: string }> = {
+  '/': { file: 'index.html', type: 'text/html; charset=utf-8' },
+  '/console.js': { file: 'console.js', type: 'text/javascript; charset=utf-8' },
+  '/console.css': { file: 'console.css', type: 'text/css; charset=utf-8' },
+};
+const CONSOLE_DIR = new URL('../console/', import.meta.url);
+
+async function sendConsole(res: ServerResponse, file: { file: string; type: string }): Promise<void> {
+  res.writeHead(200, {
+    'content-type': file.type,
+    'cache-control': 'no-store',
+    // Its own files, its own API, nothing else — and never inside another site's frame.
+    'content-security-policy': "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+    'x-content-type-options': 'nosniff',
+    'referrer-policy': 'no-referrer',
+  });
+  res.end(await readFile(new URL(file.file, CONSOLE_DIR)));
+}
+
 function send(res: ServerResponse, status: number, value: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json' });
   res.end(JSON.stringify(value));
@@ -47,6 +64,8 @@ export function handler(octopod: Octopod) {
     const parts = url.pathname.split('/').filter(Boolean);
     const method = req.method ?? 'GET';
     try {
+      const page = CONSOLE_FILES[url.pathname];
+      if (page && (method === 'GET' || method === 'HEAD')) return await sendConsole(res, page);
       if (parts[0] !== 'v1') return send(res, 404, { error: 'not found' });
       const [, resource, name, action] = parts;
 

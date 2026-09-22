@@ -54,6 +54,13 @@ describe('loadDeclaration', () => {
     await expect(loadDeclaration(root)).rejects.toThrow(/Unrecognized key/);
   });
 
+  it('refuses the names the edge serves itself: its console and Traefik\'s dashboard', async () => {
+    for (const name of ['octopod', 'traefik']) {
+      await writeFile(join(root, 'octopod.yaml'), `project: ${name}\nexpose:\n  - {service: web, port: 1}\n`);
+      await expect(loadDeclaration(root)).rejects.toThrow(/edge's own name/);
+    }
+  });
+
   it('leaves the port to find when none is declared', async () => {
     await writeFile(join(root, 'octopod.yaml'), 'expose:\n  - service: web\n');
     expect((await loadDeclaration(root)).expose).toEqual([{ service: 'web', host: 'my-app.localhost' }]);
