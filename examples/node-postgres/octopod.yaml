@@ -1,0 +1,4 @@
+# No compose file, no Dockerfile: two recipes. `octopod plan` shows what they become.
+services:
+  app: { recipe: node-app }   # npm run dev, served at http://node-postgres.localhost
+  db: { recipe: postgres }    # its URL handed to the app as DATABASE_URL; data in .octopod/data

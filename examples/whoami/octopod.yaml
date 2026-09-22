@@ -1,0 +1,5 @@
+# What octopod routes to: the compose file above stays as it is.
+expose:
+  - service: web            # http://whoami.localhost (the port, 80, is found in the image)
+  - service: api
+    host: api               # http://api.whoami.localhost

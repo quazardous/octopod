@@ -1,0 +1,7 @@
+{
+  "name": "node-postgres",
+  "private": true,
+  "scripts": {
+    "dev": "node server.js"
+  }
+}

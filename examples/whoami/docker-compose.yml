@@ -1,0 +1,8 @@
+# A plain compose file: nothing in it is about Traefik or octopod.
+services:
+  web:
+    image: traefik/whoami:v1.10
+  api:
+    image: traefik/whoami:v1.10
+    environment:
+      WHOAMI_NAME: api
