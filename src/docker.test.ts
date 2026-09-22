@@ -17,3 +17,11 @@ describe('dockerEnv', () => {
     expect(env).toEqual({ PATH: '/usr/bin', HOME: '/home/op', XDG_RUNTIME_DIR: '/run/user/1000', DOCKER_HOST: 'unix:///run/docker.sock', LC_ALL: 'C.UTF-8' });
   });
 });
+
+describe('the docker runner', () => {
+  it('closes the input it gives a command, so a question never waits for an answer', async () => {
+    const { cliDocker } = await import('./docker.js');
+    // `cat` reads its input to the end: it returns only because the input is closed.
+    await expect(cliDocker('cat').run([], { timeoutMs: 5000 })).resolves.toBe('');
+  });
+});

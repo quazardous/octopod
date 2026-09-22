@@ -54,7 +54,10 @@ export function cliDocker(binary = 'docker'): Docker {
             }
           },
         );
-        if (options.input !== undefined) child.stdin?.end(options.input);
+        // Always closed: with nothing to read, a question docker or compose asks (recreate a
+        // volume, a network?) gets an end of input at once, instead of waiting for ever for an
+        // answer nobody can type.
+        child.stdin?.end(options.input);
       });
     },
   };

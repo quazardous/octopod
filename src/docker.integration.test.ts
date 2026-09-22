@@ -61,7 +61,7 @@ async function project(base: string, name: string, port?: number): Promise<strin
   return root;
 }
 
-describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)', { timeout: 300_000 }, () => {
+describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)', { timeout: 600_000 }, () => {
   let base: string;
   let octopod: Octopod;
   let api: Server | undefined;

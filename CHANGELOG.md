@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- octopod closes the input of every docker command it runs: a question from compose (recreate a volume, a network?) gets an end of input at once, instead of hanging the command until its timeout.
+
 - Several octopod edges on one machine (the default one, a test run, another `OCTOPOD_INSTANCE`) no longer adopt each other's containers: each only considers `octopod.edge=<its instance>`. Before, their routers of the same name collided and Traefik dropped them — the dashboard answered 404. Projects brought up before this change need `octopod up` again, to carry the new label.
 - After a restart, the edge reconnects to every instance of a project, not only the first.
 
