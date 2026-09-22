@@ -32,12 +32,18 @@ export function dockerEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessE
 export function cliDocker(binary = 'docker'): Docker {
   return {
     run(args, options = {}) {
+      const debug = Boolean(process.env.OCTOPOD_DEBUG);
+      const started = Date.now();
+      if (debug) console.error(`octopod: docker ${args.join(' ')} …`);
       return new Promise((resolve, reject) => {
         const child = execFile(
           binary,
           args,
-          { maxBuffer: 32 * 1024 * 1024, timeout: options.timeoutMs ?? 5 * 60_000, env: dockerEnv() },
+          // SIGKILL past the timeout: docker compose may not exit on SIGTERM, and the command
+          // would then never end.
+          { maxBuffer: 32 * 1024 * 1024, timeout: options.timeoutMs ?? 5 * 60_000, killSignal: 'SIGKILL', env: dockerEnv() },
           (error, stdout, stderr) => {
+            if (debug) console.error(`octopod: docker ${args.join(' ')} — ${((Date.now() - started) / 1000).toFixed(1)} s${error ? ' (failed)' : ''}`);
             if (error) {
               // What it printed, then how it ended: a command that prints nothing (a timeout,
               // a quiet failure) must still say why it failed.

@@ -34,6 +34,12 @@ jobs:
       - run: docker version && docker compose version
       # They use their own instance prefix and port: nothing else on the runner is touched.
       - run: npx vitest run src/docker.integration.test.ts
+        env:
+          # Every docker command octopod runs, with its duration: a hang names itself.
+          OCTOPOD_DEBUG: '1'
+      - name: What Docker holds, on failure
+        if: failure()
+        run: docker ps -a && docker network ls
 
   leaks:
     name: Leak check

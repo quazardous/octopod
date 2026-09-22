@@ -35,6 +35,7 @@ git config core.hooksPath .githooks
 npm run typecheck                                        # tsc --noEmit, strict
 npx vitest run --exclude '**/*.integration.test.ts'      # unit tests: no Docker needed
 npx vitest run src/docker.integration.test.ts            # against real Docker
+OCTOPOD_DEBUG=1 octopod up                              # every docker command octopod runs, with its duration
 npm run check:leaks                                      # home paths, ticket refs, secrets
 ```
 
