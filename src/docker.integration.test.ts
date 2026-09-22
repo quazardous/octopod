@@ -37,6 +37,9 @@ async function get(host: string, path = '/', method = 'GET'): Promise<{ status: 
       res.on('data', (c) => (body += String(c)));
       res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
     });
+    // The option only says the time is up: the request must be ended here, or a route to a
+    // service that just went down can keep it open for ever.
+    req.on('timeout', () => req.destroy(new Error(`no answer from ${host} within 3 s`)));
     req.on('error', reject);
     req.end();
   });
@@ -61,7 +64,7 @@ async function project(base: string, name: string, port?: number): Promise<strin
   return root;
 }
 
-describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)', { timeout: 600_000 }, () => {
+describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)', { timeout: 300_000 }, () => {
   let base: string;
   let octopod: Octopod;
   let api: Server | undefined;
