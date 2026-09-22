@@ -101,6 +101,8 @@ socket (`octopod serve`), for other tools: see [docs/CONTRACT.md](./docs/CONTRAC
 
 ## The console
 
+![The console: two projects, their services, states and routes](docs/console.png)
+
 `http://octopod.localhost` lists every project and instance, the state and health of each
 service, their URLs, what octopod warns about, and the logs, which it refreshes. It is
 read-only, and links to Traefik's dashboard at `http://traefik.localhost`. Both answer only
