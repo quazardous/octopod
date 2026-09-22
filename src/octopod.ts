@@ -125,13 +125,17 @@ export class Octopod {
     return `http://${host}${port === 80 ? '' : `:${port}`}`;
   }
 
-  /** The port the edge uses: kept once chosen, so URLs do not move between restarts. */
-  private async edgePort(): Promise<number> {
+  /**
+   * The port the edge uses, or will use: kept once chosen, so URLs do not move between
+   * restarts; before that, the first free one — so routes announced before the edge
+   * starts are the routes it will serve.
+   */
+  private async edgePort(options: { choose: boolean }): Promise<number> {
     const saved = await this.readJson<{ port?: number }>('edge/edge.json', {});
     if (saved.port) return saved.port;
     for (const port of this.ports) {
       if (!(await portTaken(port))) {
-        await this.writeJson('edge/edge.json', { port });
+        if (options.choose) await this.writeJson('edge/edge.json', { port });
         return port;
       }
     }
@@ -139,7 +143,7 @@ export class Octopod {
   }
 
   async edgeUp(): Promise<EdgeStatus> {
-    const port = await this.edgePort();
+    const port = await this.edgePort({ choose: true });
     const configFile = this.path('edge', 'traefik.yml');
     await this.writeJson('edge/traefik.yml', traefikConfig());
     await this.writeJson('edge/compose.json', edgeCompose({ instance: this.instance, port, configFile }));
@@ -180,8 +184,8 @@ export class Octopod {
   }
 
   private async routes(declaration: Declaration): Promise<Route[]> {
-    const { port } = await this.readJson<{ port?: number }>('edge/edge.json', {});
-    return declaration.expose.map((e) => ({ service: e.service, url: this.url(e.host, port ?? PREFERRED_PORT) }));
+    const port = await this.edgePort({ choose: false });
+    return declaration.expose.map((e) => ({ service: e.service, url: this.url(e.host, port) }));
   }
 
   private async project(declaration: Declaration): Promise<Project> {
