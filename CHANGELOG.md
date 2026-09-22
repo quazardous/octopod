@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Projects declare what to expose in `octopod.yaml`; octopod generates the labels and networks, and serves each at `http://<project>.localhost` or a host under it.
 - Each project on its own edge network: projects cannot reach each other.
 - `octopod` CLI and a JSON API over a unix socket: register, up, down, status, logs, edge.
+- Installable without a clone, from the repository: `npm i -g github:quazardous/octopod`, then `octopod setup` — Docker checked, the API as a systemd user service, the edge started. `setup.sh` does the same from a clone.
 - `octopod version` (`--json`: `{ version, contract }`) and `GET /v1/version`, so a client can require a minimum version; docs/CONTRACT.md lists what clients may rely on.
 - A read-only web console at `http://octopod.localhost`: every project and instance, the state of its services, their URLs, warnings and logs, with a link to Traefik's dashboard. `setup.sh` runs the API as a systemd user service for it.
 
