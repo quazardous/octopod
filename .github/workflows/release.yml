@@ -1,0 +1,34 @@
+# Publishes to npm when a version tag is pushed, and never from a machine: npm's trusted
+# publishing, where the registry trusts this workflow of this repository. No token is
+# stored anywhere; npm records the provenance of what it receives.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  # What npm checks instead of a token: this run, of this workflow, of this repository.
+  id-token: write
+
+jobs:
+  npm:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      # Trusted publishing needs a recent npm; the runner's is older.
+      - run: npm install -g npm@latest
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npx vitest run --exclude '**/*.integration.test.ts'
+      # The tag and the version in package.json must say the same thing.
+      - name: The tag is the version
+        run: test "v$(node -p 'require("./package.json").version')" = "${GITHUB_REF_NAME}"
+      - run: npm publish

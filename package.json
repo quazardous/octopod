@@ -1,7 +1,6 @@
 {
   "name": "@quazardous/octopod",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.1.1",
   "description": "One local edge for all your Docker projects: a shared Traefik, declared projects and isolated networks, behind a small API",
   "license": "MIT",
   "author": "David Berlioz",
@@ -11,14 +10,11 @@
   },
   "files": [
     "bin",
-    "src",
-    "!src/**/*.test.ts",
     "dist",
     "!dist/**/*.test.*",
     "recipes",
     "console",
     "docs",
-    "tsconfig.json",
     "README.md",
     "LICENSE",
     "CHANGELOG.md"
@@ -28,6 +24,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "check:leaks": "scripts/check-leaks.sh"
@@ -45,5 +42,9 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/quazardous/octopod.git"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

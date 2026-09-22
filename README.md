@@ -33,7 +33,7 @@ what runs in your containers, and injects no variable into them.
 You need Linux, Docker with Compose v2 (`docker compose`), and Node.js 22 or later.
 
 ```sh
-npm i -g https://github.com/quazardous/octopod/archive/refs/tags/v0.1.0.tar.gz
+npm i -g @quazardous/octopod
 octopod setup      # checks Docker, runs the API as a user service, starts the edge
 ```
 

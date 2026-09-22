@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-22
+
+### Added
+
+- On the npm registry: `npm i -g @quazardous/octopod`. A version tag publishes it from CI through npm's trusted publishing — no token anywhere, and npm records where the package came from. The package ships built (`dist/`), and the command runs it.
+
 ## [0.1.0] - 2026-09-22
 
 The first preview: tested on Linux with Docker.
@@ -36,5 +42,6 @@ The first preview: tested on Linux with Docker.
 - Traefik's dashboard and the console answer only from the host: a project's containers, which reach the edge over their edge network, get a 403.
 - `octopod` and `traefik` can no longer be project names: they are the edge's own hosts.
 
-[Unreleased]: https://github.com/quazardous/octopod/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/quazardous/octopod/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/quazardous/octopod/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/quazardous/octopod/releases/tag/v0.1.0
