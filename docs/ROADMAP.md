@@ -1,9 +1,12 @@
 # Roadmap
 
-octopod started as the environment composer and secret manager of
-bushwhack, a bridge that lets a web-chat model work on a local
-project. It became its own project because every Docker + Traefik project on a machine
-needs the same thing.
+octopod started as the environment composer of bushwhack, a bridge that lets a web-chat
+model work on a local project. It became its own project because every Docker + Traefik
+project on a machine needs the same thing.
+
+Scope: Traefik and Docker composition, nothing else. What the containers run and what
+their environment files hold is the business of the tools that use octopod — secret
+handling, in particular, stays in those tools.
 
 ## 1. Survey the patterns already in use
 
@@ -26,9 +29,9 @@ Deliverable: `docs/PATTERNS.md`.
 
 ## 2. The contract
 
-- The project declaration: name, services to expose (host, port), secret files.
-- The API: `projects list|register|up|down|status|logs|routes`, `edge status|restart`,
-  `secrets list|add|remove|redact` — JSON schemas, versioned.
+- The project declaration: name, services to expose (host, port).
+- The API: `projects list|register|up|down|status|logs|routes`, `edge status|restart` —
+  JSON schemas, versioned.
 
 ## 3. MVP
 
@@ -36,12 +39,7 @@ The shared edge (Traefik on `127.0.0.1:80`, fallback port when taken, label cons
 per-project edge networks connected to it), registration, the generated compose
 override. One existing project migrated as the pilot, its own Traefik removed.
 
-## 4. Secrets
-
-Declared secret files (dotenv first): read scrambled, changed by name only, values typed
-by the operator, masked in any output; passed to services as `env_file`.
-
-## 5. Clients
+## 4. Clients
 
 bushwhack's `app:*` tools built on the API.
 
