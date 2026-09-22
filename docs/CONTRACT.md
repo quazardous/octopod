@@ -14,11 +14,17 @@ compose:                   # default: the first of compose.yaml / compose.yml / 
   - docker-compose.yml
 expose:
   - service: web           # a service of the compose project
-    port: 3000             # the port it listens on, inside its container
+    port: 3000             # optional: the port it listens on, inside its container
   - service: api
-    port: 8080
     host: api              # served at api.demo.localhost; default: demo.localhost
 ```
+
+**The port** is found when not declared, and never blocks `up`: the service's `expose` or
+`ports` in the compose file, else its image's `EXPOSE` (pulled or built first when
+missing), else 80. When a source offers several, the likeliest web port wins (80, 8080,
+3000, 8000, 5173, …), then the lowest. `status` gives each route's `port` and
+`portSource` (`declared`, `compose`, `image`, `guess`), and a warning when octopod had to
+choose or guess — `port:` settles it.
 
 Rules, checked when the project is registered and every time it is brought up:
 
@@ -84,7 +90,10 @@ HTTP with JSON bodies over a unix socket: `$XDG_RUNTIME_DIR/octopod/octopod.sock
 | DELETE | `/v1/projects/:name` | | `{}` (brought down first) |
 
 ```ts
-interface Project { name: string; root: string; compose: string[]; routes: { service: string; url: string }[] }
+interface Project {
+  name: string; root: string; compose: string[];
+  routes: { service: string; url: string; port?: number; portSource?: 'declared' | 'compose' | 'image' | 'guess' }[];
+}
 interface ProjectStatus extends Project {
   services: { service: string; state: string; health?: string }[];
   warnings?: string[];

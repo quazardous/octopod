@@ -20,7 +20,7 @@ const Schema = z
         z
           .object({
             service: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/),
-            port: z.number().int().min(1).max(65535),
+            port: z.number().int().min(1).max(65535).optional(),
             host: z.string().max(200).optional(),
           })
           .strict(),
@@ -31,7 +31,8 @@ const Schema = z
 
 export interface Exposure {
   service: string;
-  port: number;
+  /** Declared: it wins. Absent: octopod finds it in the compose file or the image. */
+  port?: number;
   /** The full host name, e.g. api.demo.localhost. */
   host: string;
 }
@@ -89,7 +90,7 @@ export async function loadDeclaration(root: string): Promise<Declaration> {
     }
     if (seen.has(host)) throw new DeclarationError(`${file}: host ${host} is exposed twice`);
     seen.add(host);
-    expose.push({ service: e.service, port: e.port, host });
+    expose.push({ service: e.service, host, ...(e.port !== undefined ? { port: e.port } : {}) });
   }
   return { project, root, compose, expose };
 }

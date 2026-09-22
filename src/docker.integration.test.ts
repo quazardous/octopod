@@ -51,11 +51,11 @@ async function eventually(host: string, status: number): Promise<{ status: numbe
   return last;
 }
 
-async function project(base: string, name: string): Promise<string> {
+async function project(base: string, name: string, port?: number): Promise<string> {
   const root = join(base, name);
   await mkdir(root);
   await writeFile(join(root, 'docker-compose.yml'), 'services:\n  web:\n    image: traefik/whoami:v1.10\n');
-  await writeFile(join(root, 'octopod.yaml'), `project: ${name}\nexpose:\n  - service: web\n    port: 80\n`);
+  await writeFile(join(root, 'octopod.yaml'), `project: ${name}\nexpose:\n  - service: web\n${port ? `    port: ${port}\n` : ''}`);
   return root;
 }
 
@@ -66,10 +66,11 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
   beforeAll(async () => {
     base = await mkdtemp(join(tmpdir(), 'octopod-it-'));
     octopod = new Octopod({ stateDir: join(base, 'state'), instance: INSTANCE, ports: [PORT] });
-    const alpha = await project(base, 'alpha');
+    const alpha = await project(base, 'alpha', 80);
     // The project's own override, which compose loads by itself and octopod must too.
     await writeFile(join(alpha, 'docker-compose.override.yml'), 'services:\n  web:\n    environment:\n      WHOAMI_NAME: from-override\n');
     await octopod.register(alpha);
+    // No port: whoami's image says EXPOSE 80, and octopod has to find it.
     await octopod.register(await project(base, 'beta'));
     await octopod.up('alpha');
     await octopod.up('beta');
@@ -128,7 +129,8 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
 
   it('reports what runs and where', async () => {
     const status = await octopod.status('alpha');
-    expect(status.routes).toEqual([{ service: 'web', url: `http://alpha.localhost:${PORT}` }]);
+    expect(status.routes).toEqual([{ service: 'web', url: `http://alpha.localhost:${PORT}`, port: 80, portSource: 'declared' }]);
+    expect((await octopod.status('beta')).routes).toEqual([{ service: 'web', url: `http://beta.localhost:${PORT}`, port: 80, portSource: 'image' }]);
     expect(status.compose.map((f) => f.split('/').pop())).toEqual(['docker-compose.yml', 'docker-compose.override.yml']);
     expect(status.services).toEqual([expect.objectContaining({ service: 'web', state: 'running' })]);
   });

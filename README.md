@@ -44,7 +44,7 @@ Next to a project's `docker-compose.yml`, an `octopod.yaml`:
 project: demo
 expose:
   - service: web
-    port: 3000          # → http://demo.localhost
+    port: 3000          # → http://demo.localhost (optional: found in the compose file or the image)
   - service: api
     port: 8080
     host: api           # → http://api.demo.localhost

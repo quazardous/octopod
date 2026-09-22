@@ -11,13 +11,16 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { loadDeclaration, type Declaration } from './declaration.js';
 import { cliDocker, DockerError, type Docker } from './docker.js';
-import { DATA_DIR, dataVolumes, edgeCompose, edgeContainer, projectOverride, traefikConfig, type ComposeService, type ComposeVolume } from './generate.js';
+import { choosePort, composePorts, DATA_DIR, dataVolumes, edgeCompose, edgeContainer, imagePorts, projectOverride, traefikConfig, type ComposeService, type ComposeVolume, type ResolvedPort } from './generate.js';
 import { edgeNetwork } from './names.js';
 
 export const PREFERRED_PORT = 80;
 export const FALLBACK_PORT = 8480;
 
 export interface Route {
+  /** The container port the edge routes to, once the project has been up, and where it came from. */
+  port?: number;
+  portSource?: ResolvedPort['source'];
   service: string;
   url: string;
 }
@@ -204,7 +207,35 @@ export class Octopod {
 
   private async routes(declaration: Declaration): Promise<Route[]> {
     const port = await this.edgePort({ choose: false });
-    return declaration.expose.map((e) => ({ service: e.service, url: this.url(e.host, port) }));
+    const resolved = await this.readJson<Record<string, ResolvedPort>>(join('projects', declaration.project, 'ports.json'), {});
+    return declaration.expose.map((e) => {
+      const r = resolved[e.host];
+      return { service: e.service, url: this.url(e.host, port), ...(r ? { port: r.port, portSource: r.source } : {}) };
+    });
+  }
+
+  /** The TCP ports an image exposes; pulled or built first when it is not there yet. */
+  private async imageExposed(declaration: Declaration, service: string, spec: ComposeService): Promise<number[]> {
+    const image = spec.image ?? `${declaration.project}-${service}`;
+    const inspect = (): Promise<string> => this.docker.run(['image', 'inspect', image, '--format', '{{json .Config.ExposedPorts}}']);
+    let out = await inspect().catch(() => undefined);
+    if (out === undefined) {
+      await this.docker.run([...this.composeArgs(declaration, false), spec.build ? 'build' : 'pull', service]).catch(() => '');
+      out = await inspect().catch(() => 'null');
+    }
+    return imagePorts(JSON.parse(out.trim() || 'null') as Record<string, unknown> | null);
+  }
+
+  /** The port of each exposure: declared, else the compose file's, else the image's, else a guess. */
+  private async resolvePorts(declaration: Declaration, services: Record<string, ComposeService>): Promise<Record<string, ResolvedPort>> {
+    const out: Record<string, ResolvedPort> = {};
+    for (const e of declaration.expose) {
+      const spec = services[e.service] ?? {};
+      const compose = composePorts(spec);
+      const image = e.port === undefined && compose.length === 0 ? await this.imageExposed(declaration, e.service, spec) : [];
+      out[e.host] = choosePort(e.port, compose, image);
+    }
+    return out;
   }
 
   private async project(declaration: Declaration): Promise<Project> {
@@ -241,7 +272,9 @@ export class Octopod {
     };
     const data = dataVolumes(declaration.root, config.volumes ?? {});
     await this.prepareData(declaration, config.volumes ?? {}, data);
-    const override = projectOverride(this.instance, declaration, config.services ?? {}, data);
+    const ports = await this.resolvePorts(declaration, config.services ?? {});
+    await this.writeJson(join('projects', declaration.project, 'ports.json'), ports);
+    const override = projectOverride(this.instance, declaration, config.services ?? {}, data, Object.fromEntries(Object.entries(ports).map(([h, r]) => [h, r.port])));
     await this.writeJson(join('projects', declaration.project, 'override.json'), override);
     await this.edgeUp();
     await this.docker.run([...this.composeArgs(declaration, true), 'up', '-d']);
@@ -276,6 +309,17 @@ export class Octopod {
       }
       await mkdir(device, { recursive: true });
     }
+  }
+
+  /** A port octopod had to choose or guess: said, so a wrong one is found in a glance. */
+  private async portWarnings(declaration: Declaration): Promise<string[]> {
+    const resolved = await this.readJson<Record<string, ResolvedPort>>(join('projects', declaration.project, 'ports.json'), {});
+    const out: string[] = [];
+    for (const [host, r] of Object.entries(resolved)) {
+      if (r.source === 'guess') out.push(`${host}: no port found in the compose file or the image; routing to ${r.port} — set port: in octopod.yaml`);
+      else if (r.candidates.length > 1) out.push(`${host}: port ${r.port} chosen among ${r.candidates.join(', ')} (${r.source}) — set port: in octopod.yaml for another`);
+    }
+    return out;
   }
 
   /**
@@ -322,7 +366,7 @@ export class Octopod {
     const rows = out.trim().startsWith('[')
       ? (JSON.parse(out) as Record<string, string>[])
       : out.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l) as Record<string, string>);
-    const warnings = await this.foreignData(declaration);
+    const warnings = [...(await this.portWarnings(declaration)), ...(await this.foreignData(declaration))];
     return {
       ...(await this.project(declaration)),
       services: rows.map((r) => ({ service: r.Service, state: r.State, ...(r.Health ? { health: r.Health } : {}) })),

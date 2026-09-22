@@ -90,9 +90,71 @@ export function dataVolumes(root: string, volumes: Record<string, ComposeVolume>
   return out;
 }
 
-/** A service of the project as `docker compose config` sees it: only what the override needs. */
+/** A service of the project as `docker compose config` sees it: only what octopod needs. */
 export interface ComposeService {
   networks?: Record<string, unknown> | string[];
+  image?: string;
+  build?: unknown;
+  expose?: (string | number)[];
+  ports?: ({ target?: number; protocol?: string } | string | number)[];
+}
+
+export type PortSource = 'declared' | 'compose' | 'image' | 'guess';
+
+export interface ResolvedPort {
+  port: number;
+  source: PortSource;
+  /** Every port that source offered, when there was a choice. */
+  candidates: number[];
+}
+
+/** The ports web servers listen on most, best first: the pick when a service offers several. */
+const LIKELY = [80, 8080, 3000, 8000, 5173, 4200, 5000, 8888, 9000];
+/** Nothing known at all: route to the usual one rather than refuse — a 502 says the rest. */
+const GUESS = 80;
+
+function number(value: string | number | undefined): number | undefined {
+  const n = typeof value === 'number' ? value : Number(String(value ?? '').split(/[/-]/)[0]);
+  return Number.isInteger(n) && n > 0 && n < 65536 ? n : undefined;
+}
+
+/** The TCP ports a compose service says it listens on: `expose`, then the targets of `ports`. */
+export function composePorts(service: ComposeService): number[] {
+  const out = new Set<number>();
+  for (const e of service.expose ?? []) {
+    if (!String(e).endsWith('/udp')) {
+      const n = number(e);
+      if (n) out.add(n);
+    }
+  }
+  for (const p of service.ports ?? []) {
+    if (typeof p === 'object') {
+      if (p.protocol !== 'udp' && p.target) out.add(p.target);
+    } else {
+      // "8080:80" or "80": the container side is the last number.
+      const n = number(String(p).split(':').pop());
+      if (n && !String(p).endsWith('/udp')) out.add(n);
+    }
+  }
+  return [...out];
+}
+
+/** The TCP ports of an image's EXPOSE, from `docker image inspect` (`{"80/tcp": {}}`). */
+export function imagePorts(exposed: Record<string, unknown> | null | undefined): number[] {
+  return Object.keys(exposed ?? {}).filter((k) => !k.endsWith('/udp')).map((k) => number(k)).filter((n): n is number => n !== undefined);
+}
+
+/**
+ * The port to route to: declared, else the compose file's, else the image's, else a guess.
+ * Never a refusal — a development edge that will not start is worse than a wrong port —
+ * and when a source offers several, the likeliest web port, then the lowest.
+ */
+export function choosePort(declared: number | undefined, compose: number[], image: number[]): ResolvedPort {
+  if (declared !== undefined) return { port: declared, source: 'declared', candidates: [] };
+  const pick = (ports: number[]): number => LIKELY.find((p) => ports.includes(p)) ?? [...ports].sort((a, b) => a - b)[0];
+  if (compose.length > 0) return { port: pick(compose), source: 'compose', candidates: compose.length > 1 ? compose : [] };
+  if (image.length > 0) return { port: pick(image), source: 'image', candidates: image.length > 1 ? image : [] };
+  return { port: GUESS, source: 'guess', candidates: [] };
 }
 
 /**
@@ -106,6 +168,8 @@ export function projectOverride(
   services: Record<string, ComposeService>,
   /** From `dataVolumes`: each named volume becomes a bind to its folder in the project. */
   data: Record<string, string> = {},
+  /** The port of each exposure, by host; an exposure's declared port otherwise. */
+  ports: Record<string, number> = {},
 ): Record<string, unknown> {
   const network = edgeNetwork(instance, declaration.project);
   const out: Record<string, unknown> = {};
@@ -127,7 +191,7 @@ export function projectOverride(
         [`traefik.http.routers.${id}.rule`]: `Host(\`${exposure.host}\`)`,
         [`traefik.http.routers.${id}.entrypoints`]: 'web',
         [`traefik.http.routers.${id}.service`]: id,
-        [`traefik.http.services.${id}.loadbalancer.server.port`]: String(exposure.port),
+        [`traefik.http.services.${id}.loadbalancer.server.port`]: String(ports[exposure.host] ?? exposure.port ?? GUESS),
       },
       networks: Object.fromEntries([...existing.map((n) => [n, {}]), ['octopod_edge', {}]]),
     };

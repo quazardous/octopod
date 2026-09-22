@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { dataVolumes, edgeCompose, projectOverride, traefikConfig } from './generate.js';
+import { choosePort, composePorts, dataVolumes, edgeCompose, imagePorts, projectOverride, traefikConfig } from './generate.js';
 import { fullHost, slugify } from './names.js';
 import type { Declaration } from './declaration.js';
 
@@ -86,5 +86,37 @@ describe('data', () => {
 
   it('adds no volumes section to a project that has none', () => {
     expect(projectOverride('octopod', DEMO, { web: {}, api: {} })).not.toHaveProperty('volumes');
+  });
+});
+
+describe('ports', () => {
+  it('reads a compose service\'s TCP ports from expose and from the container side of ports', () => {
+    expect(composePorts({ expose: ['3000', '9229/tcp', '53/udp'], ports: [{ target: 8080, protocol: 'tcp' }, { target: 5353, protocol: 'udp' }, '127.0.0.1:18080:80', '4000'] }))
+      .toEqual([3000, 9229, 8080, 80, 4000]);
+    expect(composePorts({})).toEqual([]);
+  });
+
+  it('reads an image\'s EXPOSE, TCP only', () => {
+    expect(imagePorts({ '80/tcp': {}, '443/tcp': {}, '53/udp': {} })).toEqual([80, 443]);
+    expect(imagePorts(null)).toEqual([]);
+  });
+
+  it('takes the declared port first, then the compose file\'s, then the image\'s', () => {
+    expect(choosePort(9000, [3000], [80])).toEqual({ port: 9000, source: 'declared', candidates: [] });
+    expect(choosePort(undefined, [3000], [80])).toEqual({ port: 3000, source: 'compose', candidates: [] });
+    expect(choosePort(undefined, [], [80])).toEqual({ port: 80, source: 'image', candidates: [] });
+  });
+
+  it('never refuses: among several, the likeliest web port; with none, a guess', () => {
+    expect(choosePort(undefined, [], [443, 80])).toEqual({ port: 80, source: 'image', candidates: [443, 80] });
+    expect(choosePort(undefined, [9229, 3000], [])).toEqual({ port: 3000, source: 'compose', candidates: [9229, 3000] });
+    expect(choosePort(undefined, [7001, 7000], []).port).toBe(7000);
+    expect(choosePort(undefined, [], [])).toEqual({ port: 80, source: 'guess', candidates: [] });
+  });
+
+  it('puts the resolved port in the labels', () => {
+    const noPort = { ...DEMO, expose: [{ service: 'web', host: 'demo.localhost' }] };
+    const labels = ((projectOverride('octopod', noPort, { web: {} }, {}, { 'demo.localhost': 3000 }) as { services: Record<string, { labels: Record<string, string> }> }).services.web.labels);
+    expect(labels['traefik.http.services.demo-demo.loadbalancer.server.port']).toBe('3000');
   });
 });
