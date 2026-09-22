@@ -25,6 +25,8 @@ export interface Route {
 export interface Project {
   name: string;
   root: string;
+  /** The compose files used, in order: what the project declared, or found (main, then override). */
+  compose: string[];
   routes: Route[];
 }
 
@@ -206,7 +208,7 @@ export class Octopod {
   }
 
   private async project(declaration: Declaration): Promise<Project> {
-    return { name: declaration.project, root: declaration.root, routes: await this.routes(declaration) };
+    return { name: declaration.project, root: declaration.root, compose: declaration.compose, routes: await this.routes(declaration) };
   }
 
   async register(root: string): Promise<Project> {

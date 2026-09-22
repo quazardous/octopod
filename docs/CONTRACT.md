@@ -8,7 +8,9 @@ Next to the project's own compose file(s). Everything but `expose` is optional.
 
 ```yaml
 project: demo              # DNS label; default: the folder name, slugified
-compose:                   # default: compose.yaml / compose.yml / docker-compose.yaml / docker-compose.yml
+compose:                   # default: the first of compose.yaml / compose.yml / docker-compose.yaml / docker-compose.yml,
+                           # then its override (compose.override.yaml …) when present — as compose does without -f;
+                           # declared, the list is taken as is
   - docker-compose.yml
 expose:
   - service: web           # a service of the compose project
@@ -82,7 +84,7 @@ HTTP with JSON bodies over a unix socket: `$XDG_RUNTIME_DIR/octopod/octopod.sock
 | DELETE | `/v1/projects/:name` | | `{}` (brought down first) |
 
 ```ts
-interface Project { name: string; root: string; routes: { service: string; url: string }[] }
+interface Project { name: string; root: string; compose: string[]; routes: { service: string; url: string }[] }
 interface ProjectStatus extends Project {
   services: { service: string; state: string; health?: string }[];
   warnings?: string[];

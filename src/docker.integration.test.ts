@@ -66,7 +66,10 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
   beforeAll(async () => {
     base = await mkdtemp(join(tmpdir(), 'octopod-it-'));
     octopod = new Octopod({ stateDir: join(base, 'state'), instance: INSTANCE, ports: [PORT] });
-    await octopod.register(await project(base, 'alpha'));
+    const alpha = await project(base, 'alpha');
+    // The project's own override, which compose loads by itself and octopod must too.
+    await writeFile(join(alpha, 'docker-compose.override.yml'), 'services:\n  web:\n    environment:\n      WHOAMI_NAME: from-override\n');
+    await octopod.register(alpha);
     await octopod.register(await project(base, 'beta'));
     await octopod.up('alpha');
     await octopod.up('beta');
@@ -99,6 +102,11 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
     expect(host(alpha.body)).not.toBe(host(beta.body));
   });
 
+  it('applies the project\'s own compose override', async () => {
+    expect((await eventually('alpha.localhost', 200)).body).toContain('Name: from-override');
+    expect((await eventually('beta.localhost', 200)).body).not.toContain('from-override');
+  });
+
   it('answers 404 for a host no project declared', async () => {
     expect((await eventually('nobody.localhost', 404)).status).toBe(404);
   });
@@ -121,6 +129,7 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
   it('reports what runs and where', async () => {
     const status = await octopod.status('alpha');
     expect(status.routes).toEqual([{ service: 'web', url: `http://alpha.localhost:${PORT}` }]);
+    expect(status.compose.map((f) => f.split('/').pop())).toEqual(['docker-compose.yml', 'docker-compose.override.yml']);
     expect(status.services).toEqual([expect.objectContaining({ service: 'web', state: 'running' })]);
   });
 

@@ -29,6 +29,22 @@ describe('loadDeclaration', () => {
     });
   });
 
+  it('takes the project\'s own override after its main file, as compose would', async () => {
+    await writeFile(join(root, 'octopod.yaml'), 'expose:\n  - service: web\n    port: 3000\n');
+    await writeFile(join(root, 'docker-compose.override.yml'), 'services: {}\n');
+    expect((await loadDeclaration(root)).compose).toEqual([join(root, 'docker-compose.yml'), join(root, 'docker-compose.override.yml')]);
+    // compose.yaml comes first, and brings its own override name.
+    await writeFile(join(root, 'compose.yaml'), 'services: {}\n');
+    await writeFile(join(root, 'compose.override.yaml'), 'services: {}\n');
+    expect((await loadDeclaration(root)).compose).toEqual([join(root, 'compose.yaml'), join(root, 'compose.override.yaml')]);
+  });
+
+  it('takes exactly the declared files, adding no override', async () => {
+    await writeFile(join(root, 'docker-compose.override.yml'), 'services: {}\n');
+    await writeFile(join(root, 'octopod.yaml'), 'compose: [docker-compose.yml]\nexpose:\n  - service: web\n    port: 3000\n');
+    expect((await loadDeclaration(root)).compose).toEqual([join(root, 'docker-compose.yml')]);
+  });
+
   it('refuses a host outside the project, a duplicate host and an unknown key', async () => {
     await writeFile(join(root, 'octopod.yaml'), 'project: demo\nexpose:\n  - {service: web, port: 1, host: "x y"}\n');
     await expect(loadDeclaration(root)).rejects.toThrow(/not a DNS label/);

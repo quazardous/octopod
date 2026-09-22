@@ -69,7 +69,13 @@ export async function loadDeclaration(root: string): Promise<Declaration> {
       if (await stat(join(root, name)).then(() => true, () => false)) found.push(join(root, name));
     }
     if (found.length === 0) throw new DeclarationError(`${file}: no compose file in ${root} (${DEFAULT_COMPOSE.join(', ')})`);
-    compose = [found[0]];
+    // As compose itself does without -f: the main file, then its override when there is
+    // one. octopod passes -f, which turns that lookup off — so it does it here.
+    const prefix = basename(found[0]).replace(/\.ya?ml$/, '');
+    const override = [`${prefix}.override.yaml`, `${prefix}.override.yml`].map((n) => join(root, n));
+    const present = [];
+    for (const o of override) if (await stat(o).then(() => true, () => false)) present.push(o);
+    compose = [found[0], ...present.slice(0, 1)];
   }
 
   const expose: Exposure[] = [];

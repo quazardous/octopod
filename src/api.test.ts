@@ -50,7 +50,7 @@ describe('the API', () => {
   it('registers a project from its declaration and lists it with its routes', async () => {
     const created = await call('POST', '/v1/projects', { root: join(base, 'demo') });
     expect(created.status).toBe(201);
-    expect(created.json).toEqual({ name: 'demo', root: join(base, 'demo'), routes: [{ service: 'web', url: 'http://api.demo.localhost:18499' }] });
+    expect(created.json).toEqual({ name: 'demo', root: join(base, 'demo'), compose: [join(base, 'demo', 'docker-compose.yml')], routes: [{ service: 'web', url: 'http://api.demo.localhost:18499' }] });
     expect((await call('GET', '/v1/projects')).json).toEqual([created.json]);
   });
 
