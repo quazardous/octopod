@@ -1,0 +1,19 @@
+{
+  "name": "octopod",
+  "version": "0.0.0",
+  "description": "One local edge for all your Docker projects: a shared Traefik, declared projects, isolated networks and secret files, behind a small API",
+  "license": "MIT",
+  "author": "David Berlioz",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2",
+    "vitest": "^3.1.4"
+  }
+}
