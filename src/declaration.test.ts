@@ -59,6 +59,15 @@ describe('loadDeclaration', () => {
     expect((await loadDeclaration(root)).expose).toEqual([{ service: 'web', host: 'my-app.localhost' }]);
   });
 
+  it('takes a declared env file inside the project, and nothing outside it', async () => {
+    await writeFile(join(root, 'octopod.yaml'), 'env_file: docker-compose.env\nexpose:\n  - service: web\n');
+    expect((await loadDeclaration(root)).envFile).toBe(join(root, 'docker-compose.env'));
+    await writeFile(join(root, 'octopod.yaml'), 'env_file: ../elsewhere.env\nexpose:\n  - service: web\n');
+    await expect(loadDeclaration(root)).rejects.toThrow(/inside the project/);
+    await writeFile(join(root, 'octopod.yaml'), 'env_file: /etc/environment\nexpose:\n  - service: web\n');
+    await expect(loadDeclaration(root)).rejects.toThrow(/inside the project/);
+  });
+
   it('refuses a project name that is not a DNS label', async () => {
     await writeFile(join(root, 'octopod.yaml'), 'project: Not_OK\nexpose:\n  - {service: web, port: 1}\n');
     await expect(loadDeclaration(root)).rejects.toThrow(/DNS label/);

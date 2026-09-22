@@ -120,3 +120,10 @@ describe('ports', () => {
     expect(labels['traefik.http.services.demo-demo.loadbalancer.server.port']).toBe('3000');
   });
 });
+
+describe('environment', () => {
+  it('never puts a variable into a service: labels, networks and volumes only', () => {
+    const override = projectOverride('octopod', DEMO, { web: {}, api: {} }, { db: '/p/demo/.octopod/data/db' }, {}) as { services: Record<string, Record<string, unknown>> };
+    for (const service of Object.values(override.services)) expect(Object.keys(service).sort()).toEqual(['labels', 'networks']);
+  });
+});

@@ -261,7 +261,8 @@ export class Octopod {
   private composeArgs(declaration: Declaration, withOverride: boolean): string[] {
     const files = declaration.compose.flatMap((f) => ['-f', f]);
     const override = withOverride ? ['-f', this.path('projects', declaration.project, 'override.json')] : [];
-    return ['compose', '-p', declaration.project, '--project-directory', declaration.root, ...files, ...override];
+    const envFile = declaration.envFile ? ['--env-file', declaration.envFile] : [];
+    return ['compose', '-p', declaration.project, '--project-directory', declaration.root, ...envFile, ...files, ...override];
   }
 
   async up(name: string): Promise<ProjectStatus> {

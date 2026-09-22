@@ -17,6 +17,18 @@ export interface Docker {
   run(args: string[], options?: RunOptions): Promise<string>;
 }
 
+/**
+ * What docker gets of octopod's own environment: what it needs to find and reach the
+ * daemon, and nothing else. Every other variable of the calling shell — a COMPOSE_FILE, a
+ * COMPOSE_PROFILES, anything a compose file interpolates — would otherwise flow into the
+ * project, unseen. A project's variables come from its own `.env` or declared env file.
+ */
+const PASSED = /^(PATH|HOME|USER|LOGNAME|LANG|LC_[A-Z_]+|TZ|TMPDIR|XDG_RUNTIME_DIR|XDG_CONFIG_HOME|SSH_AUTH_SOCK|DOCKER_[A-Z_]+|BUILDX_[A-Z_]+)$/;
+
+export function dockerEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(env).filter(([k]) => PASSED.test(k)));
+}
+
 export function cliDocker(binary = 'docker'): Docker {
   return {
     run(args, options = {}) {
@@ -24,7 +36,7 @@ export function cliDocker(binary = 'docker'): Docker {
         const child = execFile(
           binary,
           args,
-          { maxBuffer: 32 * 1024 * 1024, timeout: options.timeoutMs ?? 5 * 60_000 },
+          { maxBuffer: 32 * 1024 * 1024, timeout: options.timeoutMs ?? 5 * 60_000, env: dockerEnv() },
           (error, stdout, stderr) => {
             if (error) {
               const detail = options.withStderr ? `${stdout}${stderr}` : stderr || error.message;

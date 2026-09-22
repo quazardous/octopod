@@ -70,8 +70,14 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
     // The project's own override, which compose loads by itself and octopod must too.
     await writeFile(join(alpha, 'docker-compose.override.yml'), 'services:\n  web:\n    environment:\n      WHOAMI_NAME: from-override\n');
     await octopod.register(alpha);
-    // No port: whoami's image says EXPOSE 80, and octopod has to find it.
-    await octopod.register(await project(base, 'beta'));
+    // No port: whoami's image says EXPOSE 80, and octopod has to find it. Its name comes
+    // from a declared env file — and a variable of octopod's own shell must not reach it.
+    const beta = await project(base, 'beta');
+    await writeFile(join(beta, 'docker-compose.yml'), 'services:\n  web:\n    image: traefik/whoami:v1.10\n    environment:\n      WHOAMI_NAME: "${BETA_NAME:-unset}-${OCTOPOD_LEAK:-clean}"\n');
+    await writeFile(join(beta, 'compose.env'), 'BETA_NAME=from-env-file\n');
+    await writeFile(join(beta, 'octopod.yaml'), 'project: beta\nenv_file: compose.env\nexpose:\n  - service: web\n');
+    process.env.OCTOPOD_LEAK = 'leaked';
+    await octopod.register(beta);
     await octopod.up('alpha');
     await octopod.up('beta');
     // A container labelled for some other Traefik, on a network the edge does reach — the
@@ -106,6 +112,10 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
   it('applies the project\'s own compose override', async () => {
     expect((await eventually('alpha.localhost', 200)).body).toContain('Name: from-override');
     expect((await eventually('beta.localhost', 200)).body).not.toContain('from-override');
+  });
+
+  it('reads a declared env file, and nothing of octopod\'s own environment', async () => {
+    expect((await eventually('beta.localhost', 200)).body).toContain('Name: from-env-file-clean');
   });
 
   it('answers 404 for a host no project declared', async () => {

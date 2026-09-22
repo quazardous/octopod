@@ -12,6 +12,7 @@ compose:                   # default: the first of compose.yaml / compose.yml / 
                            # then its override (compose.override.yaml …) when present — as compose does without -f;
                            # declared, the list is taken as is
   - docker-compose.yml
+env_file: compose.env      # optional: variables for the compose files, inside the project; compose's own .env otherwise
 expose:
   - service: web           # a service of the compose project
     port: 3000             # optional: the port it listens on, inside its container
@@ -54,6 +55,11 @@ Rules, checked when the project is registered and every time it is brought up:
 - **Down**: the edge is disconnected, then `docker compose … down`. `volumes: true`
   removes the Docker volume objects; the data in `.octopod/data` is the project's and
   stays.
+- **Environment**: docker gets only what it needs of octopod's own environment (`PATH`,
+  `HOME`, locale, `XDG_RUNTIME_DIR`, `DOCKER_*`, `BUILDX_*`, `SSH_AUTH_SOCK`) — never a
+  `COMPOSE_*` or any other variable of the calling shell, which a compose file would
+  otherwise interpolate unseen. A project's variables come from its `.env`, or from its
+  declared `env_file` (passed as `--env-file`). The override never adds an `environment`.
 - **Ownership**: `status` reports, in `warnings`, each data folder holding files the
   operator does not own — a service writing as root leaves files only root can delete.
   octopod does not force a user on an image.

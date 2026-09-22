@@ -3,7 +3,7 @@
  * only says which services the edge routes to, on which port, under which host.
  */
 import { readFile, stat } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { parse } from 'yaml';
 import { z } from 'zod';
 import { fullHost, LABEL_RE, slugify } from './names.js';
@@ -15,6 +15,8 @@ const Schema = z
   .object({
     project: z.string().regex(LABEL_RE, 'must be a DNS label: a-z, 0-9 and -, at most 63').optional(),
     compose: z.array(z.string().min(1).max(200)).min(1).optional(),
+    /** Variables for the compose files' interpolation, relative to the project; compose's own `.env` otherwise. */
+    env_file: z.string().min(1).max(200).optional(),
     expose: z
       .array(
         z
@@ -42,6 +44,8 @@ export interface Declaration {
   root: string;
   /** Compose files, absolute. */
   compose: string[];
+  /** The declared env file, absolute: passed as --env-file. */
+  envFile?: string;
   expose: Exposure[];
 }
 
@@ -92,5 +96,12 @@ export async function loadDeclaration(root: string): Promise<Declaration> {
     seen.add(host);
     expose.push({ service: e.service, host, ...(e.port !== undefined ? { port: e.port } : {}) });
   }
-  return { project, root, compose, expose };
+  let envFile: string | undefined;
+  if (parsed.data.env_file !== undefined) {
+    envFile = resolve(root, parsed.data.env_file);
+    if (relative(root, envFile).startsWith('..') || isAbsolute(parsed.data.env_file)) {
+      throw new DeclarationError(`${file}: env_file must be a path inside the project`);
+    }
+  }
+  return { project, root, compose, expose, ...(envFile ? { envFile } : {}) };
 }
