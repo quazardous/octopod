@@ -8,13 +8,14 @@
  *   octopod unregister <project>
  *   octopod list
  *   octopod serve [--socket path]
+ *   octopod version
  *
  * `--json` prints the API's JSON; otherwise a short human summary.
  */
 import { basename, resolve } from 'node:path';
 import { loadDeclaration } from './declaration.js';
 import { listen } from './api.js';
-import { Octopod, type EdgeStatus, type Project, type ProjectStatus } from './octopod.js';
+import { Octopod, version, type EdgeStatus, type Project, type ProjectStatus } from './octopod.js';
 
 function flag(args: string[], name: string): string | undefined {
   const at = args.indexOf(name);
@@ -68,6 +69,11 @@ async function main(argv: string[]): Promise<void> {
   const socket = flag(rest, '--socket');
   const octopod = new Octopod(socket ? { socket: resolve(socket) } : {});
   switch (command) {
+    case 'version':
+    case '--version': {
+      const v = await version();
+      return json ? print(v, true) : console.log(`octopod ${v.version} (contract ${v.contract})`);
+    }
     case 'edge': {
       const sub = positional(rest)[0] ?? 'status';
       if (sub === 'up') return print(await octopod.edgeUp(), json);
@@ -127,7 +133,7 @@ async function main(argv: string[]): Promise<void> {
       return;
     }
     default:
-      console.log(`usage: ${basename(process.argv[1] ?? 'octopod')} edge up|down|status | register [dir] | list | up|down|status|logs [project] | unregister <project> | serve  [--json]`);
+      console.log(`usage: ${basename(process.argv[1] ?? 'octopod')} edge up|down|status | register [dir] | list | up|down|status|logs [project] | unregister <project> | serve | version  [--json]`);
       if (command) process.exitCode = 2;
   }
 }

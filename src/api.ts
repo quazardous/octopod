@@ -7,7 +7,7 @@ import { chmod, mkdir, readFile, rm } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { DeclarationError } from './declaration.js';
 import { DockerError } from './docker.js';
-import { defaultSocket, Octopod, OctopodError } from './octopod.js';
+import { defaultSocket, Octopod, OctopodError, version } from './octopod.js';
 
 export { defaultSocket };
 
@@ -68,6 +68,8 @@ export function handler(octopod: Octopod) {
       if (page && (method === 'GET' || method === 'HEAD')) return await sendConsole(res, page);
       if (parts[0] !== 'v1') return send(res, 404, { error: 'not found' });
       const [, resource, name, action] = parts;
+
+      if (resource === 'version' && !name && method === 'GET') return send(res, 200, await version());
 
       if (resource === 'edge' && !name && method === 'GET') return send(res, 200, await octopod.edgeStatus());
       if (resource === 'edge' && name === 'up' && method === 'POST') return send(res, 200, await octopod.edgeUp());

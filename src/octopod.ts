@@ -17,6 +17,15 @@ import { cliDocker, DockerError, type Docker } from './docker.js';
 import { choosePort, composePorts, CONSOLE_HOST, consoleNginxConfig, DASHBOARD_HOST, DATA_DIR, dataVolumes, duplicationBlockers, edgeCompose, edgeContainer, imagePorts, localOnlyConfig, projectOverride, traefikConfig, type ComposeService, type ComposeVolume, type ResolvedPort } from './generate.js';
 import { edgeNetwork, fullHost, instanceName } from './names.js';
 
+/** The version of the contract in docs/CONTRACT.md: the declaration, the API, the CLI's JSON. */
+export const CONTRACT = 1;
+
+/** octopod's own version, from its package.json — the same file from the sources and from dist/. */
+export async function version(): Promise<{ version: string; contract: number }> {
+  const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
+  return { version: pkg.version, contract: CONTRACT };
+}
+
 export const PREFERRED_PORT = 80;
 export const FALLBACK_PORT = 8480;
 

@@ -137,6 +137,7 @@ HTTP with JSON bodies over a unix socket: `$XDG_RUNTIME_DIR/octopod/octopod.sock
 
 | Method | Path | Body | Answer |
 |---|---|---|---|
+| GET | `/v1/version` | | `{ version, contract }` — octopod's version (semver) and this contract's (`1`) |
 | GET | `/v1/edge` | | `{ running, port, dashboard, console }` |
 | POST | `/v1/edge/up` · `/v1/edge/down` | | `{ running, port, dashboard, console }` |
 | GET | `/v1/projects` | | `Project[]` |
@@ -171,3 +172,23 @@ The CLI speaks the same operations and prints the same JSON with `--json`:
 `octopod serve [--socket path]` (the API, and the console's data; `setup.sh` installs it
 as the `octopod` systemd user service). `OCTOPOD_STATE_DIR`, `OCTOPOD_INSTANCE` and `OCTOPOD_PORTS` select
 another instance (tests, a second edge).
+
+## What clients rely on
+
+A client — a tool built on octopod — checks `octopod version --json` (or `GET /v1/version`)
+and refuses to run below the version it needs. What it may rely on, from 0.1.0:
+
+- **The CLI, with `--json`**: `version`, `register <dir>`, `plan <dir>`, `recipes`,
+  `up <project>`, `status <project>`, `restart <project> --service <s>`,
+  `exec <project> <service> --timeout <ms> -- <argv…>` (its answer's `mode` included),
+  `logs <project> --service <s> --tail <n>`, `unregister <project>`, `edge status`,
+  `edge down`; each takes `--instance N` where the table above says so.
+- **The variables** `OCTOPOD_STATE_DIR`, `OCTOPOD_INSTANCE` and `OCTOPOD_PORTS`.
+- **The recipe `node-app`**, and the convention that an app's recipe has an id ending in
+  `-app`.
+- **In `octopod.yaml`**: `project`, `compose`, `services` (`<name>: { recipe, … }`) and
+  `workspace`.
+
+While octopod is 0.x, a change to any of these is released in a new minor version, with
+a **Breaking** entry in the changelog that says what to do.
+

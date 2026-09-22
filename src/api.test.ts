@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { request } from 'node:http';
-import { mkdtemp, mkdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Server } from 'node:http';
@@ -69,6 +69,11 @@ describe('the API', () => {
   it('answers 409 for a project it does not know, and 404 for a route it does not have', async () => {
     expect((await call('GET', '/v1/projects/nope')).status).toBe(409);
     expect((await call('GET', '/v2/anything')).status).toBe(404);
+  });
+
+  it('says its version and the contract it speaks, from package.json', async () => {
+    const { version } = JSON.parse(await readFile(join(import.meta.dirname, '..', 'package.json'), 'utf8')) as { version: string };
+    expect((await call('GET', '/v1/version')).json).toEqual({ version, contract: 1 });
   });
 
   it('reports the edge as stopped when nothing runs', async () => {
