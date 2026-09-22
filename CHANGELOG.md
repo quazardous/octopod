@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-22
+
 ### Added
 
 - `octopod secrets <project> --json` and `GET /v1/projects/:name/secrets`: the values of the secrets octopod generated for a project's recipes, of every running instance (or of one, with `--instance`), for a client to mask them — a chat bridge, for instance, before anything leaves the machine. Without `--json`, only their names. The console's relay refuses the route: the console never needs them.
@@ -46,5 +48,6 @@ The first preview: tested on Linux with Docker.
 - Traefik's dashboard and the console answer only from the host: a project's containers, which reach the edge over their edge network, get a 403.
 - `octopod` and `traefik` can no longer be project names: they are the edge's own hosts.
 
-[Unreleased]: https://github.com/quazardous/octopod/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/quazardous/octopod/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/quazardous/octopod/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/quazardous/octopod/releases/tag/v0.1.0
