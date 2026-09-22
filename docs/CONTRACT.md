@@ -169,7 +169,10 @@ The CLI speaks the same operations and prints the same JSON with `--json`:
 `octopod edge up|down|status`, `octopod register [dir]`, `octopod up|down|status|logs|restart
 [project]`, `octopod exec <project> <service> -- <command…>`, `octopod unregister <project>` —
 `up`, `down`, `status`, `logs`, `restart` and `exec` take `--instance N`;
-`octopod serve [--socket path]` (the API, and the console's data; `setup.sh` installs it
+`octopod shell [project] [service] [--instance N] [--root] [--oneshot] [-- command…]` (a
+shell in a running service, as its user — or root — in its working directory; bash when
+the image has it; `--oneshot` for a service that is not running; CLI only: it needs a
+terminal), `octopod serve [--socket path]` (the API, and the console's data; `setup.sh` installs it
 as the `octopod` systemd user service). `OCTOPOD_STATE_DIR`, `OCTOPOD_INSTANCE` and `OCTOPOD_PORTS` select
 another instance (tests, a second edge).
 

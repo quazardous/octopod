@@ -61,6 +61,7 @@ octopod register            # in the project folder
 octopod up                  # starts the edge if needed, then the project
 octopod status              # services and URLs
 octopod logs --service web --tail 100
+octopod shell                # a shell in the first routed service, as its user (--root, or a service name)
 octopod down                # --volumes removes the Docker volumes; the data in .octopod/data stays
 octopod up --instance 2     # the same project a second time, at http://demo-2.localhost
 octopod edge status         # the shared Traefik: the console and the dashboard's addresses

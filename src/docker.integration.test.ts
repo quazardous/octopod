@@ -3,7 +3,7 @@
  * port, so it never touches a real octopod edge. Skipped when Docker is not available.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -227,6 +227,15 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
     } finally {
       await octopod.unregister('gamma').catch(() => undefined);
     }
+  });
+
+  it('runs a command in a service through octopod shell, its exit code kept, and refuses a service that is down', async () => {
+    const argv = await octopod.shellCommand('alpha', { command: ['/whoami', '--help'], tty: false });
+    const ran = spawnSync(argv[0], argv.slice(1), { encoding: 'utf8' });
+    expect(`${ran.stdout}${ran.stderr}`).toMatch(/Usage|port/i);
+    const fails = await octopod.shellCommand('alpha', { command: ['/does-not-exist'], tty: false });
+    expect(spawnSync(fails[0], fails.slice(1)).status).not.toBe(0);
+    await expect(octopod.shellCommand('alpha', { instance: 3 })).rejects.toThrow(/not created/);
   });
 
   it('puts the edge network in internal mode: routing works, and it is no way out', () => {

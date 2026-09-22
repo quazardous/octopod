@@ -9,12 +9,15 @@
  *   octopod unregister <project>
  *   octopod list
  *   octopod serve [--socket path]
+ *   octopod shell [project] [service] [--root] [--oneshot] [-- command…]
  *   octopod version
  *   octopod setup [--no-service] [--no-edge]
  *
  * `--json` prints the API's JSON; otherwise a short human summary.
  */
+import { spawn } from 'node:child_process';
 import { basename, resolve } from 'node:path';
+import { dockerEnv } from './docker.js';
 import { loadDeclaration } from './declaration.js';
 import { listen } from './api.js';
 import { setup } from './setup.js';
@@ -77,6 +80,33 @@ async function main(argv: string[]): Promise<void> {
       const v = await version();
       return json ? print(v, true) : console.log(`octopod ${v.version} (contract ${v.contract})`);
     }
+    case 'shell': {
+      // octopod shell [project] [service] [--instance N] [--root] [--oneshot] [-- command…]
+      const dash = rest.indexOf('--');
+      const before = dash < 0 ? rest : rest.slice(0, dash);
+      const words = positional(before);
+      // One word: a registered project, or a service of the project declared here.
+      let project: string;
+      let service: string | undefined;
+      if (words.length >= 2) [project, service] = words;
+      else if (words.length === 1 && !(await octopod.names()).includes(words[0])) [project, service] = [await projectName([]), words[0]];
+      else project = await projectName(words);
+      const argv = await octopod.shellCommand(project, {
+        service,
+        instance: instanceOf(before),
+        root: before.includes('--root'),
+        oneshot: before.includes('--oneshot'),
+        command: dash < 0 ? undefined : rest.slice(dash + 1),
+        tty: Boolean(process.stdin.isTTY),
+      });
+      // The terminal is handed to docker; its exit code becomes this command's.
+      const child = spawn(argv[0], argv.slice(1), { stdio: 'inherit', env: { ...dockerEnv(), ...(process.env.TERM ? { TERM: process.env.TERM } : {}) } });
+      process.exitCode = await new Promise<number>((done, fail) => {
+        child.once('error', fail);
+        child.once('exit', (code, signal) => done(code ?? (signal ? 128 : 1)));
+      });
+      return;
+    }
     case 'setup':
       return setup(octopod, { service: !rest.includes('--no-service'), edge: !rest.includes('--no-edge'), log: (l) => console.log(l) });
     case 'edge': {
@@ -138,7 +168,7 @@ async function main(argv: string[]): Promise<void> {
       return;
     }
     default:
-      console.log(`usage: ${basename(process.argv[1] ?? 'octopod')} edge up|down|status | register [dir] | list | up|down|status|logs [project] | unregister <project> | serve | setup | version  [--json]`);
+      console.log(`usage: ${basename(process.argv[1] ?? 'octopod')} edge up|down|status | register [dir] | list | up|down|status|logs [project] | unregister <project> | shell [project] [service] | serve | setup | version  [--json]`);
       if (command) process.exitCode = 2;
   }
 }

@@ -71,6 +71,23 @@ export interface ExecResult {
   truncated: boolean;
 }
 
+export interface ShellOptions {
+  /** The service to enter; the project's first routed one by default. */
+  service?: string;
+  instance?: number;
+  /** As root (uid 0), whatever user the service runs as: no sudo in the image. */
+  root?: boolean;
+  /** In a fresh container of the service, for when it is not running. */
+  oneshot?: boolean;
+  /** A command instead of a shell. */
+  command?: string[];
+  /** Whether there is a terminal to attach to; without one, the command's output is streamed. */
+  tty?: boolean;
+}
+
+/** bash when the image has it, else sh: the shell of a VM, whatever the image. */
+export const SHELL = ['sh', '-c', 'if command -v bash >/dev/null 2>&1; then exec bash; else exec sh; fi'];
+
 export interface EdgeStatus {
   running: boolean;
   port: number | null;
@@ -658,6 +675,44 @@ export class Octopod {
     if (!running) return attempt('run');
     const first = await attempt('exec');
     return !first.ok && NOT_RUNNING.test(first.output) ? attempt('run') : first;
+  }
+
+  /** The names of the registered projects. */
+  async names(): Promise<string[]> {
+    return Object.keys(await this.registry());
+  }
+
+  /**
+   * The docker command that opens a shell (or runs a command) in a service, as its own user
+   * in its working directory — or as root. For the CLI to run on a terminal: a shell is
+   * interactive, which the JSON API is not. A service that is not running is refused, with
+   * the way out: `oneshot`, a fresh container of it (same image, mounts, user, network) that
+   * the edge does not route to.
+   */
+  async shellCommand(name: string, options: ShellOptions = {}): Promise<string[]> {
+    const instance = options.instance ?? 1;
+    const declaration = await this.declaration(name, instance);
+    const status = await this.status(name, instance);
+    const service = options.service ?? declaration.expose[0]?.service ?? status.services[0]?.service;
+    if (!service) throw new OctopodError(`"${declaration.project}" has no service to enter: name one`);
+    const program = options.command && options.command.length > 0 ? options.command : SHELL;
+    const tty = options.tty === false ? ['-T'] : [];
+    const user = options.root ? ['-u', '0'] : [];
+    if (options.oneshot) {
+      return ['docker', ...this.composeArgs(declaration, true), 'run', '--rm', '--no-deps', ...tty, ...user, '--label', 'traefik.enable=false', '--entrypoint', program[0], service, ...program.slice(1)];
+    }
+    const state = status.services.find((s) => s.service === service)?.state;
+    if (state !== 'running') {
+      const known = status.services.map((s) => s.service);
+      if (state === undefined && !known.includes(service) && !declaration.expose.some((e) => e.service === service)) {
+        throw new OctopodError(`"${declaration.project}" has no service "${service}"${known.length > 0 ? ` (it has ${known.join(', ')})` : ''}`);
+      }
+      throw new OctopodError(
+        `${service} is ${state ?? 'not created'}: nothing to enter. ` +
+          `\`octopod up\` starts it; \`--oneshot\` opens a shell in a fresh container of it instead (same image, mounts and user).`,
+      );
+    }
+    return ['docker', ...this.composeArgs(declaration, true), 'exec', ...tty, ...user, service, ...program];
   }
 
   async logs(name: string, service: string | undefined, tail: number, instance = 1): Promise<string[]> {
