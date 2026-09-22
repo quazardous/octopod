@@ -16,6 +16,14 @@ export function defaultSocket(): string {
 
 const MAX_BODY = 64 * 1024;
 
+/** An instance number from a body or a query: 1 when absent, refused when not a whole number from 1. */
+function instanceValue(raw: unknown): number {
+  if (raw === undefined || raw === null) return 1;
+  const n = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isInteger(n) || n < 1 || n > 99) throw new OctopodError('"instance" must be a whole number from 1 to 99');
+  return n;
+}
+
 async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
   let text = '';
   for await (const chunk of req) {
@@ -52,31 +60,36 @@ export function handler(octopod: Octopod) {
         if (typeof root !== 'string' || !root.startsWith('/')) return send(res, 400, { error: '"root" must be an absolute path' });
         return send(res, 201, await octopod.register(root));
       }
-      if (resource === 'projects' && name && !action && method === 'GET') return send(res, 200, await octopod.status(name));
+      // Instance N of a project: `instance` in the body, or in the query of a GET.
+      const queryInstance = (): number => instanceValue(url.searchParams.get('instance') ?? undefined);
+      if (resource === 'projects' && name && !action && method === 'GET') return send(res, 200, await octopod.status(name, queryInstance()));
       if (resource === 'projects' && name && !action && method === 'DELETE') {
         await octopod.unregister(name);
         return send(res, 200, {});
       }
-      if (resource === 'projects' && name && action === 'up' && method === 'POST') return send(res, 200, await octopod.up(name));
+      if (resource === 'projects' && name && action === 'up' && method === 'POST') {
+        const { instance } = await body(req);
+        return send(res, 200, await octopod.up(name, instanceValue(instance)));
+      }
       if (resource === 'projects' && name && action === 'down' && method === 'POST') {
-        const { volumes } = await body(req);
-        return send(res, 200, await octopod.down(name, { volumes: volumes === true }));
+        const { volumes, instance } = await body(req);
+        return send(res, 200, await octopod.down(name, { volumes: volumes === true, instance: instanceValue(instance) }));
       }
       if (resource === 'projects' && name && action === 'restart' && method === 'POST') {
-        const { service } = await body(req);
-        return send(res, 200, await octopod.restart(name, typeof service === 'string' ? service : undefined));
+        const { service, instance } = await body(req);
+        return send(res, 200, await octopod.restart(name, typeof service === 'string' ? service : undefined, instanceValue(instance)));
       }
       if (resource === 'projects' && name && action === 'exec' && method === 'POST') {
-        const { service, argv, timeoutMs } = await body(req);
+        const { service, argv, timeoutMs, instance } = await body(req);
         if (typeof service !== 'string' || !Array.isArray(argv) || !argv.every((a) => typeof a === 'string')) {
           return send(res, 400, { error: '"service" must be a string and "argv" an array of strings' });
         }
         const timeout = typeof timeoutMs === 'number' ? Math.min(Math.max(timeoutMs, 1000), 600_000) : undefined;
-        return send(res, 200, await octopod.exec(name, service, argv as string[], { timeoutMs: timeout }));
+        return send(res, 200, await octopod.exec(name, service, argv as string[], { timeoutMs: timeout, instance: instanceValue(instance) }));
       }
       if (resource === 'projects' && name && action === 'logs' && method === 'GET') {
         const tail = Math.min(Math.max(Number(url.searchParams.get('tail') ?? 200) || 200, 1), 5000);
-        return send(res, 200, { lines: await octopod.logs(name, url.searchParams.get('service') ?? undefined, tail) });
+        return send(res, 200, { lines: await octopod.logs(name, url.searchParams.get('service') ?? undefined, tail, queryInstance()) });
       }
       return send(res, 404, { error: `no route ${method} ${url.pathname}` });
     } catch (e) {

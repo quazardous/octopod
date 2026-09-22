@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { choosePort, composePorts, dataVolumes, edgeCompose, imagePorts, projectOverride, traefikConfig } from './generate.js';
+import { choosePort, composePorts, dataVolumes, duplicationBlockers, edgeCompose, imagePorts, projectOverride, traefikConfig } from './generate.js';
+import { withInstance } from './declaration.js';
+import { instanceName } from './names.js';
 import { fullHost, slugify } from './names.js';
 import type { Declaration } from './declaration.js';
 
@@ -125,5 +127,31 @@ describe('environment', () => {
   it('never puts a variable into a service: labels, networks and volumes only', () => {
     const override = projectOverride('octopod', DEMO, { web: {}, api: {} }, { db: '/p/demo/.octopod/data/db' }, {}) as { services: Record<string, Record<string, unknown>> };
     for (const service of Object.values(override.services)) expect(Object.keys(service).sort()).toEqual(['labels', 'networks']);
+  });
+});
+
+describe('instances', () => {
+  it('names instance N after the project, and refuses what is not a DNS label', () => {
+    expect(instanceName('demo', 1)).toBe('demo');
+    expect(instanceName('demo', 2)).toBe('demo-2');
+    expect(() => instanceName('demo', 0)).toThrow(/1 to 99/);
+    expect(() => instanceName('a'.repeat(62), 2)).toThrow(/DNS label/);
+  });
+
+  it('moves every host of instance N under its own name', () => {
+    const copy = withInstance(DEMO, 2);
+    expect(copy.project).toBe('demo-2');
+    expect(copy.expose.map((e) => e.host)).toEqual(['demo-2.localhost', 'debug.demo-2.localhost', 'api.demo-2.localhost']);
+    expect(withInstance(DEMO, 1)).toBe(DEMO);
+  });
+
+  it('keeps instance N\'s data beside the first\'s', () => {
+    expect(dataVolumes('/p/demo', { db: {} }, 2)).toEqual({ db: '/p/demo/.octopod/data/2/db' });
+  });
+
+  it('says what stops a project from running twice', () => {
+    expect(duplicationBlockers({ web: {}, db: { ports: [{ target: 5432 }] } })).toEqual([]);
+    expect(duplicationBlockers({ web: { container_name: 'shop' }, db: { ports: [{ target: 5432, published: '5432' } as { target: number }] } }))
+      .toEqual(['web: container_name "shop" is fixed', 'db: publishes a fixed host port (5432)']);
   });
 });

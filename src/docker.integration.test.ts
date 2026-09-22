@@ -118,6 +118,21 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
     expect((await eventually('beta.localhost', 200)).body).toContain('Name: from-env-file-clean');
   });
 
+  it('runs a second instance of a project beside the first, and stops it alone', async () => {
+    const second = await octopod.up('alpha', 2);
+    expect(second.routes.map((r) => r.url)).toEqual([`http://alpha-2.localhost:${PORT}`]);
+    expect((await octopod.status('alpha')).instances).toEqual([2]);
+    const host = (body: string): string | undefined => /Hostname: (\S+)/.exec(body)?.[1];
+    const one = await eventually('alpha.localhost', 200);
+    const two = await eventually('alpha-2.localhost', 200);
+    expect(two.status).toBe(200);
+    expect(host(two.body)).not.toBe(host(one.body));
+    await octopod.down('alpha', { instance: 2 });
+    expect((await eventually('alpha-2.localhost', 404)).status).toBe(404);
+    expect((await eventually('alpha.localhost', 200)).status).toBe(200);
+    expect((await octopod.status('alpha')).instances).toBeUndefined();
+  });
+
   it('answers 404 for a host no project declared', async () => {
     expect((await eventually('nobody.localhost', 404)).status).toBe(404);
   });

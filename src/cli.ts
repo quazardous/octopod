@@ -36,7 +36,15 @@ function print(value: unknown, json: boolean): void {
   }
 }
 
-const VALUED = new Set(['--service', '--tail', '--socket', '--timeout']);
+const VALUED = new Set(['--service', '--tail', '--socket', '--timeout', '--instance']);
+
+/** `--instance N`: instance N of the project (`<project>-N`); 1, the project itself, by default. */
+function instanceOf(args: string[]): number {
+  const raw = flag(args, '--instance');
+  const n = raw === undefined ? 1 : Number(raw);
+  if (!Number.isInteger(n) || n < 1) throw new Error(`--instance takes a number from 1, not ${raw}`);
+  return n;
+}
 
 /** Arguments that are neither flags nor a flag's value. */
 function positional(args: string[]): string[] {
@@ -69,24 +77,24 @@ async function main(argv: string[]): Promise<void> {
     case 'list':
       return print(await octopod.list(), json);
     case 'up':
-      return print(await octopod.up(await projectName(rest)), json);
+      return print(await octopod.up(await projectName(rest), instanceOf(rest)), json);
     case 'down':
-      return print(await octopod.down(await projectName(rest), { volumes: rest.includes('--volumes') }), json);
+      return print(await octopod.down(await projectName(rest), { volumes: rest.includes('--volumes'), instance: instanceOf(rest) }), json);
     case 'status':
-      return print(await octopod.status(await projectName(rest)), json);
+      return print(await octopod.status(await projectName(rest), instanceOf(rest)), json);
     case 'logs': {
-      const lines = await octopod.logs(await projectName(rest), flag(rest, '--service'), Number(flag(rest, '--tail') ?? 200));
+      const lines = await octopod.logs(await projectName(rest), flag(rest, '--service'), Number(flag(rest, '--tail') ?? 200), instanceOf(rest));
       return json ? print({ lines }, true) : console.log(lines.join('\n'));
     }
     case 'restart':
-      return print(await octopod.restart(await projectName(rest), flag(rest, '--service')), json);
+      return print(await octopod.restart(await projectName(rest), flag(rest, '--service'), instanceOf(rest)), json);
     case 'exec': {
       // octopod exec <project> <service> [--timeout ms] -- <command...>
       const dash = rest.indexOf('--');
       if (dash < 0) throw new Error('usage: octopod exec <project> <service> [--timeout ms] -- <command...>');
       const [project, service] = positional(rest.slice(0, dash));
       if (!project || !service) throw new Error('usage: octopod exec <project> <service> [--timeout ms] -- <command...>');
-      const result = await octopod.exec(project, service, rest.slice(dash + 1), { timeoutMs: Number(flag(rest.slice(0, dash), '--timeout') ?? 60_000) });
+      const result = await octopod.exec(project, service, rest.slice(dash + 1), { timeoutMs: Number(flag(rest.slice(0, dash), '--timeout') ?? 60_000), instance: instanceOf(rest.slice(0, dash)) });
       if (json) return print(result, true);
       process.stdout.write(result.output);
       if (!result.ok) process.exitCode = 1;

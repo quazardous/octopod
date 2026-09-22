@@ -6,7 +6,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { parse } from 'yaml';
 import { z } from 'zod';
-import { fullHost, LABEL_RE, slugify } from './names.js';
+import { fullHost, instanceName, LABEL_RE, slugify } from './names.js';
 
 export const DECLARATION_FILE = 'octopod.yaml';
 const DEFAULT_COMPOSE = ['compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml'];
@@ -41,6 +41,10 @@ export interface Exposure {
 
 export interface Declaration {
   project: string;
+  /** Instance N of the project, 1 for the project itself; `project` is then `<base>-N`. */
+  instance?: number;
+  /** The project's own name, whatever the instance. */
+  base?: string;
   root: string;
   /** Compose files, absolute. */
   compose: string[];
@@ -104,4 +108,18 @@ export async function loadDeclaration(root: string): Promise<Declaration> {
     }
   }
   return { project, root, compose, expose, ...(envFile ? { envFile } : {}) };
+}
+
+/** The declaration of instance N: its name, and its hosts moved under that name. */
+export function withInstance(declaration: Declaration, n: number): Declaration {
+  const name = instanceName(declaration.project, n);
+  if (n === 1) return declaration;
+  const suffix = `${declaration.project}.localhost`;
+  return {
+    ...declaration,
+    project: name,
+    instance: n,
+    base: declaration.project,
+    expose: declaration.expose.map((e) => ({ ...e, host: `${e.host.slice(0, -suffix.length)}${name}.localhost` })),
+  };
 }

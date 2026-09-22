@@ -79,13 +79,15 @@ export interface ComposeVolume {
  * The project's own named volumes, each with the folder it is bound to. A volume the
  * project configured itself — external, another driver, its own options — is left alone.
  */
-export function dataVolumes(root: string, volumes: Record<string, ComposeVolume>): Record<string, string> {
+export function dataVolumes(root: string, volumes: Record<string, ComposeVolume>, instance = 1): Record<string, string> {
+  // Instance N keeps its own data beside the first's: .octopod/data/N/<volume>.
+  const dir = instance === 1 ? `${root}/${DATA_DIR}` : `${root}/${DATA_DIR}/${instance}`;
   const out: Record<string, string> = {};
   for (const [key, volume] of Object.entries(volumes)) {
     if (volume.external) continue;
     if (volume.driver && volume.driver !== 'local') continue;
     if (volume.driver_opts && Object.keys(volume.driver_opts).length > 0) continue;
-    out[key] = `${root}/${DATA_DIR}/${key}`;
+    out[key] = `${dir}/${key}`;
   }
   return out;
 }
@@ -207,4 +209,20 @@ export function projectOverride(
     networks: { octopod_edge: { name: network, internal: true } },
     ...(Object.keys(volumes).length > 0 ? { volumes } : {}),
   };
+}
+
+/**
+ * What stops a project from running twice: a fixed container name, or a fixed port
+ * published on the host — the second instance would collide with the first.
+ */
+export function duplicationBlockers(services: Record<string, ComposeService & { container_name?: string }>): string[] {
+  const out: string[] = [];
+  for (const [name, service] of Object.entries(services)) {
+    if (service.container_name) out.push(`${name}: container_name "${service.container_name}" is fixed`);
+    for (const p of service.ports ?? []) {
+      const published = typeof p === 'object' ? (p as { published?: string | number }).published : String(p).split(':').length > 1 ? String(p) : undefined;
+      if (published !== undefined && published !== '') out.push(`${name}: publishes a fixed host port (${typeof p === 'object' ? published : p})`);
+    }
+  }
+  return out;
 }

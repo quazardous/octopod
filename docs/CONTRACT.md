@@ -55,6 +55,15 @@ Rules, checked when the project is registered and every time it is brought up:
 - **Down**: the edge is disconnected, then `docker compose … down`. `volumes: true`
   removes the Docker volume objects; the data in `.octopod/data` is the project's and
   stays.
+- **Instances**: a project can run more than once — the `-1` of `<project>-<service>-1`.
+  Instance 1 is the project itself; instance N (`--instance N`, `instance` in the API)
+  is the same folder and compose files under the name `<project>-N`: its own containers
+  (`<project>-N-<service>-1`), its own edge network, `<project>-N.localhost` (and
+  `api.<project>-N.localhost`), and its data in `.octopod/data/N/`. `status` of the project
+  lists its other instances up; `down --instance N` stops that one alone; `unregister`
+  stops them all. A project cannot run twice when its compose fixes a `container_name`
+  or publishes a fixed host port, or when `<project>-N` is itself a registered project:
+  `up` says which.
 - **Environment**: docker gets only what it needs of octopod's own environment (`PATH`,
   `HOME`, locale, `XDG_RUNTIME_DIR`, `DOCKER_*`, `BUILDX_*`, `SSH_AUTH_SOCK`) — never a
   `COMPOSE_*` or any other variable of the calling shell, which a compose file would
@@ -101,6 +110,8 @@ interface Project {
   routes: { service: string; url: string; port?: number; portSource?: 'declared' | 'compose' | 'image' | 'guess' }[];
 }
 interface ProjectStatus extends Project {
+  instance?: number;        // this status is of instance N
+  instances?: number[];     // the project's other instances up (on instance 1's status)
   services: { service: string; state: string; health?: string }[];
   warnings?: string[];
 }
@@ -108,6 +119,7 @@ interface ProjectStatus extends Project {
 
 The CLI speaks the same operations and prints the same JSON with `--json`:
 `octopod edge up|down|status`, `octopod register [dir]`, `octopod up|down|status|logs|restart
-[project]`, `octopod exec <project> <service> -- <command…>`, `octopod unregister <project>`,
+[project]`, `octopod exec <project> <service> -- <command…>`, `octopod unregister <project>` —
+`up`, `down`, `status`, `logs`, `restart` and `exec` take `--instance N`;
 `octopod serve` (the API). `OCTOPOD_STATE_DIR`, `OCTOPOD_INSTANCE` and `OCTOPOD_PORTS` select
 another instance (tests, a second edge).

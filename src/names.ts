@@ -26,3 +26,16 @@ export function fullHost(project: string, host: string | undefined): string {
 export function edgeNetwork(instance: string, project: string): string {
   return `${instance}-${project}-edge`;
 }
+
+/**
+ * Instance N of a project (the `-1` of `<project>-<service>-1`): the same folder and
+ * compose files under another name — `demo-2`, `demo-2.localhost`. Instance 1 is the
+ * project itself.
+ */
+export function instanceName(project: string, n: number): string {
+  if (!Number.isInteger(n) || n < 1 || n > 99) throw new Error(`instance must be 1 to 99, not ${n}`);
+  if (n === 1) return project;
+  const name = `${project}-${n}`;
+  if (!LABEL_RE.test(name)) throw new Error(`"${name}" is not a DNS label (the project name is too long for instance ${n})`);
+  return name;
+}

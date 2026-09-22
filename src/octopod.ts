@@ -9,9 +9,9 @@ import { lstat, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises
 import { createConnection } from 'node:net';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { loadDeclaration, type Declaration } from './declaration.js';
+import { loadDeclaration, withInstance, type Declaration } from './declaration.js';
 import { cliDocker, DockerError, type Docker } from './docker.js';
-import { choosePort, composePorts, DATA_DIR, dataVolumes, edgeCompose, edgeContainer, imagePorts, projectOverride, traefikConfig, type ComposeService, type ComposeVolume, type ResolvedPort } from './generate.js';
+import { choosePort, composePorts, DATA_DIR, dataVolumes, duplicationBlockers, edgeCompose, edgeContainer, imagePorts, projectOverride, traefikConfig, type ComposeService, type ComposeVolume, type ResolvedPort } from './generate.js';
 import { edgeNetwork } from './names.js';
 
 export const PREFERRED_PORT = 80;
@@ -34,6 +34,10 @@ export interface Project {
 }
 
 export interface ProjectStatus extends Project {
+  /** This status is of instance N (`<project>-N`). */
+  instance?: number;
+  /** The project's other instances up, when this is the first. */
+  instances?: number[];
   services: { service: string; state: string; health?: string }[];
   /** Things the operator should fix, e.g. data written by a service that runs as another user. */
   warnings?: string[];
@@ -199,10 +203,33 @@ export class Octopod {
 
   // ─── Projects ───────────────────────────────────────────────────────────────
 
-  private async declaration(name: string): Promise<Declaration> {
-    const root = (await this.registry())[name];
+  /** The declaration of a project, or of its instance N (`demo-N`). */
+  private async declaration(name: string, instance = 1): Promise<Declaration> {
+    const registry = await this.registry();
+    const root = registry[name];
     if (!root) throw new OctopodError(`no project "${name}"; register it first`);
-    return loadDeclaration(root);
+    const declaration = await loadDeclaration(root);
+    if (instance === 1) return declaration;
+    let copy: Declaration;
+    try {
+      copy = withInstance(declaration, instance);
+    } catch (e) {
+      throw new OctopodError((e as Error).message);
+    }
+    if (registry[copy.project]) throw new OctopodError(`instance ${instance} of "${name}" would be named "${copy.project}", which is a registered project`);
+    return copy;
+  }
+
+  /** The instances beyond the first that have been brought up and not down. */
+  private instances(base: string): Promise<number[]> {
+    return this.readJson<number[]>(join('projects', base, 'instances.json'), []);
+  }
+
+  private async noteInstance(base: string, instance: number, running: boolean): Promise<void> {
+    const now = new Set(await this.instances(base));
+    if (running) now.add(instance);
+    else now.delete(instance);
+    await this.writeJson(join('projects', base, 'instances.json'), [...now].sort((a, b) => a - b));
   }
 
   private async routes(declaration: Declaration): Promise<Route[]> {
@@ -245,6 +272,11 @@ export class Octopod {
   async register(root: string): Promise<Project> {
     const declaration = await loadDeclaration(root);
     const registry = await this.registry();
+    // A name that is another project's running instance (`demo-2`) is taken.
+    const copyOf = /^(.+)-(\d+)$/.exec(declaration.project);
+    if (copyOf && registry[copyOf[1]] && (await this.instances(copyOf[1])).includes(Number(copyOf[2]))) {
+      throw new OctopodError(`"${declaration.project}" is instance ${copyOf[2]} of project "${copyOf[1]}"`);
+    }
     const owner = registry[declaration.project];
     if (owner && owner !== root) throw new OctopodError(`project "${declaration.project}" is already registered from ${owner}`);
     registry[declaration.project] = root;
@@ -265,13 +297,17 @@ export class Octopod {
     return ['compose', '-p', declaration.project, '--project-directory', declaration.root, ...envFile, ...files, ...override];
   }
 
-  async up(name: string): Promise<ProjectStatus> {
-    const declaration = await this.declaration(name);
+  async up(name: string, instance = 1): Promise<ProjectStatus> {
+    const declaration = await this.declaration(name, instance);
     const config = JSON.parse(await this.docker.run([...this.composeArgs(declaration, false), 'config', '--format', 'json'])) as {
       services?: Record<string, ComposeService>;
       volumes?: Record<string, ComposeVolume>;
     };
-    const data = dataVolumes(declaration.root, config.volumes ?? {});
+    if (instance > 1) {
+      const blockers = duplicationBlockers(config.services ?? {});
+      if (blockers.length > 0) throw new OctopodError(`"${name}" cannot run twice: ${blockers.join('; ')}`);
+    }
+    const data = dataVolumes(declaration.root, config.volumes ?? {}, instance);
     await this.prepareData(declaration, config.volumes ?? {}, data);
     const ports = await this.resolvePorts(declaration, config.services ?? {});
     await this.writeJson(join('projects', declaration.project, 'ports.json'), ports);
@@ -280,7 +316,8 @@ export class Octopod {
     await this.edgeUp();
     await this.docker.run([...this.composeArgs(declaration, true), 'up', '-d']);
     await this.connect(declaration.project);
-    return this.status(name);
+    if (instance > 1) await this.noteInstance(name, instance, true);
+    return this.status(name, instance);
   }
 
   /**
@@ -350,16 +387,18 @@ export class Octopod {
     return out;
   }
 
-  async down(name: string, options: { volumes?: boolean } = {}): Promise<ProjectStatus> {
-    const declaration = await this.declaration(name);
+  async down(name: string, options: { volumes?: boolean; instance?: number } = {}): Promise<ProjectStatus> {
+    const instance = options.instance ?? 1;
+    const declaration = await this.declaration(name, instance);
     // Before `down`: compose cannot remove a network the edge is still attached to.
     await this.disconnect(declaration.project);
     await this.docker.run([...this.composeArgs(declaration, true), 'down', ...(options.volumes ? ['--volumes'] : [])]);
-    return this.status(name);
+    if (instance > 1) await this.noteInstance(name, instance, false);
+    return this.status(name, instance);
   }
 
-  async status(name: string): Promise<ProjectStatus> {
-    const declaration = await this.declaration(name);
+  async status(name: string, instance = 1): Promise<ProjectStatus> {
+    const declaration = await this.declaration(name, instance);
     const out = await this.docker.run([...this.composeArgs(declaration, false), 'ps', '--all', '--format', 'json']).catch((e: DockerError) => {
       throw new OctopodError(e.message);
     });
@@ -368,26 +407,28 @@ export class Octopod {
       ? (JSON.parse(out) as Record<string, string>[])
       : out.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l) as Record<string, string>);
     const warnings = [...(await this.portWarnings(declaration)), ...(await this.foreignData(declaration))];
+    const others = instance === 1 ? await this.instances(name) : [];
     return {
       ...(await this.project(declaration)),
+      ...(instance > 1 ? { instance } : others.length > 0 ? { instances: others } : {}),
       services: rows.map((r) => ({ service: r.Service, state: r.State, ...(r.Health ? { health: r.Health } : {}) })),
       ...(warnings.length > 0 ? { warnings } : {}),
     };
   }
 
-  async restart(name: string, service?: string): Promise<ProjectStatus> {
-    const declaration = await this.declaration(name);
+  async restart(name: string, service?: string, instance = 1): Promise<ProjectStatus> {
+    const declaration = await this.declaration(name, instance);
     await this.docker.run([...this.composeArgs(declaration, true), 'restart', ...(service ? [service] : [])]);
-    return this.status(name);
+    return this.status(name, instance);
   }
 
   /**
    * Run a command in a running service: argv, never a shell string octopod would build.
    * Output is bounded; a command that runs past `timeoutMs` is killed.
    */
-  async exec(name: string, service: string, argv: string[], options: { timeoutMs?: number; maxBytes?: number } = {}): Promise<ExecResult> {
+  async exec(name: string, service: string, argv: string[], options: { timeoutMs?: number; maxBytes?: number; instance?: number } = {}): Promise<ExecResult> {
     if (argv.length === 0) throw new OctopodError('exec needs a command');
-    const declaration = await this.declaration(name);
+    const declaration = await this.declaration(name, options.instance ?? 1);
     const maxBytes = options.maxBytes ?? 64 * 1024;
     try {
       const out = await this.docker.run([...this.composeArgs(declaration, true), 'exec', '-T', service, ...argv], {
@@ -401,13 +442,14 @@ export class Octopod {
     }
   }
 
-  async logs(name: string, service: string | undefined, tail: number): Promise<string[]> {
-    const declaration = await this.declaration(name);
+  async logs(name: string, service: string | undefined, tail: number, instance = 1): Promise<string[]> {
+    const declaration = await this.declaration(name, instance);
     const out = await this.docker.run([...this.composeArgs(declaration, false), 'logs', '--no-color', '--tail', String(tail), ...(service ? [service] : [])]);
     return out.split('\n').filter((l) => l !== '');
   }
 
   async unregister(name: string): Promise<void> {
+    for (const n of await this.instances(name)) await this.down(name, { instance: n }).catch(() => undefined);
     await this.down(name).catch(() => undefined);
     const registry = await this.registry();
     delete registry[name];
