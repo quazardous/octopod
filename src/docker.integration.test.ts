@@ -124,6 +124,22 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
     expect(status.services).toEqual([expect.objectContaining({ service: 'web', state: 'running' })]);
   });
 
+  it('runs a command in a service, argv as given, and restarts a service', async () => {
+    const ok = await octopod.exec('alpha', 'web', ['/whoami', '--help']);
+    expect(ok.ok).toBe(true);
+    expect(ok.output).toMatch(/Usage|port/i);
+    const bad = await octopod.exec('alpha', 'web', ['/does-not-exist']);
+    expect(bad.ok).toBe(false);
+    const restarted = await octopod.restart('alpha', 'web');
+    expect(restarted.services).toEqual([expect.objectContaining({ service: 'web', state: 'running' })]);
+    expect((await eventually('alpha.localhost', 200)).status).toBe(200);
+  });
+
+  it('puts the edge network in internal mode: routing works, and it is no way out', () => {
+    const internal = docker('network', 'inspect', '--format', '{{.Internal}}', 'octopodtest-alpha-edge').trim();
+    expect(internal).toBe('true');
+  });
+
   it('brings a project down cleanly, network included, while the other keeps running', async () => {
     await octopod.down('beta');
     expect(docker('network', 'ls', '--format', '{{.Name}}').split('\n')).not.toContain('octopodtest-beta-edge');

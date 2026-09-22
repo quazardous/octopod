@@ -6,8 +6,15 @@ import { execFile } from 'node:child_process';
 
 export class DockerError extends Error {}
 
+export interface RunOptions {
+  input?: string;
+  timeoutMs?: number;
+  /** Return stderr after stdout: a command's diagnostics are usually on stderr. */
+  withStderr?: boolean;
+}
+
 export interface Docker {
-  run(args: string[], options?: { input?: string; timeoutMs?: number }): Promise<string>;
+  run(args: string[], options?: RunOptions): Promise<string>;
 }
 
 export function cliDocker(binary = 'docker'): Docker {
@@ -19,8 +26,12 @@ export function cliDocker(binary = 'docker'): Docker {
           args,
           { maxBuffer: 32 * 1024 * 1024, timeout: options.timeoutMs ?? 5 * 60_000 },
           (error, stdout, stderr) => {
-            if (error) reject(new DockerError(`docker ${args.slice(0, 3).join(' ')}: ${(stderr || error.message).trim()}`));
-            else resolve(stdout);
+            if (error) {
+              const detail = options.withStderr ? `${stdout}${stderr}` : stderr || error.message;
+              reject(new DockerError(`docker ${args.slice(0, 3).join(' ')}: ${detail.trim() || error.message}`));
+            } else {
+              resolve(options.withStderr ? `${stdout}${stderr}` : stdout);
+            }
           },
         );
         if (options.input !== undefined) child.stdin?.end(options.input);

@@ -32,6 +32,13 @@ export interface ProjectStatus extends Project {
   services: { service: string; state: string; health?: string }[];
 }
 
+export interface ExecResult {
+  ok: boolean;
+  /** Output (or the error), the end of it when longer than the bound. */
+  output: string;
+  truncated: boolean;
+}
+
 export interface EdgeStatus {
   running: boolean;
   port: number | null;
@@ -50,7 +57,15 @@ export interface OctopodOptions {
 export class OctopodError extends Error {}
 
 function defaultStateDir(): string {
-  return join(process.env.XDG_STATE_HOME || join(homedir(), '.local', 'state'), 'octopod');
+  return process.env.OCTOPOD_STATE_DIR || join(process.env.XDG_STATE_HOME || join(homedir(), '.local', 'state'), 'octopod');
+}
+
+/** OCTOPOD_PORTS="18480,18481": the ports to try, for a test or a second instance. */
+function envPorts(): number[] | undefined {
+  const raw = process.env.OCTOPOD_PORTS;
+  if (!raw) return undefined;
+  const ports = raw.split(',').map((p) => Number(p.trim()));
+  return ports.every((p) => Number.isInteger(p) && p > 0 && p < 65536) ? ports : undefined;
 }
 
 /** Whether something already listens on 127.0.0.1:port. */
@@ -78,9 +93,9 @@ export class Octopod {
 
   constructor(options: OctopodOptions = {}) {
     this.stateDir = options.stateDir ?? defaultStateDir();
-    this.instance = options.instance ?? 'octopod';
+    this.instance = options.instance ?? process.env.OCTOPOD_INSTANCE ?? 'octopod';
     this.docker = options.docker ?? cliDocker();
-    this.ports = options.ports ?? [PREFERRED_PORT, FALLBACK_PORT];
+    this.ports = options.ports ?? envPorts() ?? [PREFERRED_PORT, FALLBACK_PORT];
   }
 
   // ─── State ──────────────────────────────────────────────────────────────────
@@ -248,6 +263,32 @@ export class Octopod {
       ...(await this.project(declaration)),
       services: rows.map((r) => ({ service: r.Service, state: r.State, ...(r.Health ? { health: r.Health } : {}) })),
     };
+  }
+
+  async restart(name: string, service?: string): Promise<ProjectStatus> {
+    const declaration = await this.declaration(name);
+    await this.docker.run([...this.composeArgs(declaration, true), 'restart', ...(service ? [service] : [])]);
+    return this.status(name);
+  }
+
+  /**
+   * Run a command in a running service: argv, never a shell string octopod would build.
+   * Output is bounded; a command that runs past `timeoutMs` is killed.
+   */
+  async exec(name: string, service: string, argv: string[], options: { timeoutMs?: number; maxBytes?: number } = {}): Promise<ExecResult> {
+    if (argv.length === 0) throw new OctopodError('exec needs a command');
+    const declaration = await this.declaration(name);
+    const maxBytes = options.maxBytes ?? 64 * 1024;
+    try {
+      const out = await this.docker.run([...this.composeArgs(declaration, true), 'exec', '-T', service, ...argv], {
+        timeoutMs: options.timeoutMs ?? 60_000,
+        withStderr: true,
+      });
+      return { ok: true, output: out.length > maxBytes ? out.slice(-maxBytes) : out, truncated: out.length > maxBytes };
+    } catch (e) {
+      const message = (e as Error).message;
+      return { ok: false, output: message.length > maxBytes ? message.slice(-maxBytes) : message, truncated: message.length > maxBytes };
+    }
   }
 
   async logs(name: string, service: string | undefined, tail: number): Promise<string[]> {

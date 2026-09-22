@@ -45,7 +45,7 @@ describe('the edge', () => {
 describe('a project override', () => {
   const override = projectOverride('octopod', DEMO, { web: {}, api: { networks: { backend: null } } }) as {
     services: Record<string, { labels: Record<string, string>; networks: Record<string, unknown> }>;
-    networks: Record<string, { name: string }>;
+    networks: Record<string, { name: string; internal?: boolean }>;
   };
 
   it('routes each exposure to its host and port, on the project’s own edge network', () => {
@@ -56,7 +56,7 @@ describe('a project override', () => {
     expect(web['traefik.http.services.demo-demo.loadbalancer.server.port']).toBe('3000');
     expect(web['traefik.http.routers.demo-debug-demo.rule']).toBe('Host(`debug.demo.localhost`)');
     expect(web['traefik.http.services.demo-debug-demo.loadbalancer.server.port']).toBe('9229');
-    expect(override.networks.octopod_edge.name).toBe('octopod-demo-edge');
+    expect(override.networks.octopod_edge).toEqual({ name: 'octopod-demo-edge', internal: true });
   });
 
   it('keeps a service on the networks it had — the implicit default one included', () => {

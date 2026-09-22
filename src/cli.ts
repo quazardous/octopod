@@ -36,7 +36,7 @@ function print(value: unknown, json: boolean): void {
   }
 }
 
-const VALUED = new Set(['--service', '--tail', '--socket']);
+const VALUED = new Set(['--service', '--tail', '--socket', '--timeout']);
 
 /** Arguments that are neither flags nor a flag's value. */
 function positional(args: string[]): string[] {
@@ -77,6 +77,20 @@ async function main(argv: string[]): Promise<void> {
     case 'logs': {
       const lines = await octopod.logs(await projectName(rest), flag(rest, '--service'), Number(flag(rest, '--tail') ?? 200));
       return json ? print({ lines }, true) : console.log(lines.join('\n'));
+    }
+    case 'restart':
+      return print(await octopod.restart(await projectName(rest), flag(rest, '--service')), json);
+    case 'exec': {
+      // octopod exec <project> <service> [--timeout ms] -- <command...>
+      const dash = rest.indexOf('--');
+      if (dash < 0) throw new Error('usage: octopod exec <project> <service> [--timeout ms] -- <command...>');
+      const [project, service] = positional(rest.slice(0, dash));
+      if (!project || !service) throw new Error('usage: octopod exec <project> <service> [--timeout ms] -- <command...>');
+      const result = await octopod.exec(project, service, rest.slice(dash + 1), { timeoutMs: Number(flag(rest.slice(0, dash), '--timeout') ?? 60_000) });
+      if (json) return print(result, true);
+      process.stdout.write(result.output);
+      if (!result.ok) process.exitCode = 1;
+      return;
     }
     case 'unregister':
       if (!positional(rest)[0]) throw new Error('usage: octopod unregister <project>');

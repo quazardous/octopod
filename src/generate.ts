@@ -100,5 +100,8 @@ export function projectOverride(
       networks: Object.fromEntries([...existing.map((n) => [n, {}]), ['octopod_edge', {}]]),
     };
   }
-  return { services: out, networks: { octopod_edge: { name: network } } };
+  // `internal`: Traefik reaches the project's containers over it, and nothing else does —
+  // the edge network must not become a way out to the internet for a project that has no
+  // egress of its own.
+  return { services: out, networks: { octopod_edge: { name: network, internal: true } } };
 }

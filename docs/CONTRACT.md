@@ -33,7 +33,9 @@ Rules, checked when the project is registered and every time it is brought up:
 - **A project**, brought up:
   1. `docker compose -p <project> -f <its files> -f <override> up -d`, where the override
      (generated, kept in octopod's state directory, never in the project) adds to each
-     exposed service the labels below and the network `octopod-<project>-edge`;
+     exposed service the labels below and the network `octopod-<project>-edge` —
+     **`internal`**: Traefik reaches the service over it, and it is no way out to the
+     internet for a project that declared none;
   2. the edge is connected to that network.
 - **Down**: the edge is disconnected, then `docker compose … down`. Volumes are kept
   unless asked.
@@ -64,6 +66,8 @@ HTTP with JSON bodies over a unix socket: `$XDG_RUNTIME_DIR/octopod/octopod.sock
 | POST | `/v1/projects` | `{ root }` | `Project` (registered from `root/octopod.yaml`) |
 | GET | `/v1/projects/:name` | | `ProjectStatus` |
 | POST | `/v1/projects/:name/up` · `/down` | `{ volumes?: boolean }` for down | `ProjectStatus` |
+| POST | `/v1/projects/:name/restart` | `{ service? }` | `ProjectStatus` |
+| POST | `/v1/projects/:name/exec` | `{ service, argv: string[], timeoutMs? }` | `{ ok, output, truncated }` — argv, never a shell string built by octopod; output bounded |
 | GET | `/v1/projects/:name/logs?service=&tail=` | | `{ lines: string[] }` |
 | DELETE | `/v1/projects/:name` | | `{}` (brought down first) |
 
@@ -75,5 +79,7 @@ interface ProjectStatus extends Project {
 ```
 
 The CLI speaks the same operations and prints the same JSON with `--json`:
-`octopod edge up|down|status`, `octopod register [dir]`, `octopod up|down|status|logs
-[project]`, `octopod unregister <project>`, `octopod serve` (the API).
+`octopod edge up|down|status`, `octopod register [dir]`, `octopod up|down|status|logs|restart
+[project]`, `octopod exec <project> <service> -- <command…>`, `octopod unregister <project>`,
+`octopod serve` (the API). `OCTOPOD_STATE_DIR`, `OCTOPOD_INSTANCE` and `OCTOPOD_PORTS` select
+another instance (tests, a second edge).

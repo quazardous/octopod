@@ -62,6 +62,18 @@ export function handler(octopod: Octopod) {
         const { volumes } = await body(req);
         return send(res, 200, await octopod.down(name, { volumes: volumes === true }));
       }
+      if (resource === 'projects' && name && action === 'restart' && method === 'POST') {
+        const { service } = await body(req);
+        return send(res, 200, await octopod.restart(name, typeof service === 'string' ? service : undefined));
+      }
+      if (resource === 'projects' && name && action === 'exec' && method === 'POST') {
+        const { service, argv, timeoutMs } = await body(req);
+        if (typeof service !== 'string' || !Array.isArray(argv) || !argv.every((a) => typeof a === 'string')) {
+          return send(res, 400, { error: '"service" must be a string and "argv" an array of strings' });
+        }
+        const timeout = typeof timeoutMs === 'number' ? Math.min(Math.max(timeoutMs, 1000), 600_000) : undefined;
+        return send(res, 200, await octopod.exec(name, service, argv as string[], { timeoutMs: timeout }));
+      }
       if (resource === 'projects' && name && action === 'logs' && method === 'GET') {
         const tail = Math.min(Math.max(Number(url.searchParams.get('tail') ?? 200) || 200, 1), 5000);
         return send(res, 200, { lines: await octopod.logs(name, url.searchParams.get('service') ?? undefined, tail) });
