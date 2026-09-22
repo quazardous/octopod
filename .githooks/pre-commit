@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Refuses a commit whose staged content holds a home path, a private ticket reference or
+# a secret. Enabled with: git config core.hooksPath .githooks
+set -euo pipefail
+exec "$(git rev-parse --show-toplevel)/scripts/check-leaks.sh" --staged
