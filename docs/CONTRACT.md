@@ -164,6 +164,7 @@ HTTP with JSON bodies over a unix socket: `$XDG_RUNTIME_DIR/octopod/octopod.sock
 interface Project {
   name: string; root: string; compose: string[];
   routes: { service: string; url: string; port?: number; portSource?: 'declared' | 'compose' | 'image' | 'guess' }[];
+  problem?: string;         // in a list: why this project cannot be read; the others are listed anyway
 }
 interface ProjectStatus extends Project {
   instance?: number;        // this status is of instance N

@@ -57,6 +57,8 @@ export interface Project {
   /** The compose files used, in order: what the project declared, or found (main, then override). */
   compose: string[];
   routes: Route[];
+  /** Why the project cannot be read (a broken octopod.yaml, a recipe that does not load): listed anyway. */
+  problem?: string;
 }
 
 export interface ProjectStatus extends Project {
@@ -510,9 +512,16 @@ export class Octopod {
     return { name: declaration.project, registered: true };
   }
 
+  /** Every registered project. One that cannot be read is listed with its problem: it never hides the others. */
   async list(): Promise<Project[]> {
     const out: Project[] = [];
-    for (const name of Object.keys(await this.registry())) out.push(await this.project(await this.declaration(name)));
+    for (const [name, root] of Object.entries(await this.registry())) {
+      try {
+        out.push(await this.project(await this.declaration(name)));
+      } catch (e) {
+        out.push({ name, root, compose: [], routes: [], problem: (e as Error).message });
+      }
+    }
     return out;
   }
 

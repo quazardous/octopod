@@ -61,6 +61,8 @@ async function load() {
   const [edge, projects] = await Promise.all([api('/v1/edge'), api('/v1/projects')]);
   const statuses = await Promise.all(
     projects.map(async (project) => {
+      // Listed with its problem: nothing more to ask about it.
+      if (project.problem) return { ...project, others: [] };
       try {
         const status = await api(projectPath(project.name, 1));
         const instances = await Promise.all(

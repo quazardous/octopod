@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A project that cannot be read (a broken `octopod.yaml`, a recipe that does not load) no longer breaks the whole list, nor the console: it is listed with its `problem`, and the others as usual.
+
 ### Added
 
 - The `php-app` recipe: PHP-FPM and nginx in one container run by supervisord, the project mounted at `/app` and its docroot (`public` by default) served at `http://<project>.localhost`. The PHP version (`8.4` by default, down to `8.1`; older PHP images sit on a Debian out of support, whose packages no longer install) and the extensions (`intl`, `pdo_mysql`, `redis`…) are parameters; composer is in the image; `DATABASE_URL` comes from a database recipe. A project that needs more copies it into `.octopod/recipes/` and adapts its Dockerfile.

@@ -39,6 +39,7 @@ function print(value: unknown, json: boolean): void {
   const projects = (Array.isArray(value) ? value : [value]) as (Project | ProjectStatus)[];
   for (const p of projects) {
     console.log(`${p.name}  ${p.root}`);
+    if (p.problem) console.log(`  ! ${p.problem}`);
     for (const r of p.routes) console.log(`  ${r.service} → ${r.url}`);
     for (const s of (p as ProjectStatus).services ?? []) console.log(`  [${s.state}${s.health ? `, ${s.health}` : ''}] ${s.service}`);
   }

@@ -82,6 +82,19 @@ describe('the API', () => {
     expect((await call('GET', '/v1/projects/nope/secrets')).status).toBe(409);
   });
 
+  it('lists every project, one that cannot be read with its problem, never hiding the others', async () => {
+    await call('POST', '/v1/projects', { root: join(base, 'demo') });
+    await mkdir(join(base, 'broken'));
+    await writeFile(join(base, 'broken', 'docker-compose.yml'), 'services: {}\n');
+    await writeFile(join(base, 'broken', 'octopod.yaml'), 'expose:\n  - {service: web, port: 1}\n');
+    await call('POST', '/v1/projects', { root: join(base, 'broken') });
+    await writeFile(join(base, 'broken', 'octopod.yaml'), 'services:\n  app: { recipe: no-such-recipe }\n');
+    const list = (await call('GET', '/v1/projects')).json as { name: string; problem?: string }[];
+    expect(list.map((p) => p.name).sort()).toEqual(['broken', 'demo']);
+    expect(list.find((p) => p.name === 'demo')?.problem).toBeUndefined();
+    expect(list.find((p) => p.name === 'broken')?.problem).toMatch(/no recipe 'no-such-recipe'/);
+  });
+
   it('answers 400 for a relative root, a broken body or a broken declaration', async () => {
     expect((await call('POST', '/v1/projects', { root: 'demo' })).status).toBe(400);
     expect((await call('POST', '/v1/projects', '{not json')).status).toBe(400);
