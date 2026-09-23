@@ -13,6 +13,7 @@
     "dist",
     "!dist/**/*.test.*",
     "recipes",
+    "assets/*.ico",
     "console",
     "docs",
     "README.md",

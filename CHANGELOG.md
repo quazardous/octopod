@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Windows: a tray icon — a tako with its hachimaki, red while the edge runs, grey and asleep when it does not or Docker Desktop is off. Its menu lists the projects with their URLs, starts and stops them (`octopod up`/`down`) and the edge, opens Traefik's dashboard and a project's folder, starts Docker Desktop, and can start with Windows. It goes through the CLI and supervises nothing: quitting it leaves the edge running. `setup.ps1` adds it to the Start menu and starts it (`-NoTray` does neither).
+
 ### Changed
 
 - The console shows the projects as a gallery — each at a glance: its state, services running, warnings, routes, tags — and each opens on a page of its own (`#/p/<project>`, one per instance) with its services, programs, warnings and logs. The gallery takes the whole screen, in the colours of VS Code's Light and Dark Modern themes. The header gives octopod's version.

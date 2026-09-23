@@ -5,6 +5,7 @@ PATH, then `octopod setup` — Docker checked, the shared edge started. Safe to 
 
   .\setup.ps1                        # puts the command in ~\.local\bin
   .\setup.ps1 -NoEdge                # ... without starting the edge
+  .\setup.ps1 -NoTray                # ... without the tray icon and its Start menu shortcut
   $env:BIN_DIR="$HOME\bin"; .\setup.ps1   # ... or elsewhere
 
 The command runs the sources: a change to the code needs no new setup. Run it again after a
@@ -13,6 +14,7 @@ the API.
 #>
 param(
   [switch]$NoEdge,
+  [switch]$NoTray,
   [switch]$Help
 )
 $ErrorActionPreference = 'Stop'
@@ -75,6 +77,25 @@ $setupArgs = @('setup', '--no-service')
 if ($NoEdge) { $setupArgs += '--no-edge' }
 node "$Root\bin\octopod.js" @setupArgs
 if ($LASTEXITCODE -ne 0) { Fail 'octopod setup failed (is Docker Desktop running?)' }
+
+if (-not $NoTray) {
+  Say 'The tray icon'
+  $vbs = Join-Path $Root 'bin\octopod-tray.vbs'
+  $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'octopod.lnk'
+  $link = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcut)
+  $link.TargetPath = 'wscript.exe'
+  $link.Arguments = "`"$vbs`""
+  $link.IconLocation = Join-Path $Root 'assets\octopod.ico'
+  $link.Description = 'octopod: the edge, the projects and their URLs'
+  $link.Save()
+  Write-Host "  Start menu: $shortcut"
+  # A tray already running is the one of before this setup: started again, it runs this code.
+  Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" |
+    Where-Object { $_.CommandLine -match 'octopod-tray\.ps1' } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+  Start-Process -FilePath 'wscript.exe' -ArgumentList "`"$vbs`""
+  Write-Host '  started: the tako in the notification area (right-click it; "Start with Windows" is there)'
+}
 
 Write-Host ''
 Say 'Done. Next, in a project folder:'

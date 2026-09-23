@@ -58,8 +58,9 @@ octopod setup      # checks Docker, runs the API as a user service, starts the e
 ```
 
 Or from a clone: `git clone https://github.com/quazardous/octopod && cd octopod && ./setup.sh`.
-On Windows, with Docker Desktop running, `.\setup.ps1` in PowerShell does the same; the API
-and the console are not available there yet.
+On Windows, with Docker Desktop running, `.\setup.ps1` in PowerShell does the same, and puts
+octopod in the notification area: its menu lists the projects and their URLs, and starts or
+stops them and the edge. The API and the console are not available there yet.
 
 Then try an example:
 
