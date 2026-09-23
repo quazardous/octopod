@@ -1,0 +1,5 @@
+# LF everywhere, whatever core.autocrlf says: recipes and scripts end up in Linux images,
+# where a carriage return breaks a heredoc, a config or a shebang.
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.cmd text eol=crlf

@@ -15,7 +15,8 @@ interface Instruction {
 
 /** The instructions, continuation lines joined, comments and heredoc bodies left out. */
 function instructions(text: string): Instruction[] {
-  const lines = text.split('\n');
+  // A Dockerfile written on Windows ends its lines with CRLF.
+  const lines = text.split(/\r?\n/);
   const out: Instruction[] = [];
   for (let i = 0; i < lines.length; i++) {
     const start = i;
