@@ -21,7 +21,8 @@ function pwsh(script: string): unknown {
   return JSON.parse(r.stdout);
 }
 
-describe('the Windows tray', () => {
+// Each case starts pwsh, which takes seconds cold on a CI runner.
+describe('the Windows tray', { timeout: 60_000 }, () => {
   it('keeps its files ASCII, and dot-sources its wording', () => {
     for (const f of ['octopod-tray.ps1', 'octopod-tray-look.ps1']) expect(readFileSync(join(BIN, f), 'utf8'), f).not.toMatch(/[^\x00-\x7F]/);
     expect(readFileSync(join(BIN, 'octopod-tray.ps1'), 'utf8')).toContain(". (Join-Path $PSScriptRoot 'octopod-tray-look.ps1')");
