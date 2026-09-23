@@ -221,7 +221,7 @@ describe('the built-in recipes', () => {
     expect(out.compose.services.app.depends_on).toEqual({
       db: { condition: 'service_healthy' },
       cache: { condition: 'service_healthy' },
-      sessions: { condition: 'service_started' },
+      sessions: { condition: 'service_healthy' },
       docs: { condition: 'service_healthy' },
       mail: { condition: 'service_healthy' },
     });

@@ -614,7 +614,7 @@ describe.skipIf(!dockerAvailable())('the service recipes, together (real docker)
       'mail:running:healthy',
       'me:running:-',
       'pma:running:-',
-      'sessions:running:-',
+      'sessions:running:healthy',
     ]);
     expect(status.warnings ?? []).toEqual([]);
     for (const volume of ['db-data', 'cache-data', 'docs-data']) {

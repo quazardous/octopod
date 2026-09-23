@@ -14,4 +14,9 @@ exports:
   port: "11211"
   url: "memcached://{{service}}:11211"
 port: 11211
+# The image has no client: an open port answers for it.
+health:
+  test: [CMD, bash, -c, "</dev/tcp/127.0.0.1/11211"]
+  intervalMs: 2000
+  retries: 30
 limits: { memory: 1g, cpus: "1", pids: 256 }
