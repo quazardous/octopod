@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Windows: the `node-app` recipe has dev servers poll for file changes (`CHOKIDAR_USEPOLLING`, `WATCHPACK_POLLING`): Docker Desktop passes no file event from Windows into a container, so they did not reload after an edit. Elsewhere the variables are not set. Recipes can read the host in their `env` (`{{host.os}}`, `{{host.poll}}`), and an env entry rendered empty is left out.
 - [docs/WINDOWS.md](docs/WINDOWS.md): octopod on Windows — WSL 2 and Docker Desktop, npm or a clone, the tray, and what differs from Linux: files changed on Windows raise no event in a container (a watcher must poll), `*.localhost` resolves in browsers and `curl` only, line endings, port 80.
 
 ## [0.3.2] - 2026-09-23

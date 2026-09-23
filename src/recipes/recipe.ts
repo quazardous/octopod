@@ -80,7 +80,10 @@ export const RecipeSchema = z
     buildArgs: z.record(z.string().regex(/^[A-Z][A-Z0-9_]*$/), z.string().max(400)).default({}),
     command: z.array(z.string().max(4_000)).max(64).optional(),
     params: z.record(Ident, ParamSpecSchema).default({}),
-    /** Structural variables only (where to listen, which mode); `{{params.x}}`, `{{secrets.x}}`, `{{service}}`. */
+    /**
+     * Structural variables only (where to listen, which mode); `{{params.x}}`, `{{secrets.x}}`,
+     * `{{service}}`, and `{{host.os}}`/`{{host.poll}}` — an entry rendered empty is left out.
+     */
     env: z.record(z.string().min(1), z.string().max(2_000)).default({}),
     /** Capabilities this recipe satisfies, e.g. `sql`. */
     provides: z.array(z.string().min(1).max(64)).default([]),

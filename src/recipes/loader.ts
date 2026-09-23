@@ -97,6 +97,15 @@ export async function loadRecipe(dir: string, id: string): Promise<RecipeEntry> 
       throw new RecipeError(`${file}: volume '${volume.name}': "when" must name a bool param, not '${volume.when}'`);
     }
   }
+  // `{{host.x}}` in an env only: an image, a build or a command that changed with the machine
+  // would make one project run differently on two.
+  const elsewhere = [
+    ...(recipe.command ?? []),
+    ...(recipe.health?.test ?? []),
+    ...Object.values(recipe.exports),
+    ...Object.values(recipe.actions).flatMap((a) => a.command),
+  ];
+  if (elsewhere.flatMap(tokens).some((t) => t.scope === 'host')) throw new RecipeError(`${file}: {{host.x}} belongs in an env, nowhere else`);
   for (const [name, action] of Object.entries(recipe.actions)) {
     for (const t of action.command.flatMap(tokens)) {
       if (t.scope === 'secrets') throw new RecipeError(`${file}: action '${name}' names a secret: read it in the container, from the service's environment, never on the host's command line`);

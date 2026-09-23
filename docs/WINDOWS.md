@@ -114,19 +114,12 @@ the tray, run `octopod serve` in a terminal for the console.
 `git checkout`, a tool writing in the project from Windows: the file changes in the
 container, but a dev server watching for changes (Vite, webpack, nodemon, `tsx watch`…) is
 not told, and does not reload. (Tested with Docker Desktop and its WSL 2 engine: a write
-made inside the container is seen, the same write made from Windows is not.) Have the
-watcher poll instead. In a `node-app` project, the dev script runs in the Linux container,
-so it can set it:
-
-```json
-"scripts": {
-  "dev": "CHOKIDAR_USEPOLLING=true WATCHPACK_POLLING=true vite"
-}
-```
-
-`CHOKIDAR_USEPOLLING` covers the tools built on chokidar, `WATCHPACK_POLLING` webpack and
-Next.js; Vite also takes `server.watch.usePolling: true` in its configuration, and nodemon
-`-L`. The edge has the same limit, and octopod works around it itself: it restarts Traefik
+made inside the container is seen, the same write made from Windows is not.) The watcher
+has to poll instead. The `node-app` recipe does it for you on Windows: it sets
+`CHOKIDAR_USEPOLLING` (the tools built on chokidar, Vite's among them) and
+`WATCHPACK_POLLING` (webpack, Next.js). A tool that polls only through its own
+configuration still needs it there: Vite's `server.watch.usePolling: true`, nodemon's
+`-L`. In a project with its own compose file, set the two variables on its service. The edge has the same limit, and octopod works around it itself: it restarts Traefik
 when its own middleware file changes.
 
 **`*.localhost` resolves in browsers and `curl`, not in the rest of Windows.** Chrome, Edge,

@@ -21,6 +21,10 @@ env:
   HOST: 0.0.0.0
   PORT: "3000"
   NODE_ENV: development
+  # Where no file event crosses the mount (Docker Desktop on Windows), dev servers poll:
+  # chokidar (Vite and most tools) and watchpack (webpack, Next). Absent elsewhere.
+  CHOKIDAR_USEPOLLING: "{{host.poll}}"
+  WATCHPACK_POLLING: "{{host.poll}}"
 workspace: /app
 home: true
 port: 3000

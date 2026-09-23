@@ -43,6 +43,28 @@ export interface RenderOptions {
   secretFactory?: (bytes: number) => string;
   /** Instance N of the project: its kept homes apart from the first's. */
   instance?: number;
+  /** The machine octopod runs on, for `{{host.x}}` in a recipe's env; this one by default. */
+  hostOs?: HostOs;
+}
+
+export type HostOs = 'linux' | 'windows' | 'macos';
+
+export function hostOsOf(platform: NodeJS.Platform = process.platform): HostOs {
+  return platform === 'win32' ? 'windows' : platform === 'darwin' ? 'macos' : 'linux';
+}
+
+/**
+ * `{{host.os}}`, and `{{host.poll}}`: `true` where a change made on the host raises no file
+ * event in a container (Docker Desktop on Windows), empty elsewhere — and an env entry
+ * rendered empty is left out, because a watcher takes any value, `false` included, as yes.
+ */
+function hostScope(os: HostOs): Record<string, string> {
+  return { os, poll: os === 'windows' ? 'true' : '' };
+}
+
+/** The env, its entries rendered empty left out. */
+function present(env: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(env).filter(([, v]) => v !== ''));
 }
 
 export interface RenderedService {
@@ -242,7 +264,8 @@ export function renderServices(options: RenderOptions): Rendered {
 
   for (const r of resolved) {
     const recipe: Recipe = r.entry.recipe;
-    const env = renderMap(recipe.env, scopes(r), `${r.name}.env`);
+    const host = hostScope(options.hostOs ?? hostOsOf());
+    const env = present(renderMap(recipe.env, { ...scopes(r), host }, `${r.name}.env`));
     const waits: { service: string; healthy: boolean }[] = [];
     for (const requirement of recipe.requires) {
       const providers = resolved.filter((o) => o.name !== r.name && o.entry.recipe.provides.includes(requirement.capability));
@@ -253,7 +276,7 @@ export function renderServices(options: RenderOptions): Rendered {
       if (providers.length > 1) throw new RenderError(`service '${r.name}': '${requirement.capability}' is provided by ${providers.map((p) => p.name).join(' and ')}`);
       const provider = providers[0];
       const exported = renderMap(provider.entry.recipe.exports, scopes(provider), `${provider.name}.exports`);
-      Object.assign(env, renderMap(requirement.env, { ...scopes(r), provider: exported }, `${r.name}.requires.${requirement.capability}`));
+      Object.assign(env, present(renderMap(requirement.env, { ...scopes(r), provider: exported, host }, `${r.name}.requires.${requirement.capability}`)));
       // What it requires is there: it starts once its provider is ready — healthy when the
       // provider can say so, started otherwise — not before, to fail on a refused connection.
       if (!waits.some((w) => w.service === provider.name)) waits.push({ service: provider.name, healthy: Boolean(provider.entry.recipe.health) });

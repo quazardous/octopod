@@ -183,6 +183,13 @@ workspace: .               # the folder a recipe's workspace mounts; the project
   - `workdir: /my-app` mounts the project there instead of the recipe's workspace (`/app`):
     a project keeps the paths it has. It is passed to the build as `WORKSPACE` (php-app
     serves its docroot from it).
+- **The host, in an env.** A recipe's `env` (and a requirement's) may read `{{host.os}}`
+  (`linux`, `windows`, `macos`) and `{{host.poll}}` — `true` where a change made on the host
+  raises no file event in a container (Docker Desktop on Windows), empty elsewhere. An env
+  entry rendered empty is left out of the service: a watcher takes any value, `false`
+  included, as yes. Nowhere else: an image, a build or a command that changed with the
+  machine would make one project run differently on two. `node-app` sets
+  `CHOKIDAR_USEPOLLING` and `WATCHPACK_POLLING` from `{{host.poll}}`.
 - **Actions.** A recipe names commands for its running service (`actions:`), and a
   project may add its own per service in `octopod.yaml`, the same shape, winning a name
   they share: `command` (argv, templated with `{{params.x}}` and `{{service}}` only — a

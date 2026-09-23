@@ -53,6 +53,16 @@ describe('the recipe folders', () => {
     await expect(loadRecipes([base])).rejects.toThrow(/action 'shell' names a secret/);
   });
 
+  it('takes {{host.x}} in an env, and nowhere else', async () => {
+    await recipe(base, 'hosted', 'title: T\nsummary: s\nimage: x\nunpinned: true\ncommand: [run, "{{host.os}}"]\n');
+    await expect(loadRecipes([base])).rejects.toThrow(/belongs in an env/);
+    await rm(join(base, 'hosted'), { recursive: true });
+    await recipe(base, 'fine', 'title: T\nsummary: s\nimage: x\nunpinned: true\nenv:\n  OS: "{{host.os}}"\n  EMPTY: "{{host.poll}}"\n');
+    const book = await loadRecipes([base]);
+    const env = renderServices({ project: 'p', book, services: { s: { recipe: 'fine' } }, workspace: '/p', hostOs: 'linux' }).compose.services.s.environment;
+    expect(env).toEqual({ OS: 'linux' });
+  });
+
   it('refuses a tool that would be routed', async () => {
     await recipe(base, 'routed-tool', 'title: T\nsummary: s\nimage: x\nunpinned: true\ntool: true\nroute: true\n');
     await expect(loadRecipes([base])).rejects.toThrow(/a tool is run on demand/);
@@ -293,9 +303,20 @@ describe('the built-in recipes', () => {
 describe('rendering services', () => {
   const secrets = (bytes: number): string => `s${bytes}`;
 
+  it('polls for file changes in node-app where none cross the mount (Windows), and says nothing elsewhere', async () => {
+    const book = await loadRecipes([BUILTIN_RECIPES]);
+    const env = (hostOs: 'linux' | 'windows' | 'macos') =>
+      renderServices({ project: 'shop', book, services: { app: { recipe: 'node-app' } }, workspace: '/p', hostOs }).compose.services.app.environment as Record<string, string>;
+    expect(env('windows')).toEqual(expect.objectContaining({ CHOKIDAR_USEPOLLING: 'true', WATCHPACK_POLLING: 'true' }));
+    // Absent, not "false": watchpack takes any value as yes.
+    expect(Object.keys(env('linux'))).not.toContain('WATCHPACK_POLLING');
+    expect(Object.keys(env('linux'))).not.toContain('CHOKIDAR_USEPOLLING');
+    expect(Object.keys(env('macos'))).not.toContain('CHOKIDAR_USEPOLLING');
+  });
+
   it('builds the app with its user named after the project at the operator\'s uid, from an empty context', async () => {
     const book = await loadRecipes([BUILTIN_RECIPES]);
-    const out = renderServices({ project: 'shop', book, services: { app: { recipe: 'node-app' } }, workspace: '/home/op/shop', owner: '1234:5678', secretFactory: secrets });
+    const out = renderServices({ project: 'shop', book, services: { app: { recipe: 'node-app' } }, workspace: '/home/op/shop', owner: '1234:5678', secretFactory: secrets, hostOs: 'linux' });
     const app = out.compose.services.app;
     expect(app.image).toBeUndefined();
     expect(app.build).toEqual({ context: '.octopod/build/app', args: { BASE_IMAGE: 'node:22-bookworm-slim', UID: '1234', GID: '5678', USER_NAME: 'shop', WORKSPACE: '/app' } });
