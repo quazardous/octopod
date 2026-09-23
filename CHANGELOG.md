@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-23
+
 ### Added
 
 - Windows: `setup.ps1` sets octopod up from a clone in PowerShell — the `octopod` command on the PATH, Docker checked, the edge started. There is no user service there: the API (`octopod serve`) and the console, which reads it through a unix socket, are not available on Windows yet.
@@ -76,6 +78,7 @@ The first preview: tested on Linux with Docker.
 - Traefik's dashboard and the console answer only from the host: a project's containers, which reach the edge over their edge network, get a 403.
 - `octopod` and `traefik` can no longer be project names: they are the edge's own hosts.
 
-[Unreleased]: https://github.com/quazardous/octopod/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/quazardous/octopod/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/quazardous/octopod/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/quazardous/octopod/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/quazardous/octopod/releases/tag/v0.1.0

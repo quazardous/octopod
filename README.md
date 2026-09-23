@@ -190,8 +190,9 @@ The lessons behind these choices are in [docs/PATTERNS.md](./docs/PATTERNS.md).
 
 ## Status
 
-0.1 is a preview. It is tested on Linux with Docker; Docker Desktop (macOS, Windows) and
-rootless Docker are not tested yet. Until 1.0, the contract may change between minor
+0.3 is a preview. It is tested on Linux with Docker, and runs on Windows with Docker
+Desktop (without the API and the console there yet); macOS and rootless Docker are not
+tested yet. Until 1.0, the contract may change between minor
 versions; every change is in the [changelog](./CHANGELOG.md), and a breaking one says what
 to do. The plan is in [docs/ROADMAP.md](./docs/ROADMAP.md).
 
