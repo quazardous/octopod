@@ -35,3 +35,22 @@ health:
   intervalMs: 2000
   retries: 30
 limits: { memory: 1g, cpus: "1", pids: 512 }
+# `octopod run <service> <action>`: the credentials are read in the container, from its
+# environment; the password goes through MYSQL_PWD, never a command line.
+actions:
+  shell:
+    summary: the database's shell, as its user
+    tty: true
+    command: [sh, -c, 'MYSQL_PWD="$MARIADB_PASSWORD" exec mariadb -u"$MARIADB_USER" "$MARIADB_DATABASE"']
+  dump:
+    summary: the database as SQL, on the standard output (octopod run db dump > dump.sql)
+    command: [sh, -c, 'MYSQL_PWD="$MARIADB_PASSWORD" exec mariadb-dump -u"$MARIADB_USER" --single-transaction --routines --triggers --no-tablespaces "$MARIADB_DATABASE"']
+  load:
+    summary: runs an SQL file in the database (octopod run db load dump.sql)
+    input: true
+    confirm: replaces in the database what the file holds
+    command: [sh, -c, 'MYSQL_PWD="$MARIADB_PASSWORD" exec mariadb -u"$MARIADB_USER" "$MARIADB_DATABASE"']
+  reset:
+    summary: drops the database and creates it empty
+    confirm: deletes everything in the database
+    command: [sh, -c, 'export MYSQL_PWD="$MARIADB_PASSWORD"; mariadb-admin -u"$MARIADB_USER" --force drop "$MARIADB_DATABASE" && exec mariadb-admin -u"$MARIADB_USER" create "$MARIADB_DATABASE"']

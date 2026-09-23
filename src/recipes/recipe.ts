@@ -33,6 +33,28 @@ export const ParamSpecSchema = z.discriminatedUnion('type', [
 
 export type ParamSpec = z.infer<typeof ParamSpecSchema>;
 
+/**
+ * A named command run in a running service (`octopod run <service> <action>`): what a
+ * Makefile's db-shell, db-dump, db-load repeat. Argv, no shell of octopod's; `{{params.x}}`
+ * and `{{service}}` only — a secret is read in the container, from the environment the
+ * recipe gives it, never put on the host's command line.
+ */
+export const ActionSchema = z
+  .object({
+    command: z.array(z.string().max(4_000)).min(1).max(64),
+    /** One line, for `octopod run <service>`. */
+    summary: z.string().max(200).optional(),
+    /** It reads its input (a dump to load): from a file, or octopod's stdin. */
+    input: z.boolean().default(false),
+    /** Interactive: given the terminal (a database shell). CLI only. */
+    tty: z.boolean().default(false),
+    /** What it destroys, asked before it runs (`--yes` answers). */
+    confirm: z.string().max(200).optional(),
+  })
+  .strict();
+
+export type ActionSpec = z.infer<typeof ActionSchema>;
+
 export const RecipeSchema = z
   .object({
     title: z.string().min(1).max(120),
@@ -77,8 +99,17 @@ export const RecipeSchema = z
       .default([]),
     /** Named volumes — bound by octopod to the project's `.octopod/data/`. `when`: a bool param that keeps it. */
     volumes: z.array(z.object({ name: Ident, path: z.string().min(1).max(200), when: Ident.optional() }).strict()).default([]),
-    /** The project's folder, mounted at this path (e.g. `/app`). */
+    /**
+     * The project's folder, mounted at this path (e.g. `/app`); a project may mount it
+     * elsewhere (`workdir:`), passed to the build as WORKSPACE.
+     */
     workspace: z.string().regex(/^\/[A-Za-z0-9._/-]*$/).optional(),
+    /**
+     * Its user's home is /home/<USER_NAME> (the image's user, renamed after the project): a
+     * project may keep it (`home:`), and octopod's shell settings are loaded from
+     * /etc/octopod/bashrc, which the image's /etc/bash.bashrc sources.
+     */
+    home: z.boolean().default(false),
     tmpfs: z.array(z.string().min(1).max(200)).default([]),
     readOnly: z.boolean().default(false),
     /** The port the service listens on: written as `expose`, where octopod finds it. */
@@ -99,6 +130,8 @@ export const RecipeSchema = z
       })
       .strict()
       .default({}),
+    /** Named commands for the running service: `octopod run <service> <action>`. */
+    actions: z.record(Ident, ActionSchema).default({}),
     /**
      * The service runs supervisord, whose configuration is `config` and whose own programs are
      * `programs`. The project's programs (`programs:` in octopod.yaml) are rendered into a

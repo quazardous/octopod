@@ -48,6 +48,11 @@ describe('the recipe folders', () => {
     await expect(loadRecipes([base])).rejects.toThrow(RecipeError);
   });
 
+  it('refuses an action that would put a secret on the host\'s command line', async () => {
+    await recipe(base, 'leaky', 'title: T\nsummary: s\nimage: x\nunpinned: true\nparams:\n  pw: { type: secret }\nactions:\n  shell: { command: [db, "-p{{secrets.pw}}"] }\n');
+    await expect(loadRecipes([base])).rejects.toThrow(/action 'shell' names a secret/);
+  });
+
   it('refuses a tool that would be routed', async () => {
     await recipe(base, 'routed-tool', 'title: T\nsummary: s\nimage: x\nunpinned: true\ntool: true\nroute: true\n');
     await expect(loadRecipes([base])).rejects.toThrow(/a tool is run on demand/);
@@ -156,7 +161,7 @@ describe('the built-in recipes', () => {
     expect(app.build.args).toEqual(expect.objectContaining({ BASE_IMAGE: 'php:8.2-fpm', EXTENSIONS: 'pdo_mysql gd', DOCROOT: 'public', UID: '1234', GID: '5678', USER_NAME: 'shop' }));
     expect(app.user).toBe('1234:5678');
     expect(app.expose).toEqual(['8080']);
-    expect(app.volumes).toEqual(['/w:/app', './.octopod/programs.shop.app.conf:/etc/octopod/programs.conf:ro']);
+    expect(app.volumes).toEqual(['/w:/app', './.octopod/bashrc:/etc/octopod/bashrc:ro', './.octopod/programs.shop.app.conf:/etc/octopod/programs.conf:ro']);
     expect((app.environment as Record<string, string>).DATABASE_URL).toMatch(/^mysql:\/\/app:s24@db:3306\/app$/);
     expect(app.depends_on).toEqual({ db: { condition: 'service_healthy' } });
   });
@@ -227,13 +232,49 @@ describe('the built-in recipes', () => {
     });
   });
 
+  it('gives a database its actions, and the project\'s own beside them', async () => {
+    const book = await loadRecipes([BUILTIN_RECIPES]);
+    const seed = { command: ['sh', '-c', 'echo {{service}}'], input: false, tty: false, summary: 'seeds' };
+    const out = renderServices({ project: 'shop', book, services: { db: { recipe: 'mariadb', actions: { seed } } }, workspace: '/p', secretFactory: (n) => `s${n}` });
+    const actions = out.services[0].actions!;
+    expect(Object.keys(actions)).toEqual(['shell', 'dump', 'load', 'reset', 'seed']);
+    expect(actions.seed.command).toEqual(['sh', '-c', 'echo db']);
+    expect(actions.load).toEqual(expect.objectContaining({ input: true, confirm: expect.stringMatching(/replaces/) }));
+    expect(actions.shell.tty).toBe(true);
+    // The password is read in the container: nothing generated appears in a command.
+    expect(JSON.stringify(actions)).not.toContain('s24');
+    expect(formatPlan('shop', out.services, '/p')).toContain('actions shell, dump, load, reset, seed (octopod run db <action>)');
+    const leaky = { command: ['x', '{{secrets.password}}'], input: false, tty: false };
+    expect(() => renderServices({ project: 'shop', book, services: { db: { recipe: 'mariadb', actions: { leaky } } }, workspace: '/p' })).toThrow();
+  });
+
+  it('keeps the user\'s home where the project says, mounts the project where it says, and gives the shell its prompt', async () => {
+    const book = await loadRecipes([BUILTIN_RECIPES]);
+    const out = renderServices({ project: 'shop', book, services: { app: { recipe: 'php-app', home: true, workdir: '/shop' } }, workspace: '/p', owner: '1:1' });
+    const app = out.compose.services.app as Record<string, unknown> & { build: { args: Record<string, string> } };
+    expect(app.volumes).toEqual(expect.arrayContaining(['/p:/shop', './.octopod/bashrc:/etc/octopod/bashrc:ro', './.octopod/home/app:/home/shop']));
+    expect(app.working_dir).toBe('/shop');
+    expect(app.build.args.WORKSPACE).toBe('/shop');
+    expect(app.environment).toEqual(expect.objectContaining({ OCTOPOD_PROJECT: 'shop', OCTOPOD_SERVICE: 'app' }));
+    expect(out.files['.octopod/bashrc']).toContain('PS1=');
+    expect(out.files['.octopod/build/app/Dockerfile']).toContain('. /etc/octopod/bashrc');
+    expect(out.services[0]).toEqual(expect.objectContaining({ workspace: '/shop', home: '.octopod/home/app' }));
+    // Instance 2 keeps its own home; a folder of the project is mounted as it is.
+    const second = renderServices({ project: 'shop-2', book, services: { app: { recipe: 'node-app', home: '/p/docker/home' } }, workspace: '/p', instance: 2 });
+    expect(second.compose.services.app.volumes).toContain('/p/docker/home:/home/shop-2');
+    const third = renderServices({ project: 'shop-2', book, services: { app: { recipe: 'node-app', home: true } }, workspace: '/p', instance: 2 });
+    expect(third.compose.services.app.volumes).toContain('./.octopod/home/2/app:/home/shop-2');
+    expect(() => renderServices({ project: 'p', book, services: { db: { recipe: 'postgres', home: true } }, workspace: '/p' })).toThrow(/no user's home/);
+    expect(() => renderServices({ project: 'p', book, services: { db: { recipe: 'postgres', workdir: '/x' } }, workspace: '/p' })).toThrow(/takes no workdir/);
+  });
+
   it('renders php-cli as a tool: in a profile up never activates, never restarted, its cache kept', async () => {
     const book = await loadRecipes([BUILTIN_RECIPES]);
     const out = renderServices({ project: 'shop', book, services: { app: { recipe: 'php-app' }, cli: { recipe: 'php-cli', params: { php: '8.3' } } }, workspace: '/p', owner: '1:1' });
     const cli = out.compose.services.cli;
     expect(cli.profiles).toEqual(['octopod-tool']);
     expect(cli.restart).toBeUndefined();
-    expect(cli.volumes).toEqual(['cli-cache:/cache', '/p:/app']);
+    expect(cli.volumes).toEqual(['cli-cache:/cache', '/p:/app', './.octopod/bashrc:/etc/octopod/bashrc:ro']);
     expect(out.services.find((x) => x.name === 'cli')?.tool).toBe(true);
     expect(formatPlan('shop', out.services, '/p')).toContain('tool    never started by up: octopod shell shop cli -- <command…>');
   });
@@ -255,14 +296,14 @@ describe('rendering services', () => {
     const out = renderServices({ project: 'shop', book, services: { app: { recipe: 'node-app' } }, workspace: '/home/op/shop', owner: '1234:5678', secretFactory: secrets });
     const app = out.compose.services.app;
     expect(app.image).toBeUndefined();
-    expect(app.build).toEqual({ context: '.octopod/build/app', args: { BASE_IMAGE: 'node:22-bookworm-slim', UID: '1234', GID: '5678', USER_NAME: 'shop' } });
+    expect(app.build).toEqual({ context: '.octopod/build/app', args: { BASE_IMAGE: 'node:22-bookworm-slim', UID: '1234', GID: '5678', USER_NAME: 'shop', WORKSPACE: '/app' } });
     expect(out.files['.octopod/build/app/Dockerfile']).toContain('usermod');
-    expect(app.volumes).toEqual(['/home/op/shop:/app']);
+    expect(app.volumes).toEqual(['/home/op/shop:/app', './.octopod/bashrc:/etc/octopod/bashrc:ro']);
     expect(app.working_dir).toBe('/app');
     expect(app.user).toBe('1234:5678');
     expect(app.expose).toEqual(['3000']);
     expect(app.profiles).toEqual(['dev']);
-    expect(app.environment).toEqual({ HOST: '0.0.0.0', PORT: '3000', NODE_ENV: 'development' });
+    expect(app.environment).toEqual({ HOST: '0.0.0.0', PORT: '3000', NODE_ENV: 'development', OCTOPOD_PROJECT: 'shop', OCTOPOD_SERVICE: 'app' });
     expect(app.networks).toBeUndefined();
   });
 

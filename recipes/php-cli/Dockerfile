@@ -7,6 +7,7 @@ FROM ${BASE_IMAGE}
 ARG UID=1000
 ARG GID=1000
 ARG USER_NAME=app
+ARG WORKSPACE=/app
 ARG EXTENSIONS="intl zip"
 
 COPY --from=extensions /usr/bin/install-php-extensions /usr/local/bin/
@@ -21,5 +22,8 @@ RUN apt-get update \
 RUN groupmod -o -g "$GID" -n "$USER_NAME" www-data \
  && usermod -o -u "$UID" -g "$GID" -l "$USER_NAME" -d "/home/$USER_NAME" -m www-data
 
+# octopod's shell settings (prompt, history), mounted at /etc/octopod/bashrc when it runs.
+RUN echo '[ -f /etc/octopod/bashrc ] && . /etc/octopod/bashrc' >> /etc/bash.bashrc
+
 USER ${USER_NAME}
-WORKDIR /app
+WORKDIR ${WORKSPACE}

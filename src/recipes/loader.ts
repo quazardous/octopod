@@ -97,6 +97,11 @@ export async function loadRecipe(dir: string, id: string): Promise<RecipeEntry> 
       throw new RecipeError(`${file}: volume '${volume.name}': "when" must name a bool param, not '${volume.when}'`);
     }
   }
+  for (const [name, action] of Object.entries(recipe.actions)) {
+    for (const t of action.command.flatMap(tokens)) {
+      if (t.scope === 'secrets') throw new RecipeError(`${file}: action '${name}' names a secret: read it in the container, from the service's environment, never on the host's command line`);
+    }
+  }
   if (recipe.tool && (recipe.route || recipe.supervisor)) throw new RecipeError(`${file}: a tool is run on demand: it takes no route and no supervisor`);
   for (const req of recipe.requires) {
     if (recipe.provides.includes(req.capability)) throw new RecipeError(`${file}: requires '${req.capability}', which it also provides`);

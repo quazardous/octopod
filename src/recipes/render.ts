@@ -8,7 +8,7 @@
  */
 import { createHash, randomBytes } from 'node:crypto';
 import type { ProgramSpec } from '../declaration.js';
-import { IDENT, type ParamSpec, type Recipe } from './recipe.js';
+import { IDENT, type ActionSpec, type ParamSpec, type Recipe } from './recipe.js';
 import type { RecipeBook, RecipeEntry } from './loader.js';
 import { render, renderMap } from './template.js';
 
@@ -19,6 +19,12 @@ export interface ServiceRequest {
   programs?: Record<string, ProgramSpec>;
   /** The project's folder of supervisord files, absolute: mounted read-only where the recipe includes it. */
   supervisorD?: string;
+  /** The project's own actions, beside the recipe's (a name they share is the project's). */
+  actions?: Record<string, ActionSpec>;
+  /** Keep its user's home: in `.octopod/home/`, or in this folder of the project (absolute). */
+  home?: true | string;
+  /** Where the project is mounted, instead of the recipe's workspace. */
+  workdir?: string;
 }
 
 export type ParamValue = string | number | boolean;
@@ -34,6 +40,8 @@ export interface RenderOptions {
   /** Secrets generated earlier, by service: kept, so a database keeps its password. */
   secrets?: Record<string, Record<string, string>>;
   secretFactory?: (bytes: number) => string;
+  /** Instance N of the project: its kept homes apart from the first's. */
+  instance?: number;
 }
 
 export interface RenderedService {
@@ -61,6 +69,10 @@ export interface RenderedService {
   supervisor?: string;
   /** The project's folder of supervisord files, mounted at SUPERVISOR_D. */
   supervisorD?: string;
+  /** Its actions, the recipe's and the project's, their commands rendered. */
+  actions?: Record<string, ActionSpec>;
+  /** Its user's home, kept: the host folder, relative to the project when octopod's. */
+  home?: string;
   /** The services it waits for at start: those that provide what it requires. */
   waits?: { service: string; healthy: boolean }[];
 }
@@ -115,7 +127,26 @@ interface Resolved {
   secrets: Record<string, string>;
   programs: Record<string, ProgramSpec>;
   supervisorD?: string;
+  actions: Record<string, ActionSpec>;
+  request: ServiceRequest;
 }
+
+/**
+ * octopod's shell settings, sourced by the image's /etc/bash.bashrc: where you are in the
+ * prompt (red as root), a history that lasts, ll and la. The user's ~/.bashrc comes after.
+ */
+export const BASHRC = `# octopod's shell settings: rendered by octopod, mounted read-only. Your ~/.bashrc comes after.
+case $- in *i*) ;; *) return ;; esac
+HISTSIZE=10000
+HISTFILESIZE=20000
+HISTCONTROL=ignoreboth
+shopt -s histappend checkwinsize
+alias ll='ls -alF' la='ls -A' l='ls -CF'
+if [ "$(id -u)" = 0 ]; then octopod_c='1;31'; else octopod_c='1;32'; fi
+PS1="\\[\\e[\${octopod_c}m\\]\\u@\${OCTOPOD_PROJECT:-octopod}:\${OCTOPOD_SERVICE:-?}\\[\\e[0m\\] \\[\\e[1;34m\\]\\w\\[\\e[0m\\]\\$ "
+unset octopod_c
+if [ -f /usr/share/bash-completion/bash_completion ]; then . /usr/share/bash-completion/bash_completion; fi
+`;
 
 /** Where a supervised service reads the project's programs. */
 export const PROGRAMS_FILE = '/etc/octopod/programs.conf';
@@ -188,7 +219,18 @@ export function renderServices(options: RenderOptions): Rendered {
       if (!IDENT.test(program)) throw new RenderError(`${where}: program '${program}': the name must match ${IDENT}`);
       if (supervisor?.programs.includes(program)) throw new RenderError(`${where}: program '${program}' is the recipe's own`);
     }
-    resolved.push({ name, entry, params, secrets, programs, ...(request.supervisorD ? { supervisorD: request.supervisorD } : {}) });
+    for (const action of Object.keys(request.actions ?? {})) {
+      if (!IDENT.test(action)) throw new RenderError(`${where}: action '${action}': the name must match ${IDENT}`);
+    }
+    // Rendered without the secrets in scope: a secret named in an action is refused here.
+    const actions: Record<string, ActionSpec> = {};
+    for (const [action, spec] of Object.entries({ ...entry.recipe.actions, ...(request.actions ?? {}) })) {
+      const scope = { service: name, recipe: entry.id, params };
+      actions[action] = { ...spec, command: spec.command.map((c, i) => render(c, scope, `${name}.actions.${action}.command[${i}]`)) };
+    }
+    if (request.home && !entry.recipe.home) throw new RenderError(`${where}: recipe '${entry.id}' has no user's home to keep`);
+    if (request.workdir && !entry.recipe.workspace) throw new RenderError(`${where}: recipe '${entry.id}' mounts no workspace, so it takes no workdir`);
+    resolved.push({ name, entry, params, secrets, programs, actions, request, ...(request.supervisorD ? { supervisorD: request.supervisorD } : {}) });
   }
 
   const services: Record<string, Record<string, unknown>> = {};
@@ -223,7 +265,8 @@ export function renderServices(options: RenderOptions): Rendered {
       const context = `.octopod/build/${r.name}`;
       files[`${context}/Dockerfile`] = r.entry.dockerfile!;
       const extra = renderMap(recipe.buildArgs, { params: r.params }, `${r.name}.buildArgs`);
-      service.build = { context, args: { ...extra, BASE_IMAGE: image, UID: uid, GID: gid, USER_NAME: userNameOf(options.project) } };
+      const workspaceArg = recipe.workspace ? { WORKSPACE: r.request.workdir ?? recipe.workspace } : {};
+      service.build = { context, args: { ...extra, BASE_IMAGE: image, UID: uid, GID: gid, USER_NAME: userNameOf(options.project), ...workspaceArg } };
     } else {
       service.image = image;
     }
@@ -231,6 +274,7 @@ export function renderServices(options: RenderOptions): Rendered {
     if (Object.keys(env).length > 0) service.environment = env;
     // Working on the project's files: as the operator, so they stay theirs.
     if (recipe.workspace && options.owner) service.user = options.owner;
+    const workdir = recipe.workspace ? (r.request.workdir ?? recipe.workspace) : undefined;
     if (recipe.readOnly) service.read_only = true;
     if (recipe.tmpfs.length > 0) service.tmpfs = recipe.tmpfs;
 
@@ -247,16 +291,28 @@ export function renderServices(options: RenderOptions): Rendered {
       kept.push(volume);
       mounts.push(`${volume}:${v.path}`);
     }
-    if (recipe.workspace) {
-      mounts.push(`${options.workspace}:${recipe.workspace}`);
-      service.working_dir = recipe.workspace;
+    if (workdir) {
+      mounts.push(`${options.workspace}:${workdir}`);
+      service.working_dir = workdir;
+    }
+    let home: string | undefined;
+    if (recipe.home) {
+      // Where you are, in the prompt: the settings read these.
+      service.environment = { ...(service.environment as Record<string, string> | undefined), OCTOPOD_PROJECT: options.project, OCTOPOD_SERVICE: r.name };
+      files['.octopod/bashrc'] = BASHRC;
+      mounts.push('./.octopod/bashrc:/etc/octopod/bashrc:ro');
+      if (r.request.home) {
+        const n = options.instance ?? 1;
+        home = r.request.home === true ? `.octopod/home/${n > 1 ? `${n}/` : ''}${r.name}` : r.request.home;
+        mounts.push(`${home.startsWith('/') ? home : `./${home}`}:/home/${userNameOf(options.project)}`);
+      }
     }
     if (recipe.supervisor) {
       // Always there, empty or not, so the recipe's configuration can include it; its digest
       // as a label, so a change of programs recreates the container, whose supervisor reads
       // them at start.
       const file = `.octopod/programs.${options.project}.${r.name}.conf`;
-      files[file] = programsConfig(r.programs, recipe.workspace);
+      files[file] = programsConfig(r.programs, workdir);
       mounts.push(`./${file}:${PROGRAMS_FILE}:ro`);
       if (r.supervisorD) mounts.push(`${r.supervisorD}:${SUPERVISOR_D}:ro`);
       service.labels = { 'octopod.programs': createHash('sha256').update(files[file]).digest('hex').slice(0, 12) };
@@ -290,7 +346,8 @@ export function renderServices(options: RenderOptions): Rendered {
       secrets: Object.keys(r.secrets),
       volumes: kept,
       ephemeral,
-      ...(recipe.workspace ? { workspace: recipe.workspace } : {}),
+      ...(workdir ? { workspace: workdir } : {}),
+      ...(home ? { home } : {}),
       ...(recipe.port ? { port: recipe.port } : {}),
       ...(recipe.route ? { route: recipe.route === true ? '' : recipe.route.subdomain } : {}),
       ...(waits.length > 0 ? { waits } : {}),
@@ -298,6 +355,7 @@ export function renderServices(options: RenderOptions): Rendered {
       ...(recipe.supervisor ? { supervisor: recipe.supervisor.config } : {}),
       ...(recipe.tool ? { tool: true } : {}),
       ...(r.supervisorD ? { supervisorD: r.supervisorD } : {}),
+      ...(Object.keys(r.actions).length > 0 ? { actions: r.actions } : {}),
     });
   }
 
@@ -319,7 +377,9 @@ export function formatPlan(project: string, services: RenderedService[], workspa
     if (s.ephemeral.length > 0) lines.push(`    NOT KEPT ${s.ephemeral.join(', ')} — lost when the container is recreated`);
     if (s.workspace) lines.push(`    files   ${workspace} → ${s.workspace}  READ-WRITE`);
     if (s.programs) lines.push(`    runs    ${s.programs.join(', ')} (supervised)`);
+    if (s.home) lines.push(`    home    ${s.home} (kept)`);
     if (s.supervisorD) lines.push(`    runs    the programs of ${s.supervisorD} (supervised, read-only)`);
+    if (s.actions) lines.push(`    actions ${Object.keys(s.actions).join(', ')} (octopod run ${s.name} <action>)`);
     if (s.tool) lines.push(`    tool    never started by up: octopod shell ${project} ${s.name} -- <command…>`);
     if (s.waits) lines.push(`    waits   for ${s.waits.map((w) => `${w.service} (${w.healthy ? 'healthy' : 'started'})`).join(', ')}`);
     if (s.route !== undefined) lines.push(`    served  ${s.route ? `${s.route}.` : ''}${project}.localhost, port ${s.port ?? 'from the image'}`);

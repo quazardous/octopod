@@ -30,7 +30,7 @@ esac
 cd "$(git rev-parse --show-toplevel)"
 
 # Home folder names that are fixtures, not someone's machine. Keep this list minimal.
-ALLOWED_HOMES='op'
+ALLOWED_HOMES='op delta shop shop-2 app 2'
 
 # A cheap first pass for git grep; the awk below decides what is a hit.
 PREFILTER='/home/|/Users/|#[0-9]{3}|PRIVATE KEY|AKIA|gh[pousr]_|github_pat_|xox[abprs]-|sk-'

@@ -12,6 +12,7 @@
  *   octopod shell [project] [service] [--root] [--oneshot] [-- command…]
  *   octopod secrets [project] [--instance N]
  *   octopod ps [project]
+ *   octopod run [project] <service> [<action> [file]] [--yes]
  *   octopod program start|stop|restart [project] <service>/<program>
  *   octopod program reload [project] <service>
  *   octopod recipes [dir] [--check]
@@ -21,6 +22,7 @@
  * `--json` prints the API's JSON; otherwise a short human summary.
  */
 import { spawn } from 'node:child_process';
+import { closeSync, openSync, read as readFs } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { dockerEnv } from './docker.js';
 import { loadDeclaration } from './declaration.js';
@@ -75,6 +77,21 @@ function positional(args: string[]): string[] {
 }
 
 /** The project named on the command line, or the one declared in the current folder. */
+/** A yes or no from the terminal — never from stdin, which may be the dump being loaded. */
+async function ask(question: string): Promise<boolean> {
+  let tty: number;
+  try {
+    tty = openSync('/dev/tty', 'r');
+  } catch {
+    return false;
+  }
+  process.stderr.write(question);
+  const buffer = Buffer.alloc(64);
+  const read = await new Promise<number>((done) => readFs(tty, buffer, 0, 64, null, (e, n) => done(e ? 0 : n)));
+  closeSync(tty);
+  return /^y(es)?$/i.test(buffer.subarray(0, read).toString().trim());
+}
+
 async function projectName(args: string[]): Promise<string> {
   return positional(args)[0] ?? (await loadDeclaration(process.cwd())).project;
 }
@@ -112,6 +129,37 @@ async function main(argv: string[]): Promise<void> {
       });
       // The terminal is handed to docker; its exit code becomes this command's.
       const child = spawn(argv[0], argv.slice(1), { stdio: 'inherit', env: { ...dockerEnv(), ...(process.env.TERM ? { TERM: process.env.TERM } : {}) } });
+      process.exitCode = await new Promise<number>((done, fail) => {
+        child.once('error', fail);
+        child.once('exit', (code, signal) => done(code ?? (signal ? 128 : 1)));
+      });
+      return;
+    }
+    case 'run': {
+      // octopod run [project] <service> [<action> [file]] [--yes]: a named action of a service
+      // (db shell, dump, load); without an action, the service's actions.
+      const words = positional(rest);
+      const named = words.length >= 2 && (await octopod.names()).includes(words[0]) && words[0] !== words[1];
+      const project = named ? words[0] : await projectName([]);
+      const [service, action, file] = named ? words.slice(1) : words;
+      if (!service) throw new Error('usage: octopod run [project] <service> [<action> [file]] [--yes]');
+      if (!action) {
+        const actions = (await octopod.actions(project, instanceOf(rest))).filter((a) => a.service === service);
+        if (json) return print(actions, true);
+        if (actions.length === 0) return console.log(`${service} has no action`);
+        for (const a of actions) console.log(`${a.action.padEnd(12)} ${a.summary ?? ''}${a.confirm ? `  (${a.confirm})` : ''}`);
+        return;
+      }
+      const { argv, spec } = await octopod.actionCommand(project, service, action, { instance: instanceOf(rest), tty: Boolean(process.stdin.isTTY && process.stdout.isTTY) });
+      if (file && !spec.input) throw new Error(`${service}/${action} reads no input: redirect its output instead (> file)`);
+      if (spec.input && !file && process.stdin.isTTY) throw new Error(`${service}/${action} reads its input: give a file, or pipe it`);
+      if (spec.confirm && !rest.includes('--yes')) {
+        if (!process.stderr.isTTY || !(await ask(`${project}/${service}: ${action} ${spec.confirm}. Go on? [y/N] `))) {
+          throw new Error(`${service}/${action} ${spec.confirm}: not done (--yes answers)`);
+        }
+      }
+      const input = file ? openSync(resolve(file), 'r') : 'inherit';
+      const child = spawn(argv[0], argv.slice(1), { stdio: [input, 'inherit', 'inherit'], env: { ...dockerEnv(), ...(process.env.TERM ? { TERM: process.env.TERM } : {}) } });
       process.exitCode = await new Promise<number>((done, fail) => {
         child.once('error', fail);
         child.once('exit', (code, signal) => done(code ?? (signal ? 128 : 1)));

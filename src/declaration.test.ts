@@ -92,6 +92,16 @@ describe('loadDeclaration', () => {
     await expect(loadDeclaration(root)).rejects.toThrow(/inside the project/);
   });
 
+  it('takes a kept home, true or a folder of the project, and where to mount the project', async () => {
+    await mkdir(join(root, 'docker', 'home'), { recursive: true });
+    await writeFile(join(root, 'octopod.yaml'), 'services:\n  app: { recipe: node-app, home: docker/home, workdir: /my-app }\n  cli: { recipe: php-cli, home: true }\n');
+    const d = await loadDeclaration(root);
+    expect(d.services?.app).toEqual({ recipe: 'node-app', params: {}, home: join(root, 'docker', 'home'), workdir: '/my-app' });
+    expect(d.services?.cli).toEqual({ recipe: 'php-cli', params: {}, home: true });
+    await writeFile(join(root, 'octopod.yaml'), 'services:\n  app: { recipe: node-app, workdir: relative }\n');
+    await expect(loadDeclaration(root)).rejects.toThrow(/absolute path in the container/);
+  });
+
   it('leaves the port to find when none is declared', async () => {
     await writeFile(join(root, 'octopod.yaml'), 'expose:\n  - service: web\n');
     expect((await loadDeclaration(root)).expose).toEqual([{ service: 'web', host: 'my-app.localhost' }]);

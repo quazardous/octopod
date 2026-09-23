@@ -30,3 +30,22 @@ health:
   intervalMs: 2000
   retries: 30
 limits: { memory: 1g, cpus: "1", pids: 512 }
+# `octopod run <service> <action>`: the credentials are read in the container, from its
+# environment. mongosh from 6.0; the older images have the legacy shell.
+actions:
+  shell:
+    summary: the database's shell
+    tty: true
+    command: [sh, -c, 'if command -v mongosh >/dev/null; then s=mongosh; else s=mongo; fi; exec $s -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin "$MONGO_INITDB_DATABASE"']
+  dump:
+    summary: the database as a mongodump archive, on the standard output (octopod run docs dump > dump.archive)
+    command: [sh, -c, 'exec mongodump --quiet --archive -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --db "$MONGO_INITDB_DATABASE"']
+  load:
+    summary: restores a mongodump archive, its collections replacing the database's (octopod run docs load dump.archive)
+    input: true
+    confirm: replaces in the database the collections the archive holds
+    command: [sh, -c, 'exec mongorestore --quiet --archive --drop -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --nsInclude "$MONGO_INITDB_DATABASE.*"']
+  reset:
+    summary: drops the database
+    confirm: deletes everything in the database
+    command: [sh, -c, 'if command -v mongosh >/dev/null; then s=mongosh; else s=mongo; fi; exec $s --quiet -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin "$MONGO_INITDB_DATABASE" --eval "db.dropDatabase()"']

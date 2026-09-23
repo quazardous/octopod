@@ -9,6 +9,7 @@ FROM ${BASE_IMAGE}
 ARG UID=1000
 ARG GID=1000
 ARG USER_NAME=app
+ARG WORKSPACE=/app
 ARG EXTENSIONS="intl opcache zip"
 ARG DOCROOT=public
 
@@ -43,7 +44,7 @@ http {
   client_max_body_size 64m;
   server {
     listen 8080;
-    root /app/__DOCROOT__;
+    root __WORKSPACE__/__DOCROOT__;
     index index.php index.html;
     location / { try_files $uri $uri/ /index.php$is_args$args; }
     location ~ \.php$ {
@@ -54,7 +55,7 @@ http {
   }
 }
 EOF
-RUN sed -i "s#__DOCROOT__#${DOCROOT}#" /etc/octopod/nginx.conf
+RUN sed -i -e "s#__WORKSPACE__#${WORKSPACE}#" -e "s#__DOCROOT__#${DOCROOT}#" /etc/octopod/nginx.conf
 
 COPY <<'EOF' /etc/octopod/supervisord.conf
 [supervisord]
@@ -92,5 +93,8 @@ autorestart=true
 files = /etc/octopod/programs.conf /etc/octopod/supervisord.d/*.conf
 EOF
 
+# octopod's shell settings (prompt, history), mounted at /etc/octopod/bashrc when it runs.
+RUN echo '[ -f /etc/octopod/bashrc ] && . /etc/octopod/bashrc' >> /etc/bash.bashrc
+
 USER ${USER_NAME}
-WORKDIR /app
+WORKDIR ${WORKSPACE}

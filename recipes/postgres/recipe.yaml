@@ -28,3 +28,22 @@ health:
   intervalMs: 2000
   retries: 30
 limits: { memory: 512m, cpus: "1", pids: 256 }
+# `octopod run <service> <action>`: over the container's local socket, which the image
+# trusts; the names are read from its environment.
+actions:
+  shell:
+    summary: the database's shell, as its user
+    tty: true
+    command: [sh, -c, 'exec psql -U "$POSTGRES_USER" "$POSTGRES_DB"']
+  dump:
+    summary: the database as SQL, on the standard output (octopod run db dump > dump.sql); loading it replaces what it holds
+    command: [sh, -c, 'exec pg_dump -U "$POSTGRES_USER" --clean --if-exists --no-owner "$POSTGRES_DB"']
+  load:
+    summary: runs an SQL file in the database, stopping at the first error (octopod run db load dump.sql)
+    input: true
+    confirm: replaces in the database what the file holds
+    command: [sh, -c, 'exec psql -U "$POSTGRES_USER" -v ON_ERROR_STOP=1 -q "$POSTGRES_DB"']
+  reset:
+    summary: drops the database and creates it empty
+    confirm: deletes everything in the database
+    command: [sh, -c, 'dropdb -U "$POSTGRES_USER" --if-exists --force "$POSTGRES_DB" && exec createdb -U "$POSTGRES_USER" "$POSTGRES_DB"']

@@ -56,6 +56,26 @@ async function eventually(host: string, status: number, path = '/', method = 'GE
   return last;
 }
 
+/** A database's actions, round trip: load a table, dump it, reset, load the dump back. */
+async function roundTrip(octopod: Octopod, project: string, service: string, dir: string): Promise<void> {
+  const sql = join(dir, `${service}-seed.sql`);
+  const dump = join(dir, `${service}-dump.sql`);
+  const again = join(dir, `${service}-again.sql`);
+  await writeFile(sql, 'CREATE TABLE marker (x int);\nINSERT INTO marker VALUES (4242);\n');
+  await expect(octopod.runAction(project, service, 'load', { input: sql })).rejects.toThrow(/confirm it/);
+  expect(await octopod.runAction(project, service, 'load', { input: sql, confirm: true })).toEqual(expect.objectContaining({ ok: true }));
+  expect(await octopod.runAction(project, service, 'dump', { output: dump })).toEqual(expect.objectContaining({ ok: true }));
+  expect(await readFile(dump, 'utf8')).toContain('4242');
+  expect((await stat(dump)).mode & 0o777).toBe(0o600);
+  expect(await octopod.runAction(project, service, 'reset', { confirm: true })).toEqual(expect.objectContaining({ ok: true }));
+  await octopod.runAction(project, service, 'dump', { output: again });
+  expect(await readFile(again, 'utf8')).not.toContain('4242');
+  expect(await octopod.runAction(project, service, 'load', { input: dump, confirm: true })).toEqual(expect.objectContaining({ ok: true }));
+  await octopod.runAction(project, service, 'dump', { output: again });
+  expect(await readFile(again, 'utf8')).toContain('4242');
+  await expect(octopod.runAction(project, service, 'shell')).rejects.toThrow(/interactive/);
+}
+
 async function project(base: string, name: string, port?: number): Promise<string> {
   const root = join(base, name);
   await mkdir(root);
@@ -374,7 +394,7 @@ describe.skipIf(!dockerAvailable())('a project made of recipes (real docker)', {
         '',
       ].join('\n'),
     );
-    await writeFile(join(root, 'octopod.yaml'), 'services:\n  app: { recipe: node-app }\n  db: { recipe: postgres }\n');
+    await writeFile(join(root, 'octopod.yaml'), 'services:\n  app: { recipe: node-app, home: true, workdir: /delta }\n  db: { recipe: postgres }\n');
     octopod = new Octopod({ stateDir: join(base, 'state'), instance: INSTANCE, ports: [PORT] });
   }, 600_000);
 
@@ -407,6 +427,20 @@ describe.skipIf(!dockerAvailable())('a project made of recipes (real docker)', {
     const status = await octopod.status('delta');
     expect(status.warnings ?? []).toEqual([]);
     expect(status.services).toEqual(expect.arrayContaining([expect.objectContaining({ service: 'db', state: 'running' })]));
+  });
+
+  it('dumps its database, resets it and loads the dump back, through the recipe\'s actions', async () => {
+    await roundTrip(octopod, 'delta', 'db', base);
+  });
+
+  it('keeps the app user\'s home in the project, mounts the project where it says, and says where you are', async () => {
+    const result = await octopod.exec('delta', 'app', ['bash', '-ic', 'echo "home=$HOME pwd=$(pwd) prompt=$PS1"; echo kept >> ~/.probe']);
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain('home=/home/delta pwd=/delta');
+    expect(result.output).toMatch(/prompt=.*delta:app/);
+    const probe = join(root, '.octopod', 'home', 'app', '.probe');
+    expect(await readFile(probe, 'utf8')).toBe('kept\n');
+    expect((await stat(probe)).uid).toBe(process.getuid?.());
   });
 
   it('removes what it built when the project is unregistered, and keeps the data', async () => {
@@ -531,6 +565,10 @@ describe.skipIf(!dockerAvailable())('a PHP project made of recipes (real docker)
     expect((await stat(join(root, 'seeded.txt'))).uid).toBe(process.getuid?.());
     await expect(octopod.program('phpapp', 'app', 'nope', 'start')).rejects.toThrow(/no program "nope"/);
     await expect(octopod.program('phpapp', 'db', 'x', 'start')).rejects.toThrow(/runs no supervisor/);
+  });
+
+  it('dumps its MariaDB, resets it and loads the dump back, through the recipe\'s actions', async () => {
+    await roundTrip(octopod, 'phpapp', 'db', base);
   });
 
   it('keeps a tool out of up, and runs it on demand as the project\'s user, its cache kept', async () => {

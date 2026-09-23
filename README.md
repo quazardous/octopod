@@ -92,6 +92,10 @@ services:
   db:  { recipe: postgres }   # its URL handed to the app as DATABASE_URL
 ```
 
+The app's user keeps its home (history, caches) with `home: true`, and the project can be
+mounted where it has always been (`workdir: /shop`); the shell's prompt says
+`shop@shop:app`.
+
 A PHP stack, each service's address handed to the app (`DATABASE_URL`, `REDIS_URL`,
 `MAILER_DSN`), the admins at `pma.` and `mail.<project>.localhost`:
 
@@ -144,6 +148,7 @@ octopod status                # its services, URLs and warnings
 octopod list --group shop     # the registered projects (--tag php, too)
 octopod logs --service web --tail 100
 octopod shell [service]       # a shell in a service, as its user; --root; -- command…
+octopod run db dump > dump.sql   # a service's actions: shell, dump, load, reset for a database
 octopod ps                    # the programs of its supervised services
 octopod program start app/seed
 octopod restart [--service s]

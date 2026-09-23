@@ -22,6 +22,7 @@ env:
   PORT: "3000"
   NODE_ENV: development
 workspace: /app
+home: true
 port: 3000
 route: true
 profiles: [dev]

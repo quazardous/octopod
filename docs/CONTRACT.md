@@ -169,6 +169,29 @@ workspace: .               # the folder a recipe's workspace mounts; the project
   `MEMCACHED_URL`, `MONGODB_URL`, `MAILER_DSN` and `SMTP_URL`); `phpmyadmin` requires
   `mysql`, `mongo-express` requires `mongodb`. Two providers of one capability a service
   requires is an error: name the one you mean in a recipe of your own.
+- **A shell like a machine's.** An app recipe with `home: true` (`node-app`, `php-app`,
+  `php-cli`) gives its shell octopod's settings — the prompt says `<user>@<project>:<service>`
+  (red as root), a history that lasts, `ll`/`la` — from `.octopod/bashrc`, mounted
+  read-only at `/etc/octopod/bashrc`, which the image's `/etc/bash.bashrc` sources; the
+  user's own `~/.bashrc` comes after. The service gets `OCTOPOD_PROJECT` and
+  `OCTOPOD_SERVICE` for it. Per service in `octopod.yaml`:
+  - `home: true` keeps its user's home (`/home/<user>`: history, caches, tools' settings)
+    in `.octopod/home/<service>` (`.octopod/home/<N>/<service>` for instance N), created as
+    the operator; `home: <folder>` keeps it in that folder of the project, which must exist
+    (a home kept in git, as some projects do).
+  - `workdir: /my-app` mounts the project there instead of the recipe's workspace (`/app`):
+    a project keeps the paths it has. It is passed to the build as `WORKSPACE` (php-app
+    serves its docroot from it).
+- **Actions.** A recipe names commands for its running service (`actions:`), and a
+  project may add its own per service in `octopod.yaml`, the same shape, winning a name
+  they share: `command` (argv, templated with `{{params.x}}` and `{{service}}` only — a
+  secret is read in the container from the service's environment, never put on the host's
+  command line; one named is refused), `summary`, `input` (it reads a file or stdin),
+  `tty` (interactive, CLI only), `confirm` (what it destroys: asked, or `--yes`).
+  `octopod run [project] <service>` lists them, `octopod run [project] <service> <action>
+  [file]` runs one in the service (a tool's in a one-off container): its output on the
+  standard output, its input from the file or stdin. `mariadb`, `postgres` and `mongodb`
+  have `shell`, `dump`, `load` and `reset`.
 - **Tools.** A recipe with `tool: true` (`php-cli`) makes a service run on demand only: in
   the `octopod-tool` compose profile, which octopod never activates, so `up` builds its
   image and never starts it; no restart policy, no route, no supervisor. `octopod shell
@@ -238,6 +261,8 @@ HTTP with JSON bodies over a unix socket: `$XDG_RUNTIME_DIR/octopod/octopod.sock
 | POST | `/v1/projects/:name/restart` | `{ service? }` | `ProjectStatus` |
 | POST | `/v1/projects/:name/exec` | `{ service, argv: string[], timeoutMs? }` | `{ ok, mode, output, truncated }` — argv, never a shell string built by octopod; output bounded; a failure says how it ended (exit code, timeout). `mode: "run"` when the service was not running (stopped, restarting in a loop): the command ran in a one-off container of it (same image, mounts, user, network), kept out of the edge's routes |
 | GET | `/v1/projects/:name/logs?service=&tail=` | | `{ lines: string[] }` |
+| GET | `/v1/projects/:name/actions?instance=` | | `{ service, action, summary?, input, tty, confirm? }[]` |
+| POST | `/v1/projects/:name/run` | `{ service, action, input?, output?, confirm?, instance? }` | `{ ok, code, stderr }` — `input` and `output` are absolute paths: the action reads the one, writes the other (created `0600`), streamed. An interactive action is refused; one that destroys needs `confirm: true`. Refused through the console's relay, like every POST |
 | GET | `/v1/projects/:name/programs?instance=` | | `{ service, program, state, detail }[]` — every program of the running supervised services, the recipe's and the project's, as supervisord reports them (`RUNNING`, `STOPPED`, `BACKOFF`, `FATAL`, `EXITED`…) |
 | POST | `/v1/projects/:name/program` | `{ service, program, action: "start" \| "stop" \| "restart", instance? }`, or `{ service, action: "reload" }` | the service's programs, after the action |
 | GET | `/v1/projects/:name/secrets?instance=` | | `{ values: string[] }` — the secrets octopod generated for the project's recipes, every running instance's unless one is named: for a client to mask them. Refused (403) through the console's relay |
@@ -266,6 +291,7 @@ The CLI speaks the same operations and prints the same JSON with `--json`:
 `octopod edge up|down|status`, `octopod register [dir]`, `octopod up|down|status|logs|restart
 [project]`, `octopod exec <project> <service> -- <command…>`, `octopod unregister <project>`,
 `octopod recipes [dir] [--check]`, `octopod ps [project]` (the programs),
+`octopod run [project] <service> [<action> [file]] [--yes]`,
 `octopod program start|stop|restart [project] <service>/<program>`,
 `octopod program reload [project] <service>` —
 `up`, `down`, `status`, `logs`, `restart` and `exec` take `--instance N`;

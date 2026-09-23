@@ -6,8 +6,12 @@ FROM ${BASE_IMAGE}
 ARG UID=1000
 ARG GID=1000
 ARG USER_NAME=app
+ARG WORKSPACE=/app
 # -o: the operator's ids may already be taken in the image (1000 is node's own).
 RUN groupmod -o -g "$GID" -n "$USER_NAME" node \
  && usermod -o -u "$UID" -g "$GID" -l "$USER_NAME" -d "/home/$USER_NAME" -m node
+# octopod's shell settings (prompt, history), mounted at /etc/octopod/bashrc when it runs.
+RUN echo '[ -f /etc/octopod/bashrc ] && . /etc/octopod/bashrc' >> /etc/bash.bashrc
+
 USER ${USER_NAME}
-WORKDIR /app
+WORKDIR ${WORKSPACE}

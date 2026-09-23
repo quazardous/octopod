@@ -23,6 +23,7 @@ buildArgs:
 command: [supervisord, -c, /etc/octopod/supervisord.conf]
 supervisor: { config: /etc/octopod/supervisord.conf, programs: [php-fpm, nginx] }
 workspace: /app
+home: true
 port: 8080
 route: true
 profiles: [dev]

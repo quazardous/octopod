@@ -21,6 +21,7 @@ env:
   COMPOSER_CACHE_DIR: /cache/composer
   XDG_CACHE_HOME: /cache
 workspace: /app
+home: true
 volumes:
   - { name: cache, path: /cache }
 tmpfs: [/tmp]

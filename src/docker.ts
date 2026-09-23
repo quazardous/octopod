@@ -2,7 +2,8 @@
  * The Docker CLI, as octopod uses it: arguments as an array (never a shell string),
  * output captured, a failure turned into an error that says what docker said.
  */
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import { createReadStream, createWriteStream } from 'node:fs';
 
 export class DockerError extends Error {}
 
@@ -15,8 +16,21 @@ export interface RunOptions {
   okExitCodes?: number[];
 }
 
+export interface PipeOptions {
+  /** A file read as the command's input; nothing (closed) otherwise. */
+  stdin?: string;
+  /** A file the command's output is written to, created 0600; discarded otherwise. */
+  stdout?: string;
+  timeoutMs?: number;
+}
+
 export interface Docker {
   run(args: string[], options?: RunOptions): Promise<string>;
+  /**
+   * Run with files as input and output, streamed: a database dump does not go through
+   * memory. Resolves with the exit code and the end of what it said on stderr.
+   */
+  pipe?(args: string[], options: PipeOptions): Promise<{ code: number; stderr: string }>;
 }
 
 /**
@@ -68,6 +82,26 @@ export function cliDocker(binary = 'docker'): Docker {
         // answer nobody can type.
         child.stdin?.end(options.input);
       });
+    },
+    async pipe(args, options) {
+      const input = options.stdin ? createReadStream(options.stdin) : undefined;
+      if (input) await new Promise<void>((ok, fail) => input.once('open', () => ok()).once('error', fail));
+      const output = options.stdout ? createWriteStream(options.stdout, { mode: 0o600 }) : undefined;
+      if (output) await new Promise<void>((ok, fail) => output.once('open', () => ok()).once('error', fail));
+      const child = spawn(binary, args, { stdio: [input ? 'pipe' : 'ignore', output ? 'pipe' : 'ignore', 'pipe'], env: dockerEnv() });
+      if (input) input.pipe(child.stdin!);
+      if (output) child.stdout!.pipe(output);
+      let stderr = '';
+      child.stderr!.on('data', (chunk: Buffer) => {
+        stderr = (stderr + chunk.toString()).slice(-8_192);
+      });
+      const timer = setTimeout(() => child.kill('SIGKILL'), options.timeoutMs ?? 30 * 60_000);
+      const code = await new Promise<number>((done, fail) => {
+        child.once('error', fail);
+        child.once('close', (c, signal) => done(c ?? (signal ? 128 : 1)));
+      }).finally(() => clearTimeout(timer));
+      if (output) await new Promise<void>((ok) => output.end(ok));
+      return { code, stderr: stderr.trim() };
     },
   };
 }

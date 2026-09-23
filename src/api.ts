@@ -125,6 +125,20 @@ export function handler(octopod: Octopod) {
         const secrets = await octopod.secrets(name, raw === null ? undefined : instanceValue(raw));
         return send(res, 200, { values: [...new Set(secrets.map((s) => s.value))] });
       }
+      if (resource === 'projects' && name && action === 'actions' && method === 'GET') return send(res, 200, await octopod.actions(name, queryInstance()));
+      if (resource === 'projects' && name && action === 'run' && method === 'POST') {
+        // Files, not bodies: a dump goes from the container to a file the client names, streamed.
+        const { service, action: what, input, output, confirm, instance } = await body(req);
+        const path = (p: unknown) => p === undefined || (typeof p === 'string' && p.startsWith('/'));
+        if (typeof service !== 'string' || typeof what !== 'string' || !path(input) || !path(output)) {
+          return send(res, 400, { error: '"service" and "action" must be strings, "input" and "output" absolute paths' });
+        }
+        return send(
+          res,
+          200,
+          await octopod.runAction(name, service, what, { instance: instanceValue(instance), input: input as string | undefined, output: output as string | undefined, confirm: confirm === true }),
+        );
+      }
       if (resource === 'projects' && name && action === 'programs' && method === 'GET') return send(res, 200, await octopod.programs(name, queryInstance()));
       if (resource === 'projects' && name && action === 'program' && method === 'POST') {
         const { service, program, action: what, instance } = await body(req);

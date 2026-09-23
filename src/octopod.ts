@@ -34,6 +34,19 @@ export async function version(): Promise<{ version: string; contract: number; fe
 }
 
 /** A secret octopod generated for a project's recipe: where it belongs, and its value. */
+/** An action a service offers: `octopod run <service> <action>`. */
+export interface ActionInfo {
+  service: string;
+  action: string;
+  summary?: string;
+  /** Reads its input (a file, or stdin). */
+  input: boolean;
+  /** Interactive: CLI only. */
+  tty: boolean;
+  /** What it destroys: asked before it runs. */
+  confirm?: string;
+}
+
 /** A program as its supervisor reports it: RUNNING, STOPPED, BACKOFF, FATAL… and since when. */
 export interface ProgramState {
   service: string;
@@ -374,6 +387,7 @@ export class Octopod {
           workspace: declaration.workspace ?? declaration.root,
           owner: currentOwner(),
           secrets: kept,
+          ...(declaration.instance ? { instance: declaration.instance } : {}),
           ...(keepSecrets ? {} : { secretFactory: () => '‹generated›' }),
         }),
       };
@@ -401,6 +415,10 @@ export class Octopod {
       for (const [path, content] of Object.entries(rendered.files)) {
         await mkdir(join(declaration.root, dirname(path)), { recursive: true });
         await writeFile(join(declaration.root, path), content);
+      }
+      // A kept home in .octopod/, created as the operator: docker would create it as root.
+      for (const service of rendered.services) {
+        if (service.home && !service.home.startsWith('/')) await mkdir(join(declaration.root, service.home), { recursive: true });
       }
     }
     const declared = new Set(declaration.expose.map((e) => e.service));
@@ -573,12 +591,19 @@ export class Octopod {
     return ['compose', '-p', declaration.project, '--project-directory', declaration.root, ...envFile, ...profiles, ...files, ...override];
   }
 
+  /**
+   * The project's whole configuration, tools included: their volumes are bound into
+   * .octopod/data like the others' (or `compose run` would make them Docker volumes), and
+   * removed with them.
+   */
+  private configArgs(declaration: Declaration): string[] {
+    const tools = declaration.tools ? ['--profile', TOOL_PROFILE] : [];
+    return [...this.composeArgs(declaration, false), ...tools, 'config', '--format', 'json'];
+  }
+
   async up(name: string, instance = 1): Promise<ProjectStatus> {
     const declaration = await this.declaration(name, instance);
-    // Tools included: their volumes are bound into .octopod/data like the others', or `compose
-    // run` would make them Docker volumes.
-    const tools = declaration.tools ? ['--profile', TOOL_PROFILE] : [];
-    const config = JSON.parse(await this.docker.run([...this.composeArgs(declaration, false), ...tools, 'config', '--format', 'json'])) as {
+    const config = JSON.parse(await this.docker.run(this.configArgs(declaration))) as {
       services?: Record<string, ComposeService>;
       volumes?: Record<string, ComposeVolume>;
     };
@@ -640,7 +665,7 @@ export class Octopod {
     const declaration = await this.declaration(name, instance).catch(() => undefined);
     if (!declaration) return;
     const config = await this.docker
-      .run([...this.composeArgs(declaration, false), 'config', '--format', 'json'])
+      .run(this.configArgs(declaration))
       .then((out) => JSON.parse(out) as { volumes?: Record<string, ComposeVolume> })
       .catch(() => undefined);
     for (const key of Object.keys(dataVolumes(declaration.root, config?.volumes ?? {}, instance))) {
@@ -830,6 +855,67 @@ export class Octopod {
       }
     }
     return out;
+  }
+
+  /** The actions of a project's services, the recipes' and its own. */
+  async actions(name: string, instance = 1): Promise<ActionInfo[]> {
+    const declaration = await this.declaration(name, instance);
+    return (await this.recipeServices(declaration)).flatMap((s) =>
+      Object.entries(s.actions ?? {}).map(([action, spec]) => ({
+        service: s.name,
+        action,
+        input: spec.input,
+        tty: spec.tty,
+        ...(spec.summary ? { summary: spec.summary } : {}),
+        ...(spec.confirm ? { confirm: spec.confirm } : {}),
+      })),
+    );
+  }
+
+  /**
+   * The docker command that runs an action, and what it is: for the CLI, which gives it the
+   * terminal or a file. In the running service; a tool's, in a one-off container.
+   */
+  async actionCommand(name: string, service: string, action: string, options: { instance?: number; tty?: boolean } = {}): Promise<{ argv: string[]; spec: ActionInfo }> {
+    const instance = options.instance ?? 1;
+    const declaration = await this.declaration(name, instance);
+    const made = (await this.recipeServices(declaration)).find((s) => s.name === service);
+    const spec = made?.actions?.[action];
+    if (!made || !spec) {
+      const known = (await this.actions(name, instance)).filter((a) => a.service === service).map((a) => a.action);
+      throw new OctopodError(`service "${service}" of "${name}" has no action "${action}"${known.length ? ` (it has ${known.join(', ')})` : ''}`);
+    }
+    const tty = options.tty && spec.tty ? [] : ['-T'];
+    let argv: string[];
+    if (made.tool) {
+      argv = ['docker', ...this.composeArgs(declaration, true), 'run', '--rm', '--no-deps', ...tty, '--label', 'traefik.enable=false', '--entrypoint', spec.command[0], service, ...spec.command.slice(1)];
+    } else {
+      const state = (await this.status(name, instance)).services.find((s) => s.service === service)?.state;
+      if (state !== 'running') throw new OctopodError(`${service} is ${state ?? 'not created'}: its actions run in it — \`octopod up\` starts it`);
+      argv = ['docker', ...this.composeArgs(declaration, true), 'exec', ...tty, service, ...spec.command];
+    }
+    const info: ActionInfo = { service, action, input: spec.input, tty: spec.tty, ...(spec.summary ? { summary: spec.summary } : {}), ...(spec.confirm ? { confirm: spec.confirm } : {}) };
+    return { argv, spec: info };
+  }
+
+  /**
+   * Run an action for a client, files as its input and output (a dump written to a file, a
+   * file loaded): streamed, never through memory. An interactive action is refused; one
+   * that destroys needs `confirm`.
+   */
+  async runAction(
+    name: string,
+    service: string,
+    action: string,
+    options: { instance?: number; input?: string; output?: string; confirm?: boolean } = {},
+  ): Promise<{ ok: boolean; code: number; stderr: string }> {
+    const { argv, spec } = await this.actionCommand(name, service, action, { instance: options.instance, tty: false });
+    if (spec.tty) throw new OctopodError(`${service}/${action} is interactive: \`octopod run\` in a terminal`);
+    if (spec.confirm && !options.confirm) throw new OctopodError(`${service}/${action} ${spec.confirm}: confirm it`);
+    if (spec.input && !options.input) throw new OctopodError(`${service}/${action} reads its input: give a file`);
+    if (!this.docker.pipe) throw new OctopodError('this docker runner cannot stream');
+    const result = await this.docker.pipe(argv.slice(1), { ...(spec.input ? { stdin: options.input } : {}), ...(options.output ? { stdout: options.output } : {}) });
+    return { ok: result.code === 0, ...result };
   }
 
   /**

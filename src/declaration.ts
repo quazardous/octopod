@@ -6,6 +6,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { parse } from 'yaml';
 import { z } from 'zod';
+import { ActionSchema, type ActionSpec } from './recipes/recipe.js';
 import { fullHost, instanceName, LABEL_RE, RESERVED_PROJECTS, slugify } from './names.js';
 
 export const DECLARATION_FILE = 'octopod.yaml';
@@ -47,7 +48,7 @@ const Schema = z
       .default([]),
     /** Services made of recipes: `app: { recipe: node-app }`, `db: { recipe: postgres, persist: true }`. */
     services: z
-      .record(z.string(), z.object({ recipe: z.string().min(1).max(64), programs: z.record(z.string(), Program).optional(), supervisor_d: z.string().min(1).max(400).optional() }).catchall(z.union([z.string().max(200), z.number(), z.boolean(), z.array(z.string().max(64)).max(128)])))
+      .record(z.string(), z.object({ recipe: z.string().min(1).max(64), programs: z.record(z.string(), Program).optional(), supervisor_d: z.string().min(1).max(400).optional(), actions: z.record(z.string(), ActionSchema).optional(), home: z.union([z.literal(true), z.string().min(1).max(400)]).optional(), workdir: z.string().regex(/^\/[A-Za-z0-9._-][A-Za-z0-9._/-]*$/, 'an absolute path in the container').optional() }).catchall(z.union([z.string().max(200), z.number(), z.boolean(), z.array(z.string().max(64)).max(128)])))
       .optional(),
     /** More recipe folders, relative to the project; after octopod's own and OCTOPOD_RECIPES, before `.octopod/recipes/`. */
     recipes: z.array(z.string().min(1).max(400)).optional(),
@@ -79,7 +80,7 @@ export interface Declaration {
   /** The declared env file, absolute: passed as --env-file. */
   envFile?: string;
   /** Services made of recipes, with their parameters. */
-  services?: Record<string, { recipe: string; params: Record<string, string | number | boolean | string[]>; programs?: Record<string, ProgramSpec>; supervisorD?: string }>;
+  services?: Record<string, { recipe: string; params: Record<string, string | number | boolean | string[]>; programs?: Record<string, ProgramSpec>; supervisorD?: string; actions?: Record<string, ActionSpec>; home?: true | string; workdir?: string }>;
   /** Extra recipe folders, absolute, in the order declared. */
   recipeDirs?: string[];
   /** The folder a recipe's workspace mounts, absolute. */
@@ -158,20 +159,26 @@ export async function loadDeclaration(root: string): Promise<Declaration> {
   let services: Declaration['services'];
   if (parsed.data.services) {
     services = {};
-    for (const [name, { recipe, programs, supervisor_d, ...params }] of Object.entries(parsed.data.services)) {
-      let supervisorD: string | undefined;
-      if (supervisor_d !== undefined) {
-        // The project's own folder of supervisord files, mounted read-only. It must exist:
-        // docker would create a missing one, as root, in the project.
-        supervisorD = resolve(root, supervisor_d);
-        if (isAbsolute(supervisor_d) || relative(root, supervisorD).startsWith('..')) {
-          throw new DeclarationError(`${file}: services.${name}.supervisor_d must be a folder inside the project`);
-        }
-        if (!(await stat(supervisorD).then((st) => st.isDirectory(), () => false))) {
-          throw new DeclarationError(`${file}: services.${name}.supervisor_d: ${supervisor_d} is not a folder of the project`);
-        }
-      }
-      services[name] = { recipe, params, ...(programs ? { programs } : {}), ...(supervisorD ? { supervisorD } : {}) };
+    // A folder of the project a service mounts. It must exist: docker would create a missing
+    // one, as root, in the project.
+    const folder = async (service: string, key: string, path: string): Promise<string> => {
+      const abs = resolve(root, path);
+      if (isAbsolute(path) || relative(root, abs).startsWith('..')) throw new DeclarationError(`${file}: services.${service}.${key} must be a folder inside the project`);
+      if (!(await stat(abs).then((st) => st.isDirectory(), () => false))) throw new DeclarationError(`${file}: services.${service}.${key}: ${path} is not a folder of the project`);
+      return abs;
+    };
+    for (const [name, { recipe, programs, supervisor_d, actions, home, workdir, ...params }] of Object.entries(parsed.data.services)) {
+      const supervisorD = supervisor_d !== undefined ? await folder(name, 'supervisor_d', supervisor_d) : undefined;
+      const homeDir = typeof home === 'string' ? await folder(name, 'home', home) : home;
+      services[name] = {
+        recipe,
+        params,
+        ...(programs ? { programs } : {}),
+        ...(supervisorD ? { supervisorD } : {}),
+        ...(actions ? { actions } : {}),
+        ...(homeDir ? { home: homeDir } : {}),
+        ...(workdir ? { workdir } : {}),
+      };
     }
   }
   return {
