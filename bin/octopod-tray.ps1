@@ -102,7 +102,10 @@ function Get-Picture([string]$file) {
     $path = Join-Path $assets $file
     try {
         if ($file -like '*.ico') { return (New-Object System.Drawing.Icon $path, 32, 32).ToBitmap() }
-        return [System.Drawing.Image]::FromFile($path)
+        # A copy, and the file let go: Image.FromFile keeps it open as long as the image
+        # lives, and a git pull or a new install could not replace it under a running tray.
+        $read = [System.Drawing.Image]::FromFile($path)
+        try { return New-Object System.Drawing.Bitmap $read } finally { $read.Dispose() }
     } catch { return $null }
 }
 $consolePicture = Get-Picture 'octopod.ico'

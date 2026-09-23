@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Windows: `setup.ps1` asks a running tray to quit instead of killing it, so no dead icon is left in the notification area.
+- Windows: the tray kept its menu's pictures open, and a `git pull` or a new install could not replace them while it ran. It keeps copies and lets the files go.
 
 ## [0.3.1] - 2026-09-23
 
