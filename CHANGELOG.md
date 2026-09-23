@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-09-23
+
 ### Added
 
 - The API service restarts itself onto the new code when octopod changes on disk — a `git pull`, an upgrade — instead of reading new recipes with old code, which showed every project in error until someone restarted it. Under systemd and the Windows tray only; an `octopod serve` run by hand says to restart it.
@@ -113,7 +115,8 @@ The first preview: tested on Linux with Docker.
 - Traefik's dashboard and the console answer only from the host: a project's containers, which reach the edge over their edge network, get a 403.
 - `octopod` and `traefik` can no longer be project names: they are the edge's own hosts.
 
-[Unreleased]: https://github.com/quazardous/octopod/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/quazardous/octopod/compare/v0.3.3...HEAD
+[0.3.3]: https://github.com/quazardous/octopod/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/quazardous/octopod/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/quazardous/octopod/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/quazardous/octopod/compare/v0.2.0...v0.3.0

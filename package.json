@@ -1,6 +1,6 @@
 {
   "name": "@quazardous/octopod",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "One local edge for all your Docker projects: a shared Traefik, declared projects and isolated networks, behind a small API",
   "license": "MIT",
   "author": "David Berlioz",
