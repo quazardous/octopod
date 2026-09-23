@@ -94,6 +94,12 @@ export const RecipeSchema = z
       })
       .strict()
       .default({}),
+    /**
+     * The service runs supervisord, whose configuration is `config` and whose own programs are
+     * `programs`. The project's programs (`programs:` in octopod.yaml) are rendered into a
+     * file mounted at /etc/octopod/programs.conf, which the configuration includes.
+     */
+    supervisor: z.object({ config: z.string().regex(/^\/[A-Za-z0-9._/-]*$/), programs: z.array(z.string().min(1).max(64)).default([]) }).strict().optional(),
     health: z
       .object({
         test: z.array(z.string().max(400)).min(1),

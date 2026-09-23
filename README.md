@@ -98,6 +98,21 @@ shows what `up` would run, and `octopod recipes` lists the recipes. You can add 
 recipe folders with `OCTOPOD_RECIPES`, `recipes:` in `octopod.yaml`, or the project's
 `.octopod/recipes/`; `octopod recipes --check` reads their Dockerfiles against octopod's rules.
 
+A PHP app's workers run beside it, supervised, and never take the container down with them:
+
+```yaml
+services:
+  app:
+    recipe: php-app
+    programs:
+      worker: { command: php bin/console messenger:consume async }
+      seed:   { command: php bin/console app:seed, autostart: false }   # octopod program start app/seed
+```
+
+`octopod ps` shows them. A project that already keeps its programs as supervisord files
+mounts their folder instead (`supervisor_d: docker/supervisor`), and `octopod program
+reload app` applies a change to them.
+
 See [`examples/`](./examples) for both kinds.
 
 ## Commands
@@ -109,6 +124,8 @@ octopod status                # its services, URLs and warnings
 octopod list --group shop     # the registered projects (--tag php, too)
 octopod logs --service web --tail 100
 octopod shell [service]       # a shell in a service, as its user; --root; -- command…
+octopod ps                    # the programs of its supervised services
+octopod program start app/seed
 octopod restart [--service s]
 octopod down                  # --volumes removes Docker's volume objects; the data stays
 octopod up --instance 2       # the same project a second time, at demo-2.localhost

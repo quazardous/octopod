@@ -85,6 +85,11 @@ stdout_logfile=/dev/stdout
 stdout_logfile_maxbytes=0
 redirect_stderr=true
 autorestart=true
+
+; The project's programs: programs: in octopod.yaml, rendered by octopod, and the files of
+; its supervisor_d folder. Both mounted by octopod; either may be absent.
+[include]
+files = /etc/octopod/programs.conf /etc/octopod/supervisord.d/*.conf
 EOF
 
 USER ${USER_NAME}

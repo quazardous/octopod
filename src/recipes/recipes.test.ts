@@ -151,9 +151,42 @@ describe('the built-in recipes', () => {
     expect(app.build.args).toEqual(expect.objectContaining({ BASE_IMAGE: 'php:8.2-fpm', EXTENSIONS: 'pdo_mysql gd', DOCROOT: 'public', UID: '1234', GID: '5678', USER_NAME: 'shop' }));
     expect(app.user).toBe('1234:5678');
     expect(app.expose).toEqual(['8080']);
-    expect(app.volumes).toEqual(['/w:/app']);
+    expect(app.volumes).toEqual(['/w:/app', './.octopod/programs.shop.app.conf:/etc/octopod/programs.conf:ro']);
     expect((app.environment as Record<string, string>).DATABASE_URL).toMatch(/^mysql:\/\/app:s24@db:3306\/app$/);
     expect(app.depends_on).toEqual({ db: { condition: 'service_healthy' } });
+  });
+
+  it('runs the project\'s programs beside php-app\'s own, and a change of them recreates the container', async () => {
+    const book = await loadRecipes([BUILTIN_RECIPES]);
+    const render = (programs: Record<string, { command: string; autostart: boolean }>) =>
+      renderServices({ project: 'shop', book, services: { app: { recipe: 'php-app', programs } }, workspace: '/w', owner: '1:1', secretFactory: (n) => `s${n}` });
+    const out = render({ worker: { command: 'php bin/console messenger:consume async --time-limit=3600 %x', autostart: true }, seed: { command: 'php bin/seed', autostart: false } });
+    const conf = out.files['.octopod/programs.shop.app.conf'];
+    expect(conf).toContain('[program:worker]\ncommand=php bin/console messenger:consume async --time-limit=3600 %%x\ndirectory=/app\nautostart=true\nautorestart=true');
+    expect(conf).toContain('[program:seed]');
+    expect(conf).toContain('autostart=false\nautorestart=unexpected\nstartsecs=0');
+    expect(out.services[0].programs).toEqual(['worker', 'seed']);
+    expect(formatPlan('shop', out.services, '/w')).toContain('runs    worker, seed (supervised)');
+    const none = render({});
+    expect(none.files['.octopod/programs.shop.app.conf']).not.toContain('[program:');
+    const labels = (o: typeof out) => (o.compose.services.app.labels as Record<string, string>)['octopod.programs'];
+    expect(labels(out)).not.toBe(labels(none));
+  });
+
+  it('refuses programs for a recipe without a supervisor, and a name the recipe uses', async () => {
+    const book = await loadRecipes([BUILTIN_RECIPES]);
+    const program = { command: 'x', autostart: true };
+    expect(() => renderServices({ project: 'p', book, services: { app: { recipe: 'node-app', programs: { w: program } } }, workspace: '/w' })).toThrow(/runs no supervisor/);
+    expect(() => renderServices({ project: 'p', book, services: { app: { recipe: 'php-app', programs: { nginx: program } } }, workspace: '/w' })).toThrow(/is the recipe's own/);
+    expect(() => renderServices({ project: 'p', book, services: { app: { recipe: 'node-app', supervisorD: '/p/sup' } }, workspace: '/w' })).toThrow(/takes no supervisor_d/);
+  });
+
+  it('mounts a supervisor_d folder read-only where php-app includes it', async () => {
+    const book = await loadRecipes([BUILTIN_RECIPES]);
+    const out = renderServices({ project: 'shop', book, services: { app: { recipe: 'php-app', supervisorD: '/p/docker/supervisor' } }, workspace: '/p' });
+    expect(out.compose.services.app.volumes).toContain('/p/docker/supervisor:/etc/octopod/supervisord.d:ro');
+    expect(out.files['.octopod/build/app/Dockerfile']).toContain('files = /etc/octopod/programs.conf /etc/octopod/supervisord.d/*.conf');
+    expect(formatPlan('shop', out.services, '/p')).toContain('the programs of /p/docker/supervisor');
   });
 });
 

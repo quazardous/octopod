@@ -11,6 +11,9 @@
  *   octopod serve [--socket path]
  *   octopod shell [project] [service] [--root] [--oneshot] [-- command…]
  *   octopod secrets [project] [--instance N]
+ *   octopod ps [project]
+ *   octopod program start|stop|restart [project] <service>/<program>
+ *   octopod program reload [project] <service>
  *   octopod recipes [dir] [--check]
  *   octopod version
  *   octopod setup [--no-service] [--no-edge]
@@ -43,7 +46,11 @@ function print(value: unknown, json: boolean): void {
     console.log(`${p.name}  ${p.root}${labels ? `  ${labels}` : ''}`);
     if (p.problem) console.log(`  ! ${p.problem}`);
     for (const r of p.routes) console.log(`  ${r.service} → ${r.url}`);
-    for (const s of (p as ProjectStatus).services ?? []) console.log(`  [${s.state}${s.health ? `, ${s.health}` : ''}] ${s.service}`);
+    for (const s of (p as ProjectStatus).services ?? []) {
+      console.log(`  [${s.state}${s.health ? `, ${s.health}` : ''}] ${s.service}`);
+      for (const g of s.programs ?? []) console.log(`      ${g.program}: ${g.state.toLowerCase()}`);
+    }
+    for (const w of (p as ProjectStatus).warnings ?? []) console.log(`  ! ${w}`);
   }
 }
 
@@ -151,6 +158,37 @@ async function main(argv: string[]): Promise<void> {
     case 'logs': {
       const lines = await octopod.logs(await projectName(rest), flag(rest, '--service'), Number(flag(rest, '--tail') ?? 200), instanceOf(rest));
       return json ? print({ lines }, true) : console.log(lines.join('\n'));
+    }
+    case 'ps': {
+      // octopod ps [project]: the programs of its supervised services.
+      const programs = await octopod.programs(await projectName(rest), instanceOf(rest));
+      if (json) return print(programs, true);
+      if (programs.length === 0) return console.log('no supervised service running');
+      for (const p of programs) console.log(`${`${p.service}/${p.program}`.padEnd(28)} ${p.state.padEnd(9)} ${p.detail}`);
+      return;
+    }
+    case 'program': {
+      // octopod program start|stop|restart [project] <service>/<program>
+      // octopod program reload [project] <service>: its supervisor_d read again.
+      const [what, ...names] = positional(rest);
+      if (what === 'reload') {
+        if (names.length < 1 || names.length > 2) throw new Error('usage: octopod program reload [project] <service>');
+        const project = names.length === 2 ? names[0] : (await loadDeclaration(process.cwd())).project;
+        const programs = await octopod.reload(project, names.at(-1)!, instanceOf(rest));
+        if (json) return print(programs, true);
+        for (const p of programs) console.log(`${`${p.service}/${p.program}`.padEnd(28)} ${p.state.padEnd(9)} ${p.detail}`);
+        return;
+      }
+      const target = names.at(-1) ?? '';
+      const slash = target.indexOf('/');
+      if (!['start', 'stop', 'restart'].includes(what) || slash < 1 || names.length > 2) {
+        throw new Error('usage: octopod program start|stop|restart [project] <service>/<program>');
+      }
+      const project = names.length === 2 ? names[0] : (await loadDeclaration(process.cwd())).project;
+      const programs = await octopod.program(project, target.slice(0, slash), target.slice(slash + 1), what as 'start' | 'stop' | 'restart', instanceOf(rest));
+      if (json) return print(programs, true);
+      for (const p of programs) console.log(`${`${p.service}/${p.program}`.padEnd(28)} ${p.state.padEnd(9)} ${p.detail}`);
+      return;
     }
     case 'restart':
       return print(await octopod.restart(await projectName(rest), flag(rest, '--service'), instanceOf(rest)), json);

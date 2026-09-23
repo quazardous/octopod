@@ -1,5 +1,6 @@
 # A PHP web app: PHP-FPM and nginx in one container, run by supervisord, the project
-# mounted at /app and its docroot served at http://<project>.localhost. The PHP version,
+# mounted at /app and its docroot served at http://<project>.localhost; the project's own
+# workers (programs: in octopod.yaml) run beside them. The PHP version,
 # the extensions and the docroot are parameters; composer is in the image. The project's
 # dependencies are the project's: installed in the running app (composer install), never
 # in the image. A project that needs more — or a PHP older than 8.1, whose images sit on a
@@ -20,6 +21,7 @@ buildArgs:
   EXTENSIONS: "{{params.extensions}}"
   DOCROOT: "{{params.docroot}}"
 command: [supervisord, -c, /etc/octopod/supervisord.conf]
+supervisor: { config: /etc/octopod/supervisord.conf, programs: [php-fpm, nginx] }
 workspace: /app
 port: 8080
 route: true

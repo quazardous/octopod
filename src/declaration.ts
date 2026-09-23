@@ -11,6 +11,23 @@ import { fullHost, instanceName, LABEL_RE, RESERVED_PROJECTS, slugify } from './
 export const DECLARATION_FILE = 'octopod.yaml';
 const DEFAULT_COMPOSE = ['compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml'];
 
+/**
+ * A program a supervised service runs beside its own (a worker, a task started by hand):
+ * one line, split by supervisord, no shell. No line break, which would end the entry.
+ */
+const Program = z
+  .object({
+    command: z.string().min(1).max(1_000).regex(/^[^\r\n]*$/, 'one line'),
+    /** Started with the container; false: started by hand (`octopod program start`). */
+    autostart: z.boolean().default(true),
+  })
+  .strict();
+
+export interface ProgramSpec {
+  command: string;
+  autostart: boolean;
+}
+
 const Schema = z
   .object({
     project: z.string().regex(LABEL_RE, 'must be a DNS label: a-z, 0-9 and -, at most 63').optional(),
@@ -30,7 +47,7 @@ const Schema = z
       .default([]),
     /** Services made of recipes: `app: { recipe: node-app }`, `db: { recipe: postgres, persist: true }`. */
     services: z
-      .record(z.string(), z.object({ recipe: z.string().min(1).max(64) }).catchall(z.union([z.string().max(200), z.number(), z.boolean(), z.array(z.string().max(64)).max(128)])))
+      .record(z.string(), z.object({ recipe: z.string().min(1).max(64), programs: z.record(z.string(), Program).optional(), supervisor_d: z.string().min(1).max(400).optional() }).catchall(z.union([z.string().max(200), z.number(), z.boolean(), z.array(z.string().max(64)).max(128)])))
       .optional(),
     /** More recipe folders, relative to the project; after octopod's own and OCTOPOD_RECIPES, before `.octopod/recipes/`. */
     recipes: z.array(z.string().min(1).max(400)).optional(),
@@ -62,7 +79,7 @@ export interface Declaration {
   /** The declared env file, absolute: passed as --env-file. */
   envFile?: string;
   /** Services made of recipes, with their parameters. */
-  services?: Record<string, { recipe: string; params: Record<string, string | number | boolean | string[]> }>;
+  services?: Record<string, { recipe: string; params: Record<string, string | number | boolean | string[]>; programs?: Record<string, ProgramSpec>; supervisorD?: string }>;
   /** Extra recipe folders, absolute, in the order declared. */
   recipeDirs?: string[];
   /** The folder a recipe's workspace mounts, absolute. */
@@ -136,9 +153,25 @@ export async function loadDeclaration(root: string): Promise<Declaration> {
     }
   }
   if (expose.length === 0 && !parsed.data.services) throw new DeclarationError(`${file}: nothing to serve — declare expose, or services made of recipes`);
-  const services = parsed.data.services
-    ? Object.fromEntries(Object.entries(parsed.data.services).map(([name, { recipe, ...params }]) => [name, { recipe, params }]))
-    : undefined;
+  let services: Declaration['services'];
+  if (parsed.data.services) {
+    services = {};
+    for (const [name, { recipe, programs, supervisor_d, ...params }] of Object.entries(parsed.data.services)) {
+      let supervisorD: string | undefined;
+      if (supervisor_d !== undefined) {
+        // The project's own folder of supervisord files, mounted read-only. It must exist:
+        // docker would create a missing one, as root, in the project.
+        supervisorD = resolve(root, supervisor_d);
+        if (isAbsolute(supervisor_d) || relative(root, supervisorD).startsWith('..')) {
+          throw new DeclarationError(`${file}: services.${name}.supervisor_d must be a folder inside the project`);
+        }
+        if (!(await stat(supervisorD).then((st) => st.isDirectory(), () => false))) {
+          throw new DeclarationError(`${file}: services.${name}.supervisor_d: ${supervisor_d} is not a folder of the project`);
+        }
+      }
+      services[name] = { recipe, params, ...(programs ? { programs } : {}), ...(supervisorD ? { supervisorD } : {}) };
+    }
+  }
   return {
     project,
     root,

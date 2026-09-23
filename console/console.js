@@ -88,6 +88,13 @@ function serviceTone(s) {
   return '';
 }
 
+function programTone(g) {
+  if (g.state === 'RUNNING') return 'ok';
+  if (g.state === 'FATAL' || g.state === 'BACKOFF' || g.state === 'UNKNOWN') return 'bad';
+  if (g.state === 'STARTING' || g.state === 'STOPPING') return 'warn';
+  return '';
+}
+
 /** up: every service running; partial: some; down: none. */
 function projectTone(p) {
   if (p.problem) return { tone: 'bad', label: 'error' };
@@ -124,7 +131,16 @@ function servicesTable(p, base, instance) {
         'tr',
         {},
         el('td', {}, el('span', { class: `dot ${serviceTone(s)}` }), el('span', { class: 'mono' }, s.service)),
-        el('td', {}, s.state, s.health ? el('span', { class: 'muted' }, ` · ${s.health}`) : null),
+        el(
+          'td',
+          {},
+          s.state,
+          s.health ? el('span', { class: 'muted' }, ` · ${s.health}`) : null,
+          // A supervised service: what runs in it, each program with its state.
+          (s.programs || []).length
+            ? el('ul', { class: 'programs' }, s.programs.map((g) => el('li', { title: g.detail }, el('span', { class: `dot ${programTone(g)}` }), el('span', { class: 'mono' }, g.program), ` ${g.state.toLowerCase()}`)))
+            : null,
+        ),
         el(
           'td',
           {},

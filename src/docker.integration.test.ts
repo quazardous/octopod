@@ -465,6 +465,7 @@ describe.skipIf(!dockerAvailable())('a PHP project made of recipes (real docker)
     base = await mkdtemp(join(tmpdir(), 'octopod-php-'));
     root = join(base, 'phpapp');
     await mkdir(join(root, 'public'), { recursive: true });
+    await mkdir(join(root, 'docker', 'supervisor'), { recursive: true });
     // The app says who runs it, on which PHP, whether its database answers, and writes a
     // file into the project — which must end up the operator's.
     await writeFile(
@@ -481,7 +482,21 @@ describe.skipIf(!dockerAvailable())('a PHP project made of recipes (real docker)
         '',
       ].join('\n'),
     );
-    await writeFile(join(root, 'octopod.yaml'), 'services:\n  app: { recipe: php-app, extensions: [pdo_mysql] }\n  db: { recipe: mariadb }\n');
+    await writeFile(
+      join(root, 'octopod.yaml'),
+      [
+        'services:',
+        '  app:',
+        '    recipe: php-app',
+        '    extensions: [pdo_mysql]',
+        '    supervisor_d: docker/supervisor',
+        '    programs:',
+        '      worker: { command: "php -r \\"while (true) sleep(60);\\"" }',
+        '      seed: { command: "php -r \\"file_put_contents(\'/app/seeded.txt\', \'s\');\\"", autostart: false }',
+        '  db: { recipe: mariadb }',
+        '',
+      ].join('\n'),
+    );
     octopod = new Octopod({ stateDir: join(base, 'state'), instance: INSTANCE, ports: [PORT], socket: join(base, 'run', 'octopod.sock') });
   }, 900_000);
 
@@ -497,5 +512,38 @@ describe.skipIf(!dockerAvailable())('a PHP project made of recipes (real docker)
     const answer = await eventually('phpapp.localhost', 200);
     expect(answer.body).toBe('user=phpapp php=8.4 db=ok');
     expect((await stat(join(root, 'written.txt'))).uid).toBe(process.getuid?.());
+  });
+
+  it('runs the project\'s programs beside php-fpm and nginx, a task only when started', async () => {
+    const state = async () => Object.fromEntries((await octopod.programs('phpapp')).map((p) => [p.program, p.state]));
+    let states = await state();
+    for (let i = 0; i < 20 && states.worker !== 'RUNNING'; i++) {
+      await new Promise((r) => setTimeout(r, 500));
+      states = await state();
+    }
+    expect(states).toEqual({ nginx: 'RUNNING', 'php-fpm': 'RUNNING', worker: 'RUNNING', seed: 'STOPPED' });
+    const app = (await octopod.status('phpapp')).services.find((x) => x.service === 'app');
+    expect(app?.programs?.map((p) => p.program).sort()).toEqual(['nginx', 'php-fpm', 'seed', 'worker']);
+    const after = await octopod.program('phpapp', 'app', 'seed', 'start');
+    expect(after.find((p) => p.program === 'seed')?.state).toMatch(/EXITED|STARTING|RUNNING/);
+    for (let i = 0; i < 20 && !(await stat(join(root, 'seeded.txt')).catch(() => undefined)); i++) await new Promise((r) => setTimeout(r, 250));
+    expect((await stat(join(root, 'seeded.txt'))).uid).toBe(process.getuid?.());
+    await expect(octopod.program('phpapp', 'app', 'nope', 'start')).rejects.toThrow(/no program "nope"/);
+    await expect(octopod.program('phpapp', 'db', 'x', 'start')).rejects.toThrow(/runs no supervisor/);
+  });
+
+  it('runs a program dropped in the supervisor_d folder once reloaded, the others untouched', async () => {
+    await writeFile(
+      join(root, 'docker', 'supervisor', 'ticker.conf'),
+      '[program:ticker]\ncommand=php -r "while (true) sleep(60);"\ndirectory=/app\nautorestart=true\nstdout_logfile=/dev/stdout\nstdout_logfile_maxbytes=0\nredirect_stderr=true\n',
+    );
+    const pid = (await octopod.programs('phpapp')).find((p) => p.program === 'php-fpm')?.detail;
+    let programs = await octopod.reload('phpapp', 'app');
+    for (let i = 0; i < 20 && programs.find((p) => p.program === 'ticker')?.state !== 'RUNNING'; i++) {
+      await new Promise((r) => setTimeout(r, 500));
+      programs = await octopod.programs('phpapp');
+    }
+    expect(programs.find((p) => p.program === 'ticker')?.state).toBe('RUNNING');
+    expect(programs.find((p) => p.program === 'php-fpm')?.detail.split(',')[0]).toBe(pid?.split(',')[0]);
   });
 });

@@ -34,6 +34,14 @@ export async function version(): Promise<{ version: string; contract: number; fe
 }
 
 /** A secret octopod generated for a project's recipe: where it belongs, and its value. */
+/** A program as its supervisor reports it: RUNNING, STOPPED, BACKOFF, FATAL… and since when. */
+export interface ProgramState {
+  service: string;
+  program: string;
+  state: string;
+  detail: string;
+}
+
 export interface Secret {
   project: string;
   service: string;
@@ -70,7 +78,8 @@ export interface ProjectStatus extends Project {
   instance?: number;
   /** The project's other instances up, when this is the first. */
   instances?: number[];
-  services: { service: string; state: string; health?: string }[];
+  /** `programs`: a supervised service's, as its supervisor reports them, when it runs. */
+  services: { service: string; state: string; health?: string; programs?: { program: string; state: string; detail: string }[] }[];
   /** Things the operator should fix, e.g. data written by a service that runs as another user. */
   warnings?: string[];
 }
@@ -691,12 +700,20 @@ export class Octopod {
     const rows = out.trim().startsWith('[')
       ? (JSON.parse(out) as Record<string, string>[])
       : out.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l) as Record<string, string>);
-    const warnings = [...(await this.portWarnings(declaration)), ...(await this.foreignData(declaration)), ...(await this.rootWarnings(rows))];
+    // A supervised service stays up when its app crashes: what runs in it is asked of its supervisor.
+    const running = new Set(rows.filter((r) => r.State === 'running').map((r) => r.Service));
+    const supervisors = new Map([...(await this.supervisors(declaration))].filter(([service]) => running.has(service)));
+    const programs = supervisors.size > 0 ? await this.programStates(declaration, supervisors) : [];
+    const failing = programs.filter((p) => p.state === 'FATAL' || p.state === 'BACKOFF').map((p) => `${p.service}/${p.program} is ${p.state}: it keeps failing to start — octopod logs --service ${p.service}`);
+    const warnings = [...(await this.portWarnings(declaration)), ...(await this.foreignData(declaration)), ...(await this.rootWarnings(rows)), ...failing];
     const others = instance === 1 ? await this.instances(name) : [];
     return {
       ...(await this.project(declaration)),
       ...(instance > 1 ? { instance } : others.length > 0 ? { instances: others } : {}),
-      services: rows.map((r) => ({ service: r.Service, state: r.State, ...(r.Health ? { health: r.Health } : {}) })),
+      services: rows.map((r) => {
+        const own = programs.filter((p) => p.service === r.Service).map(({ program, state, detail }) => ({ program, state, detail }));
+        return { service: r.Service, state: r.State, ...(r.Health ? { health: r.Health } : {}), ...(supervisors.has(r.Service) ? { programs: own } : {}) };
+      }),
       ...(warnings.length > 0 ? { warnings } : {}),
     };
   }
@@ -761,6 +778,70 @@ export class Octopod {
     if (!running) return attempt('run');
     const first = await attempt('exec');
     return !first.ok && NOT_RUNNING.test(first.output) ? attempt('run') : first;
+  }
+
+  /** The supervised services of a project, with their supervisor's configuration. */
+  private async supervised(name: string, instance: number): Promise<{ declaration: Declaration; services: Map<string, string> }> {
+    const declaration = await this.declaration(name, instance);
+    return { declaration, services: await this.supervisors(declaration) };
+  }
+
+  private async supervisors(declaration: Declaration): Promise<Map<string, string>> {
+    if (!declaration.services) return new Map();
+    const { rendered } = await this.render(declaration, false);
+    return new Map(rendered.services.flatMap((s) => (s.supervisor ? [[s.name, s.supervisor] as const] : [])));
+  }
+
+  /**
+   * The programs of each supervised service — the recipe's own and the project's — as its
+   * supervisor reports them. A service that is not running has none to report: it is left
+   * out, and `status` says why.
+   */
+  async programs(name: string, instance = 1): Promise<ProgramState[]> {
+    const { declaration, services } = await this.supervised(name, instance);
+    return this.programStates(declaration, services);
+  }
+
+  private async programStates(declaration: Declaration, services: Map<string, string>): Promise<ProgramState[]> {
+    const out: ProgramState[] = [];
+    for (const [service, config] of services) {
+      const report = await this.docker
+        .run([...this.composeArgs(declaration, true), 'exec', '-T', service, 'supervisorctl', '-c', config, 'status'], { timeoutMs: 30_000, okExitCodes: [3] })
+        .catch(() => undefined);
+      for (const line of report?.split('\n') ?? []) {
+        const m = /^(\S+)\s+([A-Z]+)\s*(.*)$/.exec(line.trim());
+        if (m) out.push({ service, program: m[1], state: m[2], detail: m[3] });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Read a supervised service's configuration again — a file dropped, changed or removed in
+   * its supervisor_d folder — and apply it: new programs started, changed ones restarted,
+   * removed ones stopped; the others, the recipe's own included, left running.
+   */
+  async reload(name: string, service: string, instance = 1): Promise<ProgramState[]> {
+    const { declaration, services } = await this.supervised(name, instance);
+    const config = services.get(service);
+    if (!config) throw new OctopodError(`service "${service}" of "${name}" runs no supervisor`);
+    const ctl = [...this.composeArgs(declaration, true), 'exec', '-T', service, 'supervisorctl', '-c', config];
+    await this.docker.run([...ctl, 'reread'], { timeoutMs: 60_000, withStderr: true });
+    await this.docker.run([...ctl, 'update'], { timeoutMs: 120_000, withStderr: true });
+    return (await this.programs(name, instance)).filter((p) => p.service === service);
+  }
+
+  /** Start, stop or restart one program of a supervised service. */
+  async program(name: string, service: string, program: string, action: 'start' | 'stop' | 'restart', instance = 1): Promise<ProgramState[]> {
+    const { declaration, services } = await this.supervised(name, instance);
+    const config = services.get(service);
+    if (!config) throw new OctopodError(`service "${service}" of "${name}" runs no supervisor`);
+    const known = (await this.programs(name, instance)).filter((p) => p.service === service);
+    if (!known.some((p) => p.program === program)) {
+      throw new OctopodError(`service "${service}" has no program "${program}"${known.length ? ` (it has ${known.map((p) => p.program).join(', ')})` : ', or is not running'}`);
+    }
+    await this.docker.run([...this.composeArgs(declaration, true), 'exec', '-T', service, 'supervisorctl', '-c', config, action, program], { timeoutMs: 60_000, withStderr: true });
+    return (await this.programs(name, instance)).filter((p) => p.service === service);
   }
 
   /**

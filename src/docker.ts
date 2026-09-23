@@ -11,6 +11,8 @@ export interface RunOptions {
   timeoutMs?: number;
   /** Return stderr after stdout: a command's diagnostics are usually on stderr. */
   withStderr?: boolean;
+  /** Exit codes that are answers, not failures (`supervisorctl status` says 3 when a program is down). */
+  okExitCodes?: number[];
 }
 
 export interface Docker {
@@ -44,7 +46,8 @@ export function cliDocker(binary = 'docker'): Docker {
           { maxBuffer: 32 * 1024 * 1024, timeout: options.timeoutMs ?? 5 * 60_000, killSignal: 'SIGKILL', env: dockerEnv() },
           (error, stdout, stderr) => {
             if (debug) console.error(`octopod: docker ${args.join(' ')} — ${((Date.now() - started) / 1000).toFixed(1)} s${error ? ' (failed)' : ''}`);
-            if (error) {
+            const code = (error as { code?: unknown } | null)?.code;
+            if (error && !(typeof code === 'number' && options.okExitCodes?.includes(code))) {
               // What it printed, then how it ended: a command that prints nothing (a timeout,
               // a quiet failure) must still say why it failed.
               const detail = (options.withStderr ? `${stdout}${stderr}` : stderr).trim();

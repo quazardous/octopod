@@ -125,6 +125,15 @@ export function handler(octopod: Octopod) {
         const secrets = await octopod.secrets(name, raw === null ? undefined : instanceValue(raw));
         return send(res, 200, { values: [...new Set(secrets.map((s) => s.value))] });
       }
+      if (resource === 'projects' && name && action === 'programs' && method === 'GET') return send(res, 200, await octopod.programs(name, queryInstance()));
+      if (resource === 'projects' && name && action === 'program' && method === 'POST') {
+        const { service, program, action: what, instance } = await body(req);
+        if (what === 'reload' && typeof service === 'string') return send(res, 200, await octopod.reload(name, service, instanceValue(instance)));
+        if (typeof service !== 'string' || typeof program !== 'string' || !['start', 'stop', 'restart'].includes(what as string)) {
+          return send(res, 400, { error: '"service" and "program" must be strings, "action" one of start, stop, restart — or "reload" with a "service"' });
+        }
+        return send(res, 200, await octopod.program(name, service, program, what as 'start' | 'stop' | 'restart', instanceValue(instance)));
+      }
       if (resource === 'projects' && name && action === 'logs' && method === 'GET') {
         const tail = Math.min(Math.max(Number(url.searchParams.get('tail') ?? 200) || 200, 1), 5000);
         return send(res, 200, { lines: await octopod.logs(name, url.searchParams.get('service') ?? undefined, tail, queryInstance()) });

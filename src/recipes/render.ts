@@ -6,7 +6,8 @@
  * octopod routes and binds the data, and a client with stricter needs (bushwhack) adds
  * its own compose file on top.
  */
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
+import type { ProgramSpec } from '../declaration.js';
 import { IDENT, type ParamSpec, type Recipe } from './recipe.js';
 import type { RecipeBook, RecipeEntry } from './loader.js';
 import { render, renderMap } from './template.js';
@@ -14,6 +15,10 @@ import { render, renderMap } from './template.js';
 export interface ServiceRequest {
   recipe: string;
   params?: Record<string, unknown>;
+  /** Programs run beside the recipe's own, when the recipe runs a supervisor. */
+  programs?: Record<string, ProgramSpec>;
+  /** The project's folder of supervisord files, absolute: mounted read-only where the recipe includes it. */
+  supervisorD?: string;
 }
 
 export type ParamValue = string | number | boolean;
@@ -48,6 +53,12 @@ export interface RenderedService {
   port?: number;
   /** Routed: at the project's host (`''`) or at a subdomain. */
   route?: string;
+  /** The project's programs, run by the recipe's supervisor. */
+  programs?: string[];
+  /** The supervisor's configuration, when the recipe runs one: what supervisorctl reads. */
+  supervisor?: string;
+  /** The project's folder of supervisord files, mounted at SUPERVISOR_D. */
+  supervisorD?: string;
   /** The services it waits for at start: those that provide what it requires. */
   waits?: { service: string; healthy: boolean }[];
 }
@@ -100,6 +111,41 @@ interface Resolved {
   entry: RecipeEntry;
   params: Record<string, ParamValue>;
   secrets: Record<string, string>;
+  programs: Record<string, ProgramSpec>;
+  supervisorD?: string;
+}
+
+/** Where a supervised service reads the project's programs. */
+export const PROGRAMS_FILE = '/etc/octopod/programs.conf';
+/** Where a supervised service reads the project's own supervisord files (`*.conf`). */
+export const SUPERVISOR_D = '/etc/octopod/supervisord.d';
+
+/**
+ * The project's programs as supervisord entries. A crashed program is started again, with
+ * supervisord's growing delay, and never takes the container down; `%` is supervisord's
+ * interpolation, so doubled.
+ */
+export function programsConfig(programs: Record<string, ProgramSpec>, directory?: string): string {
+  const lines = ['; Rendered by octopod from octopod.yaml: edit that file, not this one.'];
+  for (const [name, p] of Object.entries(programs)) {
+    lines.push(
+      '',
+      `[program:${name}]`,
+      `command=${p.command.replace(/%/g, '%%')}`,
+      ...(directory ? [`directory=${directory}`] : []),
+      `autostart=${p.autostart}`,
+      // A worker is started again whenever it ends (one may end on purpose, as a
+      // `--time-limit` does); a program started by hand is a task, done once it exits 0.
+      ...(p.autostart ? ['autorestart=true'] : ['autorestart=unexpected', 'startsecs=0']),
+      'startretries=100',
+      'stopasgroup=true',
+      'killasgroup=true',
+      'stdout_logfile=/dev/stdout',
+      'stdout_logfile_maxbytes=0',
+      'redirect_stderr=true',
+    );
+  }
+  return `${lines.join('\n')}\n`;
 }
 
 function scopes(r: Resolved) {
@@ -130,7 +176,15 @@ export function renderServices(options: RenderOptions): Rendered {
         params[key] = coerce(key, spec, given[key], where);
       }
     }
-    resolved.push({ name, entry, params, secrets });
+    const programs = request.programs ?? {};
+    const supervisor = entry.recipe.supervisor;
+    if (Object.keys(programs).length > 0 && !supervisor) throw new RenderError(`${where}: recipe '${entry.id}' runs no supervisor, so it takes no programs`);
+    if (request.supervisorD && !supervisor) throw new RenderError(`${where}: recipe '${entry.id}' runs no supervisor, so it takes no supervisor_d`);
+    for (const program of Object.keys(programs)) {
+      if (!IDENT.test(program)) throw new RenderError(`${where}: program '${program}': the name must match ${IDENT}`);
+      if (supervisor?.programs.includes(program)) throw new RenderError(`${where}: program '${program}' is the recipe's own`);
+    }
+    resolved.push({ name, entry, params, secrets, programs, ...(request.supervisorD ? { supervisorD: request.supervisorD } : {}) });
   }
 
   const services: Record<string, Record<string, unknown>> = {};
@@ -193,6 +247,16 @@ export function renderServices(options: RenderOptions): Rendered {
       mounts.push(`${options.workspace}:${recipe.workspace}`);
       service.working_dir = recipe.workspace;
     }
+    if (recipe.supervisor) {
+      // Always there, empty or not, so the recipe's configuration can include it; its digest
+      // as a label, so a change of programs recreates the container, whose supervisor reads
+      // them at start.
+      const file = `.octopod/programs.${options.project}.${r.name}.conf`;
+      files[file] = programsConfig(r.programs, recipe.workspace);
+      mounts.push(`./${file}:${PROGRAMS_FILE}:ro`);
+      if (r.supervisorD) mounts.push(`${r.supervisorD}:${SUPERVISOR_D}:ro`);
+      service.labels = { 'octopod.programs': createHash('sha256').update(files[file]).digest('hex').slice(0, 12) };
+    }
     if (mounts.length > 0) service.volumes = mounts;
     if (recipe.health) {
       service.healthcheck = {
@@ -225,6 +289,9 @@ export function renderServices(options: RenderOptions): Rendered {
       ...(recipe.port ? { port: recipe.port } : {}),
       ...(recipe.route ? { route: recipe.route === true ? '' : recipe.route.subdomain } : {}),
       ...(waits.length > 0 ? { waits } : {}),
+      ...(Object.keys(r.programs).length > 0 ? { programs: Object.keys(r.programs) } : {}),
+      ...(recipe.supervisor ? { supervisor: recipe.supervisor.config } : {}),
+      ...(r.supervisorD ? { supervisorD: r.supervisorD } : {}),
     });
   }
 
@@ -245,6 +312,8 @@ export function formatPlan(project: string, services: RenderedService[], workspa
     if (s.volumes.length > 0) lines.push(`    data    ${s.volumes.join(', ')} (in .octopod/data)`);
     if (s.ephemeral.length > 0) lines.push(`    NOT KEPT ${s.ephemeral.join(', ')} — lost when the container is recreated`);
     if (s.workspace) lines.push(`    files   ${workspace} → ${s.workspace}  READ-WRITE`);
+    if (s.programs) lines.push(`    runs    ${s.programs.join(', ')} (supervised)`);
+    if (s.supervisorD) lines.push(`    runs    the programs of ${s.supervisorD} (supervised, read-only)`);
     if (s.waits) lines.push(`    waits   for ${s.waits.map((w) => `${w.service} (${w.healthy ? 'healthy' : 'started'})`).join(', ')}`);
     if (s.route !== undefined) lines.push(`    served  ${s.route ? `${s.route}.` : ''}${project}.localhost, port ${s.port ?? 'from the image'}`);
   }

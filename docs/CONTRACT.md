@@ -161,6 +161,42 @@ workspace: .               # the folder a recipe's workspace mounts; the project
 - The recipe's digest covers its Dockerfile. `octopod plan [dir]` renders without writing
   anything, for an approval.
 - No networks and no hardening: a client with stricter needs adds its own compose file.
+- **Programs.** A recipe that runs supervisord says so (`supervisor: { config, programs }`:
+  its configuration, and the programs it runs itself); `php-app` does. A service made of
+  it takes `programs:` in `octopod.yaml`, run beside the recipe's own:
+
+  ```yaml
+  services:
+    app:
+      recipe: php-app
+      programs:
+        worker: { command: php bin/console messenger:consume async --time-limit=3600 }
+        seed:   { command: php bin/console app:seed, autostart: false }
+  ```
+
+  A command is one line, split by supervisord (quotes, no shell), run in the workspace as
+  the service's user. A program with `autostart` (the default) is a worker: started with
+  the container, and started again whenever it ends, with supervisord's growing delay —
+  never taking the container down. `autostart: false` makes a task: started by hand
+  (`octopod program start`), done once it exits 0. They are rendered into
+  `.octopod/programs.<project>.<service>.conf`, mounted read-only at
+  `/etc/octopod/programs.conf`, which the recipe's configuration includes; a change of
+  programs recreates the container. A name the recipe uses itself is refused, and so are
+  programs for a recipe without a supervisor. `status` gives each running supervised
+  service's `programs`, and warns about a program in `FATAL` or `BACKOFF`: the container
+  is up, what should run in it is not.
+- **A folder of supervisord files.** `supervisor_d: docker/supervisor` on such a service
+  mounts that folder of the project, read-only, at `/etc/octopod/supervisord.d`, whose
+  `*.conf` the recipe's configuration includes beside the rendered programs: a project
+  that keeps its programs as supervisord files keeps them. The folder must exist in the
+  project (docker would create a missing one, as root). supervisord reads them at start;
+  after a file is dropped, changed or removed, `octopod program reload <service>` applies
+  it (new programs started, changed ones restarted, removed ones stopped, the others left
+  running). octopod does not read these files, so they keep to what the container is:
+  no `user=` (supervisord already runs as the project's user, and cannot switch), logs to
+  `/dev/stdout` (`stdout_logfile_maxbytes=0`), paths in the workspace, no
+  `[supervisord]`, `[unix_http_server]` or `[inet_http_server]` section, and no name the
+  recipe or `programs:` already uses — supervisord refuses a duplicate at start.
 - **A recipe's Dockerfile** keeps to a few rules, which `octopod recipes --check [dir]`
   reads from its text (exit 1 on a problem; a help for whoever writes a recipe, not a gate
   on `up`): the final stage starts `FROM ${BASE_IMAGE}`; nothing is copied from the build
@@ -187,6 +223,8 @@ HTTP with JSON bodies over a unix socket: `$XDG_RUNTIME_DIR/octopod/octopod.sock
 | POST | `/v1/projects/:name/restart` | `{ service? }` | `ProjectStatus` |
 | POST | `/v1/projects/:name/exec` | `{ service, argv: string[], timeoutMs? }` | `{ ok, mode, output, truncated }` — argv, never a shell string built by octopod; output bounded; a failure says how it ended (exit code, timeout). `mode: "run"` when the service was not running (stopped, restarting in a loop): the command ran in a one-off container of it (same image, mounts, user, network), kept out of the edge's routes |
 | GET | `/v1/projects/:name/logs?service=&tail=` | | `{ lines: string[] }` |
+| GET | `/v1/projects/:name/programs?instance=` | | `{ service, program, state, detail }[]` — every program of the running supervised services, the recipe's and the project's, as supervisord reports them (`RUNNING`, `STOPPED`, `BACKOFF`, `FATAL`, `EXITED`…) |
+| POST | `/v1/projects/:name/program` | `{ service, program, action: "start" \| "stop" \| "restart", instance? }`, or `{ service, action: "reload" }` | the service's programs, after the action |
 | GET | `/v1/projects/:name/secrets?instance=` | | `{ values: string[] }` — the secrets octopod generated for the project's recipes, every running instance's unless one is named: for a client to mask them. Refused (403) through the console's relay |
 | GET | `/v1/recipes?root=` | | `{ recipes: {id,title,summary,dir,digest}[], shadowed: {id,dir,by}[] }` |
 | POST | `/v1/plan` | `{ root, instance? }` | `{ project, text, services, compose }` — writes nothing |
@@ -203,7 +241,8 @@ interface Project {
 interface ProjectStatus extends Project {
   instance?: number;        // this status is of instance N
   instances?: number[];     // the project's other instances up (on instance 1's status)
-  services: { service: string; state: string; health?: string }[];
+  services: { service: string; state: string; health?: string;
+    programs?: { program: string; state: string; detail: string }[] }[];  // programs: a running supervised service's
   warnings?: string[];
 }
 ```
@@ -211,7 +250,9 @@ interface ProjectStatus extends Project {
 The CLI speaks the same operations and prints the same JSON with `--json`:
 `octopod edge up|down|status`, `octopod register [dir]`, `octopod up|down|status|logs|restart
 [project]`, `octopod exec <project> <service> -- <command…>`, `octopod unregister <project>`,
-`octopod recipes [dir] [--check]` —
+`octopod recipes [dir] [--check]`, `octopod ps [project]` (the programs),
+`octopod program start|stop|restart [project] <service>/<program>`,
+`octopod program reload [project] <service>` —
 `up`, `down`, `status`, `logs`, `restart` and `exec` take `--instance N`;
 `octopod shell [project] [service] [--instance N] [--root] [--oneshot] [-- command…]` (a
 shell in a running service, as its user — or root — in its working directory; bash when

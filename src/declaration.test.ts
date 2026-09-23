@@ -70,6 +70,28 @@ describe('loadDeclaration', () => {
     await expect(loadDeclaration(root)).rejects.toThrow(/group: must be a DNS label/);
   });
 
+  it('takes a service\'s programs apart from its params, one line each', async () => {
+    await writeFile(join(root, 'octopod.yaml'), 'services:\n  app:\n    recipe: php-app\n    php: "8.3"\n    programs:\n      worker: { command: php bin/console messenger:consume async }\n      seed: { command: php bin/seed, autostart: false }\n');
+    const d = await loadDeclaration(root);
+    expect(d.services?.app).toEqual({
+      recipe: 'php-app',
+      params: { php: '8.3' },
+      programs: { worker: { command: 'php bin/console messenger:consume async', autostart: true }, seed: { command: 'php bin/seed', autostart: false } },
+    });
+    await writeFile(join(root, 'octopod.yaml'), 'services:\n  app:\n    recipe: php-app\n    programs:\n      w: { command: "a\\n[program:x]" }\n');
+    await expect(loadDeclaration(root)).rejects.toThrow(/one line/);
+  });
+
+  it('takes a supervisor_d folder that exists in the project, and nothing else', async () => {
+    await mkdir(join(root, 'docker', 'supervisor'), { recursive: true });
+    await writeFile(join(root, 'octopod.yaml'), 'services:\n  app: { recipe: php-app, supervisor_d: docker/supervisor }\n');
+    expect((await loadDeclaration(root)).services?.app).toEqual({ recipe: 'php-app', params: {}, supervisorD: join(root, 'docker', 'supervisor') });
+    await writeFile(join(root, 'octopod.yaml'), 'services:\n  app: { recipe: php-app, supervisor_d: missing }\n');
+    await expect(loadDeclaration(root)).rejects.toThrow(/is not a folder of the project/);
+    await writeFile(join(root, 'octopod.yaml'), 'services:\n  app: { recipe: php-app, supervisor_d: ../elsewhere }\n');
+    await expect(loadDeclaration(root)).rejects.toThrow(/inside the project/);
+  });
+
   it('leaves the port to find when none is declared', async () => {
     await writeFile(join(root, 'octopod.yaml'), 'expose:\n  - service: web\n');
     expect((await loadDeclaration(root)).expose).toEqual([{ service: 'web', host: 'my-app.localhost' }]);
