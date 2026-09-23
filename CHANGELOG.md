@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Windows: a tray icon — a tako with its hachimaki, red while the edge runs, grey and asleep when it does not or Docker Desktop is off. Its menu lists the projects with their URLs, starts and stops them (`octopod up`/`down`) and the edge, opens Traefik's dashboard and a project's folder, starts Docker Desktop, and can start with Windows. It goes through the CLI and supervises nothing: quitting it leaves the edge running. `setup.ps1` adds it to the Start menu and starts it (`-NoTray` does neither).
+- Windows: a tray icon — a tako with its hachimaki, red while the edge runs, grey and asleep when it does not or Docker Desktop is off. Its menu lists the projects with their URLs, starts and stops them (`octopod up`/`down`) and the edge, opens Traefik's dashboard and a project's folder, starts Docker Desktop, and can start with Windows. It goes through the CLI; the edge is Docker's, and keeps running when the tray quits. `setup.ps1` adds it to the Start menu and starts it (`-NoTray` does neither).
+- Windows: the API and the console. With no unix sockets there, `octopod serve` listens on loopback, on a port kept in `api.json`, and answers only requests that carry the token of that file (`X-Octopod-Token`); the console relay reaches it through `host.docker.internal` and adds the token. The tray runs `octopod serve`, starts it again if it ends, and has an *octopod console* entry.
 
 ### Changed
 

@@ -6,8 +6,8 @@
  * project.
  */
 import { chmod, lstat, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { createHash } from 'node:crypto';
-import { createConnection } from 'node:net';
+import { createHash, randomBytes } from 'node:crypto';
+import { createConnection, createServer } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { loadDeclaration, withInstance, type Declaration } from './declaration.js';
@@ -148,6 +148,34 @@ export interface OctopodOptions {
   ports?: number[];
   /** The API's unix socket, which the console relays to. */
   socket?: string;
+  /** The API on 127.0.0.1 with a token instead of a socket: Windows, which has none. */
+  tcp?: boolean;
+}
+
+/**
+ * Where the API listens where there are no unix sockets (Windows): loopback, on a port kept
+ * once chosen, and a token every request must carry — any local process can open a TCP
+ * port, and a web page can send it a GET, but neither has the token. The console relay
+ * adds it.
+ */
+export interface ApiTcp {
+  port: number;
+  token: string;
+}
+
+/** The header that carries the token. */
+export const TOKEN_HEADER = 'x-octopod-token';
+
+/** A port nothing listens on now, from the system. */
+function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const probe = createServer();
+    probe.once('error', reject);
+    probe.listen(0, '127.0.0.1', () => {
+      const { port } = probe.address() as { port: number };
+      probe.close(() => resolve(port));
+    });
+  });
 }
 
 /** Where `octopod serve` listens, and the console finds it. */
@@ -197,9 +225,11 @@ export class Octopod {
   private readonly docker: Docker;
   private readonly ports: number[];
   readonly socket: string;
+  readonly tcp: boolean;
 
   constructor(options: OctopodOptions = {}) {
     this.socket = options.socket ?? defaultSocket();
+    this.tcp = options.tcp ?? process.platform === 'win32';
     this.stateDir = options.stateDir ?? defaultStateDir();
     this.instance = options.instance ?? process.env.OCTOPOD_INSTANCE ?? 'octopod';
     this.docker = options.docker ?? cliDocker();
@@ -223,6 +253,16 @@ export class Octopod {
   private async writeJson(file: string, value: unknown): Promise<void> {
     await mkdir(join(this.path(file), '..'), { recursive: true });
     await writeFile(this.path(file), JSON.stringify(value, null, 2) + '\n');
+  }
+
+  /** The API's port and token (TCP only): made the first time, kept after, readable by the operator only. */
+  async apiTcp(): Promise<ApiTcp> {
+    const saved = await this.readJson<Partial<ApiTcp>>('api.json', {});
+    if (typeof saved.port === 'number' && typeof saved.token === 'string' && saved.token.length >= 32) return saved as ApiTcp;
+    const api = { port: await freePort(), token: randomBytes(32).toString('hex') };
+    await mkdir(this.stateDir, { recursive: true, mode: 0o700 });
+    await writeFile(this.path('api.json'), JSON.stringify(api, null, 2) + '\n', { mode: 0o600 });
+    return api;
   }
 
   private registry(): Promise<Record<string, string>> {
@@ -269,11 +309,14 @@ export class Octopod {
   async edgeUp(): Promise<EdgeStatus> {
     const port = await this.edgePort({ choose: true });
     // The socket's folder, before Docker binds it into the console: Docker would create it as root.
-    const socketDir = dirname(this.socket);
-    await mkdir(socketDir, { recursive: true, mode: 0o700 });
-    await chmod(socketDir, 0o700);
+    // With the API on TCP, no socket: the console reaches it through host.docker.internal.
+    const socketDir = this.tcp ? undefined : dirname(this.socket);
+    if (socketDir) {
+      await mkdir(socketDir, { recursive: true, mode: 0o700 });
+      await chmod(socketDir, 0o700);
+    }
     const traefik = JSON.stringify(traefikConfig(this.instance), null, 2) + '\n';
-    const nginx = consoleNginxConfig(basename(this.socket));
+    const nginx = consoleNginxConfig(this.tcp ? await this.apiTcp() : basename(this.socket));
     await mkdir(this.path('edge', 'dynamic'), { recursive: true });
     await writeFile(this.path('edge', 'traefik.yml'), traefik);
     await writeFile(this.path('edge', 'console.conf'), nginx);

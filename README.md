@@ -59,8 +59,8 @@ octopod setup      # checks Docker, runs the API as a user service, starts the e
 
 Or from a clone: `git clone https://github.com/quazardous/octopod && cd octopod && ./setup.sh`.
 On Windows, with Docker Desktop running, `.\setup.ps1` in PowerShell does the same, and puts
-octopod in the notification area: its menu lists the projects and their URLs, and starts or
-stops them and the edge. The API and the console are not available there yet.
+octopod in the notification area: its menu lists the projects and their URLs, starts or
+stops them and the edge, and opens the console, whose API the tray runs.
 
 Then try an example:
 
@@ -194,7 +194,7 @@ The lessons behind these choices are in [docs/PATTERNS.md](./docs/PATTERNS.md).
 ## Status
 
 0.3 is a preview. It is tested on Linux with Docker, and runs on Windows with Docker
-Desktop (without the API and the console there yet); macOS and rootless Docker are not
+Desktop; macOS and rootless Docker are not
 tested yet. Until 1.0, the contract may change between minor
 versions; every change is in the [changelog](./CHANGELOG.md), and a breaking one says what
 to do. The plan is in [docs/ROADMAP.md](./docs/ROADMAP.md).

@@ -1,13 +1,15 @@
 /**
- * The API: HTTP with JSON bodies over a unix socket only the user can open. Routes map
- * one to one onto the Octopod operations; errors are `{ error }` with a 4xx/5xx status.
+ * The API: HTTP with JSON bodies over a unix socket only the user can open — on Windows,
+ * over loopback with a token. Routes map one to one onto the Octopod operations; errors are
+ * `{ error }` with a 4xx/5xx status.
  */
+import { timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { chmod, mkdir, readFile, rm } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { DeclarationError } from './declaration.js';
 import { DockerError } from './docker.js';
-import { defaultSocket, Octopod, OctopodError, version } from './octopod.js';
+import { defaultSocket, Octopod, OctopodError, TOKEN_HEADER, version, type ApiTcp } from './octopod.js';
 
 export { defaultSocket };
 
@@ -160,8 +162,13 @@ export function handler(octopod: Octopod) {
   };
 }
 
-/** Listen on the socket, in a directory only the user can enter. */
+/**
+ * Listen on the socket, in a directory only the user can enter — or, where there are no unix
+ * sockets (Windows), on the loopback port of `api.json`, answering only requests that carry
+ * its token.
+ */
 export async function listen(octopod: Octopod, socket = defaultSocket()): Promise<Server> {
+  if (octopod.tcp) return listenTcp(octopod, await octopod.apiTcp());
   await mkdir(dirname(socket), { recursive: true, mode: 0o700 });
   await chmod(dirname(socket), 0o700);
   await rm(socket, { force: true });
@@ -171,5 +178,22 @@ export async function listen(octopod: Octopod, socket = defaultSocket()): Promis
     server.listen(socket, resolve);
   });
   await chmod(socket, 0o600);
+  return server;
+}
+
+async function listenTcp(octopod: Octopod, api: ApiTcp): Promise<Server> {
+  const expected = Buffer.from(api.token);
+  const serve = handler(octopod);
+  const server = createServer((req, res) => {
+    // Any process of the machine can open the port, and any web page send it a GET: only
+    // the token tells the console relay (and the operator's own tools) from them.
+    const given = Buffer.from(String(req.headers[TOKEN_HEADER] ?? ''));
+    if (given.length !== expected.length || !timingSafeEqual(given, expected)) return send(res, 401, { error: `the API wants the token of api.json in ${TOKEN_HEADER}` });
+    void serve(req, res);
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(api.port, '127.0.0.1', resolve);
+  });
   return server;
 }

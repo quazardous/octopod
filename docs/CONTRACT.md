@@ -50,7 +50,8 @@ Rules, checked when the project is registered and every time it is brought up:
     routes, warnings and logs. Read-only. Served by `octopod serve` (the API), through
     `octopod-console`, a relay (nginx, running as the operator, read-only, no capability)
     that passes GET to the API's socket and refuses every other method. When the API is
-    not running, the console says how to start it.
+    not running, the console says how to start it. On Windows the relay reaches the API on
+    the host's loopback (`host.docker.internal`), adding its token.
 
   "From the host" is a Traefik middleware (`octopod-local`, in the file provider): the
   edge's own network, where the host's requests come from through the published port.
@@ -249,6 +250,11 @@ workspace: .               # the folder a recipe's workspace mounts; the project
 HTTP with JSON bodies over a unix socket: `$XDG_RUNTIME_DIR/octopod/octopod.sock`
 (`0600`). Errors are `{ "error": string }` with a 4xx or 5xx status.
 
+On Windows, which has no unix sockets, the API listens on `127.0.0.1` instead, on the
+port of `api.json` in the state directory (`{ "port": number, "token": string }`, made the
+first time, kept after), and answers only a request that carries that token in the
+`X-Octopod-Token` header; any other gets `401`. A client reads the file, as the operator.
+
 | Method | Path | Body | Answer |
 |---|---|---|---|
 | GET | `/v1/version` | | `{ version, contract, features }` — octopod's version (semver), this contract's (`1`), and what it adds to it (`features`, from 0.2.0) |
@@ -299,7 +305,7 @@ The CLI speaks the same operations and prints the same JSON with `--json`:
 shell in a running service, as its user — or root — in its working directory; bash when
 the image has it; `--oneshot` for a service that is not running; CLI only: it needs a
 terminal), `octopod serve [--socket path]` (the API, and the console's data; `setup.sh` installs it
-as the `octopod` systemd user service). `OCTOPOD_STATE_DIR`, `OCTOPOD_INSTANCE` and `OCTOPOD_PORTS` select
+as the `octopod` systemd user service; on Windows the tray runs it). `OCTOPOD_STATE_DIR`, `OCTOPOD_INSTANCE` and `OCTOPOD_PORTS` select
 another instance (tests, a second edge).
 
 ## What clients rely on

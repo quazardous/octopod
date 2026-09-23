@@ -23,7 +23,7 @@
  */
 import { spawn } from 'node:child_process';
 import { closeSync, openSync, read as readFs } from 'node:fs';
-import { basename, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { dockerEnv } from './docker.js';
 import { loadDeclaration } from './declaration.js';
 import { listen } from './api.js';
@@ -284,7 +284,8 @@ async function main(argv: string[]): Promise<void> {
     case 'serve': {
       await listen(octopod, octopod.socket);
       const edge = await octopod.edgeStatus();
-      console.log(`octopod API on ${octopod.socket}${edge.console ? ` — console ${edge.console}` : ''}`);
+      const where = octopod.tcp ? `http://127.0.0.1:${(await octopod.apiTcp()).port} (its token in ${join(octopod.stateDir, 'api.json')})` : octopod.socket;
+      console.log(`octopod API on ${where}${edge.console ? ` — console ${edge.console}` : ''}`);
       return;
     }
     default:

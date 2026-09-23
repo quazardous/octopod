@@ -21,7 +21,17 @@ chose to run. It holds them to a few boundaries; these are in scope.
 **The API socket.** The API is HTTP over a unix socket,
 `$XDG_RUNTIME_DIR/octopod/octopod.sock`, created `0600` in a folder made `0700`: only the
 user who runs octopod can reach it. It has no other authentication, and needs none, since
-whoever can reach it can already use Docker as that user. There is no TCP listener.
+whoever can reach it can already use Docker as that user. There is no TCP listener, except
+on Windows.
+
+**The API on Windows.** Windows has no unix sockets, so there the API listens on loopback
+(`127.0.0.1`) — never on the network — on the port of `api.json`, in the operator's state
+directory under their profile. Loopback is open to every process of the machine and to any
+web page's requests, so each request must carry the 32-byte random token of that file in
+`X-Octopod-Token`, compared in constant time; without it, `401`. A web page cannot add
+that header to a request to another origin without a CORS preflight, which the API never
+grants. The console relay holds the token in its configuration (in the same state
+directory) and replaces any token a request brings.
 
 **The edge.** The shared Traefik publishes on loopback only (`127.0.0.1`, port 80 or
 8480): nothing on the network reaches it. It only routes containers labelled
@@ -33,8 +43,8 @@ dashboard (`http://traefik.localhost`) — answer only from the host. A Traefik
 `ipAllowList` lets through the edge's own network, where the host's requests arrive through
 the published port; a project's container, which reaches the edge over its edge network,
 gets a 403. The console is read-only: a relay (nginx, running as the operator, read-only
-root, no capability) passes GET and HEAD to the API's socket and refuses every other
-method, and the page is served with a strict Content Security Policy. Everything it shows
+root, no capability) passes GET and HEAD to the API's socket (on Windows, to its
+loopback port, with its token) and refuses every other method, and the page is served with a strict Content Security Policy. Everything it shows
 comes from the projects (names, log lines) and is rendered as text, never as markup.
 
 **The Docker socket** is mounted read-only into Traefik, which needs it to discover

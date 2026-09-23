@@ -146,3 +146,54 @@ describe.skipIf(process.platform === 'win32')('the API', () => {
     expect((await raw('GET', '/../src/api.ts')).status).toBe(404);
   });
 });
+
+// Windows has no unix sockets: the API is on loopback, behind a token. Tested everywhere.
+describe('the API on TCP', () => {
+  let state: string;
+  let tcpServer: Server;
+  let octopod: Octopod;
+
+  beforeEach(async () => {
+    state = await mkdtemp(join(tmpdir(), 'octopod-tcp-'));
+    octopod = new Octopod({ stateDir: state, docker: idleDocker, ports: [18499], tcp: true });
+    tcpServer = await listen(octopod);
+  });
+
+  afterEach(async () => {
+    await new Promise((r) => tcpServer.close(r));
+    await rm(state, { recursive: true, force: true });
+  });
+
+  function get(path: string, token?: string): Promise<{ status: number; text: string }> {
+    return octopod.apiTcp().then(
+      ({ port }) =>
+        new Promise((resolve, reject) => {
+          const req = request({ host: '127.0.0.1', port, path, headers: token === undefined ? {} : { 'x-octopod-token': token } }, (res) => {
+            let text = '';
+            res.on('data', (c) => (text += String(c)));
+            res.on('end', () => resolve({ status: res.statusCode ?? 0, text }));
+          });
+          req.on('error', reject);
+          req.end();
+        }),
+    );
+  }
+
+  it('answers only a request that carries the token of api.json', async () => {
+    const { token } = await octopod.apiTcp();
+    expect(token).toMatch(/^[0-9a-f]{64}$/);
+    expect((await get('/v1/version')).status).toBe(401);
+    expect((await get('/', 'x'.repeat(64))).status).toBe(401);
+    expect((await get('/v1/version', `${token}0`)).status).toBe(401);
+    const answer = await get('/v1/version', token);
+    expect(answer.status).toBe(200);
+    expect(JSON.parse(answer.text)).toMatchObject({ contract: 1 });
+  });
+
+  it('keeps its port and token, and listens on loopback only', async () => {
+    const first = await octopod.apiTcp();
+    expect(await new Octopod({ stateDir: state, tcp: true }).apiTcp()).toEqual(first);
+    expect(JSON.parse(await readFile(join(state, 'api.json'), 'utf8'))).toEqual(first);
+    expect(tcpServer.address()).toMatchObject({ address: '127.0.0.1', port: first.port });
+  });
+});

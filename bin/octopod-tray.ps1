@@ -1,10 +1,11 @@
 # octopod-tray.ps1 -- octopod in the Windows notification area: whether Docker and the
 # edge run, the projects and their URLs, and the few actions a click is enough for.
 #
-# A view and a remote, not a supervisor: the edge is Docker's (restart: unless-stopped),
-# and comes back with Docker Desktop whether the tray runs or not. Quitting the tray
-# leaves it running. Everything goes through the octopod CLI, `--json`: the API is a
-# unix socket, which Windows does not have yet.
+# The edge is Docker's (restart: unless-stopped): it comes back with Docker Desktop
+# whether the tray runs or not, and quitting the tray leaves it running. The API is the
+# tray's: Windows has no user service, so the tray starts `octopod serve` (loopback and a
+# token, see api.json) for the console, starts it again if it ends, and stops it on quit.
+# Everything else goes through the octopod CLI, `--json`.
 #
 # Started hidden by octopod-tray.vbs (the Start menu shortcut, and "Start with
 # Windows"), or by octopod-tray.cmd from a terminal.
@@ -152,6 +153,7 @@ function Build-Menu {
         $desktop = Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'
         if (Test-Path $desktop) { Add-Item $menu.Items 'Start Docker Desktop' { Start-Process -FilePath $this.Tag } $desktop | Out-Null }
     } elseif ($script:look -and $script:look.up) {
+        Add-Item $menu.Items 'octopod console' { Open-Url $this.Tag } ([string]$script:edge.console) | Out-Null
         Add-Item $menu.Items 'Traefik dashboard' { Open-Url $this.Tag } ([string]$script:edge.dashboard) | Out-Null
         Add-Item $menu.Items 'Stop the edge' { Start-Action 'octopod edge down' @('edge', 'down') } | Out-Null
     } elseif ($script:look) {
@@ -162,6 +164,7 @@ function Build-Menu {
     $menu.Items.Add('-') | Out-Null
     Add-Item $menu.Items 'Quit (the edge keeps running)' {
         $script:quitting = $true
+        Stop-Api
         $ni.Visible = $false
         [System.Windows.Forms.Application]::Exit()
     } | Out-Null
@@ -176,6 +179,41 @@ $ni.Add_MouseUp({
         $show.Invoke($ni, $null) | Out-Null
     }
 })
+
+# --- the API, for the console -----------------------------------------------------------
+# Where octopod keeps its state, found as octopod finds it: api.json holds the API's port.
+$stateDir = if ($env:OCTOPOD_STATE_DIR) { $env:OCTOPOD_STATE_DIR }
+            elseif ($env:XDG_STATE_HOME) { Join-Path $env:XDG_STATE_HOME 'octopod' }
+            else { Join-Path $env:USERPROFILE '.local\state\octopod' }
+$apiFile = Join-Path $stateDir 'api.json'
+$script:serve = $null
+$script:serveStartedAt = $null
+function Test-Api {
+    try {
+        $port = [int]((Get-Content -Raw $apiFile | ConvertFrom-Json).port)
+        $client = New-Object System.Net.Sockets.TcpClient
+        try { return $client.ConnectAsync('127.0.0.1', $port).Wait(300) -and $client.Connected } finally { $client.Dispose() }
+    } catch { return $false }
+}
+function Start-Api {
+    # One started by hand (octopod serve in a terminal) is as good as ours.
+    if (Test-Api) { return }
+    if ($script:serve -and -not $script:serve.HasExited) { return }
+    # At most one start every 10 seconds: an API that ends at once is not hammered.
+    $now = [Environment]::TickCount
+    if ($null -ne $script:serveStartedAt -and ($now - $script:serveStartedAt) -lt 10000) { return }
+    $script:serveStartedAt = $now
+    try {
+        New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
+        $script:serve = Start-Process -FilePath 'node' -ArgumentList "`"$octopodJs`"", 'serve' -WindowStyle Hidden -PassThru `
+            -RedirectStandardOutput (Join-Path $stateDir 'serve.log') -RedirectStandardError (Join-Path $stateDir 'serve.err.log')
+    } catch { $script:serve = $null }
+}
+function Stop-Api {
+    if ($script:serve -and -not $script:serve.HasExited) {
+        try { Stop-Process -Id $script:serve.Id -Force -ErrorAction SilentlyContinue } catch { }
+    }
+}
 
 # --- looking: Docker, the edge, the projects -------------------------------------------
 $script:probe = $null
@@ -240,7 +278,7 @@ function Update-Tray {
     Receive-Actions
     Receive-Look
     # A look every 10 seconds; the timer ticks every second to collect answers quickly.
-    if ($script:ticks % 10 -eq 0) { Start-Look }
+    if ($script:ticks % 10 -eq 0) { Start-Api; Start-Look }
     $script:ticks++
 }
 
@@ -254,6 +292,7 @@ try {
     [System.Windows.Forms.Application]::Run()
 } finally {
     $timer.Stop()
+    Stop-Api
     $ni.Visible = $false
     $ni.Dispose()
     try { $singleton.ReleaseMutex() } catch { }

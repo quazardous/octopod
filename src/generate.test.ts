@@ -80,6 +80,19 @@ describe('the edge', () => {
     expect(relay.user).toBe('101:101');
   });
 
+  it('reaches the API on the host loopback when it is on TCP, with its token, and mounts no socket', () => {
+    const conf = consoleNginxConfig({ port: 18123, token: 'f00d' });
+    expect(conf).toContain('proxy_pass http://host.docker.internal:18123;');
+    expect(conf).toContain('proxy_set_header X-Octopod-Token "f00d";');
+    expect(conf).toContain('limit_except GET { deny all; }');
+    expect(conf).not.toContain('unix:');
+    expect(conf).toContain('start the octopod tray');
+    const relay = (edgeCompose({ ...settings, socketDir: undefined }).services as Record<string, Service>).console as unknown as Record<string, unknown>;
+    expect(relay.volumes).toEqual(['/s/console.conf:/etc/nginx/nginx.conf:ro']);
+    expect(relay.extra_hosts).toEqual(['host.docker.internal:host-gateway']);
+    expect((services().console as unknown as Record<string, unknown>).extra_hosts).toBeUndefined();
+  });
+
   it('relays GET to the socket and refuses every other method', () => {
     const conf = consoleNginxConfig('octopod.sock');
     expect(conf).toContain('proxy_pass http://unix:/run/octopod/octopod.sock;');
