@@ -628,9 +628,17 @@ describe.skipIf(!dockerAvailable())('the service recipes, together (real docker)
       }
       return last;
     };
-    expect((await served('mail.stack.localhost', /Mailpit/i)).status).toBe(200);
+    // What a failing admin said, for the CI log.
+    const why = async (service: string) => (await octopod.logs('stack', service, 40)).join('\n');
+    const mail = await served('mail.stack.localhost', /Mailpit/i);
+    if (mail.status !== 200) console.error(await why('mail'));
+    expect(mail.status).toBe(200);
     // Logged in with the database's user: the page names the server it is connected to.
-    expect((await served('pma.stack.localhost', /phpMyAdmin/)).body).toMatch(/db/);
-    expect((await served('mongo.stack.localhost', /Mongo Express/i)).status).toBe(200);
+    const pma = await served('pma.stack.localhost', /phpMyAdmin/);
+    if (pma.status !== 200) console.error(await why('pma'));
+    expect(pma.body).toMatch(/db/);
+    const me = await served('mongo.stack.localhost', /Mongo Express/i);
+    if (me.status !== 200) console.error(await why('me'));
+    expect(me.status).toBe(200);
   });
 });

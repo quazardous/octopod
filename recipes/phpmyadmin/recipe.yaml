@@ -7,7 +7,6 @@ image: phpmyadmin:5.2
 unpinned: true
 build: true
 env:
-  APACHE_PORT: "8080"
   UPLOAD_LIMIT: 64M
 requires:
   - capability: mysql
