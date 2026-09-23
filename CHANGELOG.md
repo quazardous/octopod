@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `octopod exec` into a service restarting in a loop falls back to a one-off container with newer Docker versions too, which say `cannot exec in a stopped state`.
 - A project that cannot be read (a broken `octopod.yaml`, a recipe that does not load) no longer breaks the whole list, nor the console: it is listed with its `problem`, and the others as usual.
 
 ## [0.2.0] - 2026-09-22

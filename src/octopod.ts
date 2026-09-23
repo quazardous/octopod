@@ -76,7 +76,7 @@ export interface ProjectStatus extends Project {
 }
 
 /** What docker says when a service's container cannot take an exec right now. */
-const NOT_RUNNING = /is restarting|is not running|no container found|service ".*" is not running/i;
+const NOT_RUNNING = /is restarting|is not running|no container found|service ".*" is not running|cannot exec in a stopped state/i;
 
 export interface ExecResult {
   ok: boolean;
