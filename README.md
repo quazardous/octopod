@@ -1,6 +1,9 @@
 # octopod
 
 [![npm](https://img.shields.io/npm/v/@quazardous/octopod)](https://www.npmjs.com/package/@quazardous/octopod)
+[![CI](https://github.com/quazardous/octopod/actions/workflows/ci.yml/badge.svg)](https://github.com/quazardous/octopod/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/github/license/quazardous/octopod)](./LICENSE)
+[![Node](https://img.shields.io/node/v/@quazardous/octopod)](https://nodejs.org)
 
 > One local edge for all your Docker projects: a shared Traefik, declared projects and isolated networks — behind a small API.
 
