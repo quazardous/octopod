@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BUILTIN_RECIPES, digestOf, loadRecipes, RecipeError } from './loader.js';
 import { formatPlan, renderServices, userNameOf } from './render.js';
+import { lintDockerfile } from './lint.js';
 
 let base: string;
 beforeEach(async () => {
@@ -102,13 +103,44 @@ describe('the recipe folders', () => {
   });
 });
 
+describe('a recipe\'s Dockerfile, checked', () => {
+  it('passes one that keeps to the rules: stages, heredocs, continuation lines', () => {
+    const ok = [
+      'ARG BASE_IMAGE',
+      'FROM composer:2 AS composer',
+      'FROM ${BASE_IMAGE}',
+      'COPY --from=composer /usr/bin/composer /usr/local/bin/',
+      'RUN apt-get update \\',
+      '  # a comment in a continuation',
+      ' && apt-get install -y git',
+      "COPY <<'EOF' /etc/app.conf",
+      'VOLUME /not-an-instruction',
+      'USER root',
+      'EOF',
+      'USER ${USER_NAME}',
+    ].join('\n');
+    expect(lintDockerfile(ok)).toEqual([]);
+  });
+
+  it('names each rule broken, with its line', () => {
+    const bad = ['FROM node:22', 'COPY package.json /app/', 'RUN npm ci', 'VOLUME /data', 'USER app', 'USER 0'].join('\n');
+    const problems = lintDockerfile(bad);
+    expect(problems).toHaveLength(5);
+    expect(problems[0]).toMatch(/^line 1: the final stage starts FROM node:22/);
+    expect(problems[1]).toMatch(/^line 2: COPY package.json/);
+    expect(problems[2]).toMatch(/^line 3: RUN installs a project's dependencies/);
+    expect(problems[3]).toMatch(/^line 4: VOLUME/);
+    expect(problems[4]).toMatch(/^line 6: the last USER is 0/);
+  });
+});
+
 describe('the built-in recipes', () => {
   it('load, and install none of a project\'s dependencies in an image — system packages and extensions make the environment', async () => {
     const book = await loadRecipes([BUILTIN_RECIPES]);
     expect([...book.recipes.keys()].sort()).toEqual(['mariadb', 'node-app', 'php-app', 'postgres', 'whoami']);
     for (const id of await readdir(BUILTIN_RECIPES)) {
       const dockerfile = await readFile(join(BUILTIN_RECIPES, id, 'Dockerfile'), 'utf8').catch(() => '');
-      expect(dockerfile.replace(/^#.*$/gm, ''), id).not.toMatch(/\b(npm (install|ci)|yarn( install)?\b|pnpm (install|i)\b|pip3? install|composer (install|update|require)|bundle install)/);
+      if (dockerfile) expect(lintDockerfile(dockerfile), id).toEqual([]);
     }
   });
 

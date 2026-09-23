@@ -11,6 +11,7 @@ import { createConnection } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { loadDeclaration, withInstance, type Declaration } from './declaration.js';
+import { lintDockerfile } from './recipes/lint.js';
 import { BUILTIN_RECIPES, envRecipeDirs, loadRecipes, type Shadowed } from './recipes/loader.js';
 import { formatPlan, renderServices, type RenderedService } from './recipes/render.js';
 import { cliDocker, DockerError, type Docker } from './docker.js';
@@ -418,6 +419,17 @@ export class Octopod {
     };
   }
 
+  /** Each built recipe's Dockerfile against octopod's rules (`recipes --check`): a help, not a gate. */
+  async checkRecipes(root?: string): Promise<{ recipes: { id: string; dir: string; problems: string[] }[] }> {
+    const declaration = root ? await loadDeclaration(root).catch(() => ({ root, project: '', compose: [], expose: [] }) as Declaration) : undefined;
+    const book = await loadRecipes(this.recipeDirs(declaration)).catch((e: Error) => {
+      throw new OctopodError(e.message);
+    });
+    return {
+      recipes: [...book.recipes.values()].filter((e) => e.dockerfile !== undefined).map((e) => ({ id: e.id, dir: e.dir, problems: lintDockerfile(e.dockerfile ?? '') })),
+    };
+  }
+
   /** What `up` would run for a project folder, registered or not: for an approval. Writes nothing. */
   async plan(root: string, instance = 1): Promise<{ project: string; text: string; services: RenderedService[]; compose: unknown }> {
     let declaration = await loadDeclaration(root).catch((e: Error) => {
@@ -679,7 +691,7 @@ export class Octopod {
     const rows = out.trim().startsWith('[')
       ? (JSON.parse(out) as Record<string, string>[])
       : out.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l) as Record<string, string>);
-    const warnings = [...(await this.portWarnings(declaration)), ...(await this.foreignData(declaration))];
+    const warnings = [...(await this.portWarnings(declaration)), ...(await this.foreignData(declaration)), ...(await this.rootWarnings(rows))];
     const others = instance === 1 ? await this.instances(name) : [];
     return {
       ...(await this.project(declaration)),
@@ -687,6 +699,27 @@ export class Octopod {
       services: rows.map((r) => ({ service: r.Service, state: r.State, ...(r.Health ? { health: r.Health } : {}) })),
       ...(warnings.length > 0 ? { warnings } : {}),
     };
+  }
+
+  /**
+   * The services whose main process runs as root, read where it cannot be wrong: the running
+   * process itself (its uid in /proc), whatever the image's USER or the compose file's
+   * `user:` said — and a database whose image starts as root and drops to its own user is
+   * seen as that user. A warning, never a refusal: octopod shows, the project decides.
+   */
+  private async rootWarnings(rows: Record<string, string>[]): Promise<string[]> {
+    const running = rows.filter((r) => r.State === 'running' && r.ID);
+    if (running.length === 0 || process.platform !== 'linux') return [];
+    const out = await this.docker.run(['inspect', '--format', '{{.Id}}|{{.State.Pid}}', ...running.map((r) => r.ID)]).catch(() => '');
+    const warnings: string[] = [];
+    for (const line of out.trim().split('\n').filter(Boolean)) {
+      const [id, pid] = line.split('|');
+      const row = running.find((r) => id.startsWith(r.ID));
+      const status = Number(pid) > 0 ? await readFile(`/proc/${pid}/status`, 'utf8').catch(() => '') : '';
+      const uid = /^Uid:\s+\d+\s+(\d+)/m.exec(status)?.[1];
+      if (row && uid === '0') warnings.push(`${row.Service} runs as root: what it writes in the project is root's — give it a user (user: in compose, or USER in its Dockerfile)`);
+    }
+    return warnings;
   }
 
   async restart(name: string, service?: string, instance = 1): Promise<ProjectStatus> {

@@ -330,7 +330,13 @@ describe.skipIf(!dockerAvailable())('data in the project (real docker)', { timeo
     const file = join(root, '.octopod', 'data', 'logs', 'root-file');
     for (let i = 0; i < 40 && !(await stat(file).catch(() => undefined)); i++) await new Promise((r) => setTimeout(r, 250));
     const status = await octopod.status('gamma');
-    expect(status.warnings).toEqual([expect.stringMatching(/^\.octopod\/data\/logs holds files owned by uid 0/)]);
+    expect(status.warnings).toContainEqual(expect.stringMatching(/^\.octopod\/data\/logs holds files owned by uid 0/));
+  });
+
+  it('says which service runs as root, from its running process', async () => {
+    const status = await octopod.status('gamma');
+    expect(status.warnings).toContainEqual(expect.stringMatching(/^rooted runs as root/));
+    expect((status.warnings ?? []).filter((w) => w.startsWith('store '))).toEqual([]);
   });
 
   it('keeps the data through down --volumes: it is the project\'s', async () => {

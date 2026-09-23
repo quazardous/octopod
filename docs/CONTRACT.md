@@ -86,8 +86,10 @@ Rules, checked when the project is registered and every time it is brought up:
   otherwise interpolate unseen. A project's variables come from its `.env`, or from its
   declared `env_file` (passed as `--env-file`). The override never adds an `environment`.
 - **Ownership**: `status` reports, in `warnings`, each data folder holding files the
-  operator does not own — a service writing as root leaves files only root can delete.
-  octopod does not force a user on an image.
+  operator does not own — a service writing as root leaves files only root can delete —
+  and each running service whose main process runs as root, read from the process itself
+  (`/proc/<pid>/status` on Linux), whatever the image's `USER` or the compose file's `user:`
+  said. octopod does not force a user on an image.
 
 Labels generated on an exposed service (never written by hand):
 
@@ -159,6 +161,13 @@ workspace: .               # the folder a recipe's workspace mounts; the project
 - The recipe's digest covers its Dockerfile. `octopod plan [dir]` renders without writing
   anything, for an approval.
 - No networks and no hardening: a client with stricter needs adds its own compose file.
+- **A recipe's Dockerfile** keeps to a few rules, which `octopod recipes --check [dir]`
+  reads from its text (exit 1 on a problem; a help for whoever writes a recipe, not a gate
+  on `up`): the final stage starts `FROM ${BASE_IMAGE}`; nothing is copied from the build
+  context, which is the Dockerfile alone (`COPY --from=<stage>` and heredocs are fine); no
+  `VOLUME` — data goes in the recipe's `volumes`, kept in `.octopod/data`; system packages
+  and extensions, never a project's dependencies; the last `USER` is not root. A Dockerfile
+  without `USER` is not flagged: a database image starts as root and drops to its own user.
 - `unregister` removes the images compose built for the project.
 
 ## The API
@@ -201,7 +210,8 @@ interface ProjectStatus extends Project {
 
 The CLI speaks the same operations and prints the same JSON with `--json`:
 `octopod edge up|down|status`, `octopod register [dir]`, `octopod up|down|status|logs|restart
-[project]`, `octopod exec <project> <service> -- <command…>`, `octopod unregister <project>` —
+[project]`, `octopod exec <project> <service> -- <command…>`, `octopod unregister <project>`,
+`octopod recipes [dir] [--check]` —
 `up`, `down`, `status`, `logs`, `restart` and `exec` take `--instance N`;
 `octopod shell [project] [service] [--instance N] [--root] [--oneshot] [-- command…]` (a
 shell in a running service, as its user — or root — in its working directory; bash when

@@ -11,6 +11,7 @@
  *   octopod serve [--socket path]
  *   octopod shell [project] [service] [--root] [--oneshot] [-- command…]
  *   octopod secrets [project] [--instance N]
+ *   octopod recipes [dir] [--check]
  *   octopod version
  *   octopod setup [--no-service] [--no-edge]
  *
@@ -167,7 +168,18 @@ async function main(argv: string[]): Promise<void> {
     }
     case 'recipes': {
       // octopod recipes [dir]: the recipes a project in that folder (or any) can name.
+      // --check: each built recipe's Dockerfile against octopod's rules; exit 1 on a problem.
       const dir = positional(rest)[0];
+      if (rest.includes('--check')) {
+        const checked = await octopod.checkRecipes(dir ? resolve(dir) : undefined);
+        if (checked.recipes.some((r) => r.problems.length > 0)) process.exitCode = 1;
+        if (json) return print(checked, true);
+        for (const r of checked.recipes) {
+          console.log(`${r.problems.length ? '!' : '✓'} ${r.id}  (${r.dir})`);
+          for (const p of r.problems) console.log(`  ${p}`);
+        }
+        return;
+      }
       const out = await octopod.recipes(dir ? resolve(dir) : undefined);
       if (json) return print(out, true);
       for (const r of out.recipes) console.log(`${r.id.padEnd(16)} ${r.title}  (${r.dir}, ${r.digest})`);

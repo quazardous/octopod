@@ -26,7 +26,7 @@ the whole machine.
 - **A console.** `http://octopod.localhost` shows every project, the state of its services,
   their URLs and their logs.
 - **Data in the project, nothing owned by root.** Named volumes are kept in the project's
-  `.octopod/data`, created as you. A service that writes there as root is reported.
+  `.octopod/data`, created as you. A service that runs or writes there as root is reported.
 - **Or no compose file at all.** A project can name recipes (`node-app`, `php-app`,
   `postgres`, `mariadb`) instead.
 
@@ -96,7 +96,7 @@ image's own, renamed and moved to your uid when the image is built — `node-app
 `node:22-bookworm-slim` for that reason: alpine images have no `usermod`. `octopod plan`
 shows what `up` would run, and `octopod recipes` lists the recipes. You can add your own
 recipe folders with `OCTOPOD_RECIPES`, `recipes:` in `octopod.yaml`, or the project's
-`.octopod/recipes/`.
+`.octopod/recipes/`; `octopod recipes --check` reads their Dockerfiles against octopod's rules.
 
 See [`examples/`](./examples) for both kinds.
 
