@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-23
+
 ### Added
 
 - Windows: a tray icon — a tako with its hachimaki, red while the edge runs, grey and asleep when it does not or Docker Desktop is off. Its menu lists the projects with their URLs, starts and stops them (`octopod up`/`down`) and the edge, opens Traefik's dashboard and a project's folder, starts Docker Desktop, and can start with Windows. It goes through the CLI; the edge is Docker's, and keeps running when the tray quits. `setup.ps1` adds it to the Start menu and starts it (`-NoTray` does neither).
@@ -87,7 +89,8 @@ The first preview: tested on Linux with Docker.
 - Traefik's dashboard and the console answer only from the host: a project's containers, which reach the edge over their edge network, get a 403.
 - `octopod` and `traefik` can no longer be project names: they are the edge's own hosts.
 
-[Unreleased]: https://github.com/quazardous/octopod/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/quazardous/octopod/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/quazardous/octopod/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/quazardous/octopod/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/quazardous/octopod/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/quazardous/octopod/releases/tag/v0.1.0
