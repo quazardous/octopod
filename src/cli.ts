@@ -232,7 +232,7 @@ async function main(argv: string[]): Promise<void> {
     case 'unregister':
       if (!positional(rest)[0]) throw new Error('usage: octopod unregister <project>');
       await octopod.unregister(positional(rest)[0]);
-      return print({}, json);
+      return json ? print({}, true) : console.log(`${positional(rest)[0]} unregistered`);
     case 'serve': {
       await listen(octopod, octopod.socket);
       const edge = await octopod.edgeStatus();

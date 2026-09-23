@@ -151,7 +151,9 @@ export function edgeCompose(settings: EdgeSettings): Record<string, unknown> {
         restart: 'unless-stopped',
         // The image's entrypoint scripts would edit its configuration: nginx alone, on ours.
         entrypoint: ['nginx', '-g', 'daemon off;'],
-        ...(settings.owner ? { user: settings.owner } : {}),
+        // Without an operator's uid (Windows), the image's own nginx user: as root, nginx
+        // would chown its temp folders, which no capability allows — and would never start.
+        user: settings.owner ?? '101:101',
         read_only: true,
         tmpfs: ['/tmp'],
         cap_drop: ['ALL'],
