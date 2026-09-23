@@ -12,6 +12,8 @@ const state = {
   updatedAt: 0,
   /** The <details> that are open, by key, kept across refreshes. */
   open: new Set(),
+  /** The groups folded, by key: groups start open. */
+  closed: new Set(),
   /** The logs shown: { project, instance, service } or null. */
   logs: null,
   timer: 0,
@@ -96,9 +98,15 @@ function projectTone(p) {
   return { tone: 'warn', label: running === services.length ? 'up, not healthy' : `${running}/${services.length} running` };
 }
 
+/** A collapsible block, its state kept across refreshes. Groups start open; the rest, closed. */
 function details(key, summary, ...children) {
-  const node = el('details', { class: 'compose', open: state.open.has(key) }, el('summary', {}, summary), ...children);
-  node.addEventListener('toggle', () => (node.open ? state.open.add(key) : state.open.delete(key)));
+  const group = key.startsWith('group:');
+  const open = group ? !state.closed.has(key) : state.open.has(key);
+  const node = el('details', { class: group ? 'group' : 'compose', open }, el('summary', {}, summary), ...children);
+  node.addEventListener('toggle', () => {
+    if (group) node.open ? state.closed.delete(key) : state.closed.add(key);
+    else node.open ? state.open.add(key) : state.open.delete(key);
+  });
   return node;
 }
 
@@ -159,6 +167,7 @@ function card(p, base, nested = false) {
       { class: 'card-head' },
       el('h2', {}, p.name, nested ? el('span', { class: 'muted' }, ` (instance ${instance})`) : null),
       el('span', { class: `pill ${tone}` }, label),
+      nested ? null : (p.tags || []).map((t) => el('span', { class: 'tag' }, `#${t}`)),
       el('div', { class: 'routes' }, routes),
       el('span', { class: 'spacer' }),
       el('button', { type: 'button', onclick: () => openLogs({ project: base, instance, service: '' }) }, 'All logs'),
@@ -171,6 +180,21 @@ function card(p, base, nested = false) {
   );
 }
 
+/**
+ * The filter: words that must all match. `group:x` and `tag:x` match a project's group and
+ * tags; any other word, its name or folder.
+ */
+function matches(p, needle) {
+  return needle
+    .split(/\s+/)
+    .filter(Boolean)
+    .every((word) => {
+      if (word.startsWith('group:')) return (p.group || '') === word.slice(6);
+      if (word.startsWith('tag:')) return (p.tags || []).includes(word.slice(4));
+      return p.name.toLowerCase().includes(word) || (p.root || '').toLowerCase().includes(word);
+    });
+}
+
 function render({ edge, projects }) {
   const edgeNode = $('edge');
   edgeNode.textContent = edge.running ? `edge on 127.0.0.1:${edge.port}` : 'edge stopped';
@@ -179,12 +203,24 @@ function render({ edge, projects }) {
 
   const needle = state.filter.trim().toLowerCase();
   const shown = projects
-    .filter((p) => !needle || p.name.toLowerCase().includes(needle) || (p.root || '').toLowerCase().includes(needle))
+    .filter((p) => matches(p, needle))
     .sort((a, b) => {
       const rank = (p) => ({ ok: 0, warn: 1, bad: 2, '': 3 })[projectTone(p).tone];
       return rank(a) - rank(b) || a.name.localeCompare(b.name);
     });
-  $('projects').replaceChildren(...shown.map((p) => card(p, p.name)));
+  // By group, groups in name order, projects without a group last. No group anywhere: a flat list.
+  const groups = [...new Set(shown.map((p) => p.group).filter(Boolean))].sort();
+  if (groups.length === 0) {
+    $('projects').replaceChildren(...shown.map((p) => card(p, p.name)));
+  } else {
+    const section = (key, title, members) =>
+      members.length === 0
+        ? null
+        : details(`group:${key}`, `${title} · ${members.length}`, ...members.map((p) => card(p, p.name)));
+    $('projects').replaceChildren(
+      ...[...groups.map((g) => section(g, g, shown.filter((p) => p.group === g))), section('', 'no group', shown.filter((p) => !p.group))].filter(Boolean),
+    );
+  }
   $('empty').hidden = projects.length > 0;
 
   const up = projects.filter((p) => projectTone(p).label !== 'down' && !p.problem).length;

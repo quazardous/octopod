@@ -74,6 +74,7 @@ Next to your compose file, an `octopod.yaml`:
 
 ```yaml
 project: demo            # optional: the folder's name by default
+group: shop              # optional: the console groups projects by it (and tags: [php, legacy])
 expose:
   - service: web         # → http://demo.localhost
   - service: api
@@ -105,6 +106,7 @@ See [`examples/`](./examples) for both kinds.
 octopod up                    # start the edge if needed, then the project (registered the first time)
 octopod register [dir]        # declare a project without starting it
 octopod status                # its services, URLs and warnings
+octopod list --group shop     # the registered projects (--tag php, too)
 octopod logs --service web --tail 100
 octopod shell [service]       # a shell in a service, as its user; --root; -- command…
 octopod restart [--service s]

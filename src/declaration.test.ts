@@ -61,6 +61,15 @@ describe('loadDeclaration', () => {
     }
   });
 
+  it('takes a group and tags, as DNS labels, tags once each', async () => {
+    await writeFile(join(root, 'octopod.yaml'), 'group: m2m\ntags: [php, legacy, php]\nexpose:\n  - {service: web, port: 1}\n');
+    const d = await loadDeclaration(root);
+    expect(d.group).toBe('m2m');
+    expect(d.tags).toEqual(['php', 'legacy']);
+    await writeFile(join(root, 'octopod.yaml'), 'group: "M2M stack"\nexpose:\n  - {service: web, port: 1}\n');
+    await expect(loadDeclaration(root)).rejects.toThrow(/group: must be a DNS label/);
+  });
+
   it('leaves the port to find when none is declared', async () => {
     await writeFile(join(root, 'octopod.yaml'), 'expose:\n  - service: web\n');
     expect((await loadDeclaration(root)).expose).toEqual([{ service: 'web', host: 'my-app.localhost' }]);

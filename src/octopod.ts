@@ -59,6 +59,9 @@ export interface Project {
   routes: Route[];
   /** Why the project cannot be read (a broken octopod.yaml, a recipe that does not load): listed anyway. */
   problem?: string;
+  /** Its group and tags, from its octopod.yaml. */
+  group?: string;
+  tags?: string[];
 }
 
 export interface ProjectStatus extends Project {
@@ -481,7 +484,14 @@ export class Octopod {
   }
 
   private async project(declaration: Declaration): Promise<Project> {
-    return { name: declaration.project, root: declaration.root, compose: declaration.compose, routes: await this.routes(declaration) };
+    return {
+      name: declaration.project,
+      root: declaration.root,
+      ...(declaration.group ? { group: declaration.group } : {}),
+      ...(declaration.tags ? { tags: declaration.tags } : {}),
+      compose: declaration.compose,
+      routes: await this.routes(declaration),
+    };
   }
 
   async register(root: string): Promise<Project> {
@@ -512,14 +522,21 @@ export class Octopod {
     return { name: declaration.project, registered: true };
   }
 
-  /** Every registered project. One that cannot be read is listed with its problem: it never hides the others. */
-  async list(): Promise<Project[]> {
+  /**
+   * Every registered project — or those of a group, or carrying a tag. One that cannot be
+   * read is listed with its problem (and only when nothing is filtered): it never hides the others.
+   */
+  async list(filter: { group?: string; tag?: string } = {}): Promise<Project[]> {
     const out: Project[] = [];
+    const filtered = filter.group !== undefined || filter.tag !== undefined;
     for (const [name, root] of Object.entries(await this.registry())) {
       try {
-        out.push(await this.project(await this.declaration(name)));
+        const project = await this.project(await this.declaration(name));
+        if (filter.group !== undefined && project.group !== filter.group) continue;
+        if (filter.tag !== undefined && !project.tags?.includes(filter.tag)) continue;
+        out.push(project);
       } catch (e) {
-        out.push({ name, root, compose: [], routes: [], problem: (e as Error).message });
+        if (!filtered) out.push({ name, root, compose: [], routes: [], problem: (e as Error).message });
       }
     }
     return out;

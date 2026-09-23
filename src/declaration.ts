@@ -36,6 +36,9 @@ const Schema = z
     recipes: z.array(z.string().min(1).max(400)).optional(),
     /** The folder a recipe's workspace mounts; the project's folder by default. */
     workspace: z.string().min(1).max(400).optional(),
+    /** To find it among the others: one group (`m2m`), and free tags (`php`, `legacy`). */
+    group: z.string().regex(LABEL_RE, 'must be a DNS label: a-z, 0-9 and -, at most 63').optional(),
+    tags: z.array(z.string().regex(LABEL_RE, 'must be a DNS label: a-z, 0-9 and -, at most 63')).max(16).optional(),
   })
   .strict();
 
@@ -64,6 +67,9 @@ export interface Declaration {
   recipeDirs?: string[];
   /** The folder a recipe's workspace mounts, absolute. */
   workspace?: string;
+  /** Its group and its tags, to find it among the others. */
+  group?: string;
+  tags?: string[];
   /** Compose profiles the recipes put services in: activated, or those services would not start. */
   profiles?: string[];
   expose: Exposure[];
@@ -142,6 +148,8 @@ export async function loadDeclaration(root: string): Promise<Declaration> {
     ...(services ? { services } : {}),
     ...(parsed.data.recipes ? { recipeDirs: parsed.data.recipes.map((d) => resolve(root, d)) } : {}),
     ...(parsed.data.workspace ? { workspace: resolve(root, parsed.data.workspace) } : {}),
+    ...(parsed.data.group ? { group: parsed.data.group } : {}),
+    ...(parsed.data.tags?.length ? { tags: [...new Set(parsed.data.tags)] } : {}),
   };
 }
 

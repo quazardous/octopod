@@ -95,6 +95,22 @@ describe('the API', () => {
     expect(list.find((p) => p.name === 'broken')?.problem).toMatch(/no recipe 'no-such-recipe'/);
   });
 
+  it('lists the projects of a group, or carrying a tag', async () => {
+    await writeFile(join(base, 'demo', 'octopod.yaml'), 'group: m2m\ntags: [php]\nexpose:\n  - {service: web, port: 3000, host: api}\n');
+    await call('POST', '/v1/projects', { root: join(base, 'demo') });
+    await mkdir(join(base, 'other'));
+    await writeFile(join(base, 'other', 'docker-compose.yml'), 'services: {}\n');
+    await writeFile(join(base, 'other', 'octopod.yaml'), 'tags: [node]\nexpose:\n  - {service: web, port: 1}\n');
+    await call('POST', '/v1/projects', { root: join(base, 'other') });
+    const names = async (q: string) => ((await call('GET', `/v1/projects${q}`)).json as { name: string }[]).map((p) => p.name).sort();
+    expect(await names('')).toEqual(['demo', 'other']);
+    expect(await names('?group=m2m')).toEqual(['demo']);
+    expect(await names('?tag=node')).toEqual(['other']);
+    expect(await names('?tag=nope')).toEqual([]);
+    const demo = ((await call('GET', '/v1/projects')).json as { name: string; group?: string; tags?: string[] }[]).find((p) => p.name === 'demo');
+    expect(demo).toEqual(expect.objectContaining({ group: 'm2m', tags: ['php'] }));
+  });
+
   it('answers 400 for a relative root, a broken body or a broken declaration', async () => {
     expect((await call('POST', '/v1/projects', { root: 'demo' })).status).toBe(400);
     expect((await call('POST', '/v1/projects', '{not json')).status).toBe(400);

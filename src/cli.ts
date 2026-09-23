@@ -38,14 +38,15 @@ function print(value: unknown, json: boolean): void {
   }
   const projects = (Array.isArray(value) ? value : [value]) as (Project | ProjectStatus)[];
   for (const p of projects) {
-    console.log(`${p.name}  ${p.root}`);
+    const labels = [p.group ? `[${p.group}]` : '', ...(p.tags ?? []).map((t) => `#${t}`)].filter(Boolean).join(' ');
+    console.log(`${p.name}  ${p.root}${labels ? `  ${labels}` : ''}`);
     if (p.problem) console.log(`  ! ${p.problem}`);
     for (const r of p.routes) console.log(`  ${r.service} → ${r.url}`);
     for (const s of (p as ProjectStatus).services ?? []) console.log(`  [${s.state}${s.health ? `, ${s.health}` : ''}] ${s.service}`);
   }
 }
 
-const VALUED = new Set(['--service', '--tail', '--socket', '--timeout', '--instance']);
+const VALUED = new Set(['--service', '--tail', '--socket', '--timeout', '--instance', '--group', '--tag']);
 
 /** `--instance N`: instance N of the project (`<project>-N`); 1, the project itself, by default. */
 function instanceOf(args: string[]): number {
@@ -131,7 +132,7 @@ async function main(argv: string[]): Promise<void> {
     case 'register':
       return print(await octopod.register(resolve(positional(rest)[0] ?? '.')), json);
     case 'list':
-      return print(await octopod.list(), json);
+      return print(await octopod.list({ group: flag(rest, '--group'), tag: flag(rest, '--tag') }), json);
     case 'up': {
       // No name: the project declared here, registered first if it is not yet (a fresh clone).
       let name = positional(rest)[0];

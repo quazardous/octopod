@@ -13,6 +13,8 @@ compose:                   # default: the first of compose.yaml / compose.yml / 
                            # declared, the list is taken as is
   - docker-compose.yml
 env_file: compose.env      # optional: variables for the compose files, inside the project; compose's own .env otherwise
+group: m2m                 # optional: a DNS label, to find the project among the others
+tags: [php, legacy]        # optional: DNS labels, up to 16
 expose:
   - service: web           # a service of the compose project
     port: 3000             # optional: the port it listens on, inside its container
@@ -100,6 +102,28 @@ traefik.http.routers.<project>-<service>.service=<project>-<service>
 traefik.http.services.<project>-<service>.loadbalancer.server.port=<port>
 ```
 
+## Layering
+
+`up` passes compose its files in a fixed order, which a project can rely on: later files
+win, as in compose itself.
+
+1. the recipes, rendered (`.octopod/recipes.<project>.json`), when the project names any;
+2. the project's own compose files, its `compose.override.yaml` included;
+3. octopod's override, kept in octopod's state.
+
+So a project overrides anything a recipe decides — image, command, volumes, environment,
+limits, `working_dir`, labels — from its own compose file; to replace a list rather than
+merge it, compose's `!reset` and `!override` apply. octopod's override comes last, and
+keeps: the edge's label, the project's edge network, the routing labels of `expose`, and
+the binding of named volumes to `.octopod/data`. A project adds to them rather than
+removing them: its own Traefik labels (a router of its own, pointing at a service octopod
+generated, named `<project>-<host label>`), its own networks. Labels written by hand are not
+held to the rule that a project serves only names under `<project>.localhost`: that rule
+is `expose`'s.
+
+A service may be exposed under several hosts: one `expose` entry per host, each with its
+router and its Traefik service.
+
 ## Recipes
 
 A recipe is a folder: `<id>/recipe.yaml`, and its `Dockerfile` when it builds. Folders,
@@ -147,7 +171,7 @@ HTTP with JSON bodies over a unix socket: `$XDG_RUNTIME_DIR/octopod/octopod.sock
 | GET | `/v1/version` | | `{ version, contract, features }` — octopod's version (semver), this contract's (`1`), and what it adds to it (`features`, from 0.2.0) |
 | GET | `/v1/edge` | | `{ running, port, dashboard, console }` |
 | POST | `/v1/edge/up` · `/v1/edge/down` | | `{ running, port, dashboard, console }` |
-| GET | `/v1/projects` | | `Project[]` |
+| GET | `/v1/projects?group=&tag=` | | `Project[]` — every registered project, or those of a group, or carrying a tag |
 | POST | `/v1/projects` | `{ root }` | `Project` (registered from `root/octopod.yaml`) |
 | GET | `/v1/projects/:name` | | `ProjectStatus` |
 | POST | `/v1/projects/:name/up` · `/down` | `{ volumes?: boolean }` for down | `ProjectStatus` |
@@ -165,6 +189,7 @@ interface Project {
   name: string; root: string; compose: string[];
   routes: { service: string; url: string; port?: number; portSource?: 'declared' | 'compose' | 'image' | 'guess' }[];
   problem?: string;         // in a list: why this project cannot be read; the others are listed anyway
+  group?: string; tags?: string[];
 }
 interface ProjectStatus extends Project {
   instance?: number;        // this status is of instance N
