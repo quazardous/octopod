@@ -90,9 +90,19 @@ if (-not $NoTray) {
   $link.Save()
   Write-Host "  Start menu: $shortcut"
   # A tray already running is the one of before this setup: started again, it runs this code.
-  Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" |
-    Where-Object { $_.CommandLine -match 'octopod-tray\.ps1' } |
-    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+  # Asked to quit, it takes its icon away; killed, it would leave a dead one in the
+  # notification area. Killed only when it does not quit (a tray older than the signal).
+  $old = @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" | Where-Object { $_.CommandLine -match 'octopod-tray\.ps1' })
+  if ($old.Count -gt 0) {
+    try {
+      $quit = [System.Threading.EventWaitHandle]::OpenExisting('Local\octopod-tray-quit')
+      $quit.Set() | Out-Null
+      $quit.Dispose()
+    } catch { }
+    foreach ($p in $old) {
+      try { Wait-Process -Id $p.ProcessId -Timeout 5 -ErrorAction Stop } catch { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
+    }
+  }
   Start-Process -FilePath 'wscript.exe' -ArgumentList "`"$vbs`""
   Write-Host '  started: the tako in the notification area (right-click it; "Start with Windows" is there)'
 }

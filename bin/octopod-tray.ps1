@@ -23,6 +23,9 @@ Add-Type -AssemblyName System.Drawing
 $createdNew = $false
 $singleton = New-Object System.Threading.Mutex($true, 'Local\octopod-tray-singleton', [ref]$createdNew)
 if (-not $createdNew) { $singleton.Dispose(); exit 0 }
+# setup.ps1 sets this to have the tray quit cleanly before it starts the new one.
+$quitSignal = New-Object System.Threading.EventWaitHandle($false, [System.Threading.EventResetMode]::ManualReset, 'Local\octopod-tray-quit')
+$quitSignal.Reset() | Out-Null
 
 $octopodJs = Join-Path $PSScriptRoot 'octopod.js'
 $assets = Join-Path $PSScriptRoot '..\assets'
@@ -93,6 +96,19 @@ function Get-Icon([string]$name) {
 $upIcon = Get-Icon 'octopod'
 $downIcon = Get-Icon 'octopod-down'
 
+# The pictures of the menu's links: the tako for the console, the logos of Traefik and
+# GitHub. 32 pixels, drawn down to the menu's size (larger on a scaled screen).
+function Get-Picture([string]$file) {
+    $path = Join-Path $assets $file
+    try {
+        if ($file -like '*.ico') { return (New-Object System.Drawing.Icon $path, 32, 32).ToBitmap() }
+        return [System.Drawing.Image]::FromFile($path)
+    } catch { return $null }
+}
+$consolePicture = Get-Picture 'octopod.ico'
+$traefikPicture = Get-Picture 'traefik-32.png'
+$githubPicture = Get-Picture 'github-32.png'
+
 $ni = New-Object System.Windows.Forms.NotifyIcon
 $ni.Icon = $downIcon
 $ni.Text = 'octopod - looking...'
@@ -153,21 +169,26 @@ function Build-Menu {
         $desktop = Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'
         if (Test-Path $desktop) { Add-Item $menu.Items 'Start Docker Desktop' { Start-Process -FilePath $this.Tag } $desktop | Out-Null }
     } elseif ($script:look -and $script:look.up) {
-        Add-Item $menu.Items 'octopod console' { Open-Url $this.Tag } ([string]$script:edge.console) | Out-Null
-        Add-Item $menu.Items 'Traefik dashboard' { Open-Url $this.Tag } ([string]$script:edge.dashboard) | Out-Null
+        (Add-Item $menu.Items 'octopod console' { Open-Url $this.Tag } ([string]$script:edge.console)).Image = $consolePicture
+        (Add-Item $menu.Items 'Traefik dashboard' { Open-Url $this.Tag } ([string]$script:edge.dashboard)).Image = $traefikPicture
         Add-Item $menu.Items 'Stop the edge' { Start-Action 'octopod edge down' @('edge', 'down') } | Out-Null
     } elseif ($script:look) {
         Add-Item $menu.Items 'Start the edge' { Start-Action 'octopod edge up' @('edge', 'up') } | Out-Null
     }
     $auto = Add-Item $menu.Items 'Start with Windows' { Set-Autostart (-not (Test-Autostart)) }
     $auto.Checked = Test-Autostart
+    (Add-Item $menu.Items 'octopod on GitHub' { Open-Url $this.Tag } 'https://github.com/quazardous/octopod').Image = $githubPicture
     $menu.Items.Add('-') | Out-Null
-    Add-Item $menu.Items 'Quit (the edge keeps running)' {
-        $script:quitting = $true
-        Stop-Api
-        $ni.Visible = $false
-        [System.Windows.Forms.Application]::Exit()
-    } | Out-Null
+    Add-Item $menu.Items 'Quit (the edge keeps running)' { Exit-Tray } | Out-Null
+}
+
+# Quitting takes the icon away: a tray killed instead leaves a dead one in the notification
+# area until the mouse passes over it.
+function Exit-Tray {
+    $script:quitting = $true
+    Stop-Api
+    $ni.Visible = $false
+    [System.Windows.Forms.Application]::Exit()
 }
 $menu.Add_Opening({ Build-Menu })
 
@@ -271,6 +292,7 @@ $script:versionRead = Start-Octopod @('version', '--json')
 $script:ticks = 0
 function Update-Tray {
     if ($script:quitting) { return }
+    if ($quitSignal.WaitOne(0)) { Exit-Tray; return }
     if ($script:versionRead) {
         $v = Receive-Command $script:versionRead
         if ($v) { $script:version = Read-Json $v.out; $script:versionRead = $null }

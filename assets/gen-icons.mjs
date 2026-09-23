@@ -12,6 +12,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const here = new URL('.', import.meta.url);
 const SIZES = [16, 20, 24, 32, 40, 48, 64, 256];
@@ -72,6 +73,11 @@ function ico(pngs) {
   return Buffer.concat([header, ...pngs.map((p) => p.data)]);
 }
 
+/** One SVG to one PNG, `size` pixels wide, from the vector. */
+function render(svgFile, size, pngFile) {
+  execFileSync('npx', ['-y', '@resvg/resvg-js-cli', '--fit-width', String(size), fileURLToPath(svgFile), pngFile], { stdio: 'ignore', shell: process.platform === 'win32' });
+}
+
 const work = mkdtempSync(join(tmpdir(), 'octopod-icons-'));
 try {
   for (const [name, svg] of Object.entries(ICONS)) {
@@ -80,13 +86,16 @@ try {
     const pngs = SIZES.map((size) => {
       const out = join(work, `${name}-${size}.png`);
       // Each size rendered from the vector: no frame is a downscaled bitmap.
-      execFileSync('npx', ['-y', '@resvg/resvg-js-cli', '--fit-width', String(size), svgFile.pathname.replace(/^\/(\w:)/, '$1'), out], { stdio: 'ignore', shell: process.platform === 'win32' });
+      render(svgFile, size, out);
       return { size, data: readFileSync(out) };
     });
     writeFileSync(new URL(`${name}.ico`, here), ico(pngs));
     writeFileSync(new URL(`${name}.png`, here), pngs.find((p) => p.size === 256).data);
     console.log(`assets/${name}.svg, .ico (${SIZES.join(', ')}), .png`);
   }
+  // The tray's menu shows the GitHub mark as a bitmap: WinForms draws no SVG.
+  render(new URL('github.svg', here), 32, fileURLToPath(new URL('github-32.png', here)));
+  console.log('assets/github-32.png');
 } finally {
   rmSync(work, { recursive: true, force: true });
 }

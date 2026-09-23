@@ -9,7 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- The console's tab shows the tray's tako as its icon (`/favicon.svg`, and `/favicon.ico` for a browser that asks for it on its own).
+- The console wears the tray's tako: as its tab's icon (`/favicon.svg`, and `/favicon.ico` for a browser that asks for it on its own) and before its name, grey and asleep when the edge is stopped or octopod does not answer.
+- The console has an *Add a project* help — the `octopod.yaml`, then `octopod up` — open by itself while there is no project, and a link to octopod's GitHub; its links carry the GitHub and Traefik logos.
+- Windows: the tray's menu has *octopod on GitHub*, and its links carry the tako and the Traefik and GitHub logos.
+
+### Changed
+
+- The console says how fresh it is with a refresh icon that turns at each reading, grey when paused and red when octopod does not answer, the time in its tooltip, instead of "updated 4s ago".
+
+### Fixed
+
+- Windows: `setup.ps1` asks a running tray to quit instead of killing it, so no dead icon is left in the notification area.
 
 ## [0.3.1] - 2026-09-23
 

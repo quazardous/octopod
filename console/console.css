@@ -68,8 +68,26 @@ code { background: var(--code); padding: 1px 5px; border-radius: 4px; }
   border-bottom: 1px solid var(--line);
 }
 .brand { display: flex; align-items: center; gap: 8px; font-size: 16px; }
-.logo { color: var(--accent); }
-.links { flex: 1; }
+.logo { display: block; width: 22px; height: 22px; }
+.links { flex: 1; display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.links a { display: inline-flex; align-items: center; gap: 6px; }
+.mark { flex: none; width: 16px; height: 16px; }
+
+/* The refresh icon: a turn for each reading, grey when paused, red when octopod does not answer. */
+.updated { display: inline-flex; color: var(--muted); cursor: help; }
+.updated.spin svg { animation: turn 0.7s ease-in-out; }
+.updated.paused { opacity: 0.45; }
+.updated.bad { color: var(--bad); }
+@keyframes turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .updated.spin svg { animation: none; }
+}
+
+.help { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; margin: 0 0 16px; }
+.help > summary { cursor: pointer; font-weight: 600; }
+.help ol { margin: 8px 0 4px; padding-left: 20px; }
+.help li { margin: 6px 0; }
+.help pre { background: var(--code); border-radius: 4px; padding: 6px 10px; margin: 6px 0; overflow-x: auto; }
 .tools { display: flex; align-items: center; gap: 8px; }
 
 input[type="search"], select, button {
