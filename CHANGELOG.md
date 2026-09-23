@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The console's tab shows the tray's tako as its icon (`/favicon.svg`, and `/favicon.ico` for a browser that asks for it on its own).
+
 ## [0.3.1] - 2026-09-23
 
 ### Added
