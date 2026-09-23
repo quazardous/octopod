@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { Octopod } from './octopod.js';
 import type { Docker } from './docker.js';
 
@@ -42,6 +42,6 @@ describe('layering', () => {
     await octopod.up('demo');
     const up = calls.find((a) => a.includes('-p') && a.includes('demo') && a.includes('up'));
     const files = (up ?? []).flatMap((a, i, all) => (all[i - 1] === '-f' ? [a] : []));
-    expect(files.map((f) => f.split('/').pop())).toEqual(['recipes.demo.json', 'docker-compose.yml', 'docker-compose.override.yml', 'override.json']);
+    expect(files.map((f) => basename(f))).toEqual(['recipes.demo.json', 'docker-compose.yml', 'docker-compose.override.yml', 'override.json']);
   });
 });

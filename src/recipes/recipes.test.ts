@@ -130,6 +130,8 @@ describe('a recipe\'s Dockerfile, checked', () => {
       'USER ${USER_NAME}',
     ].join('\n');
     expect(lintDockerfile(ok)).toEqual([]);
+    // Written on Windows: the same Dockerfile, CRLF.
+    expect(lintDockerfile(ok.replace(/\n/g, '\r\n'))).toEqual([]);
   });
 
   it('names each rule broken, with its line', () => {

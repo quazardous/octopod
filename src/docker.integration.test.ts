@@ -6,7 +6,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cp, mkdtemp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import type { Server } from 'node:http';
 import { listen } from './api.js';
 import { Octopod } from './octopod.js';
@@ -227,7 +227,7 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
     const status = await octopod.status('alpha');
     expect(status.routes).toEqual([{ service: 'web', url: `http://alpha.localhost:${PORT}`, port: 80, portSource: 'declared' }]);
     expect((await octopod.status('beta')).routes).toEqual([{ service: 'web', url: `http://beta.localhost:${PORT}`, port: 80, portSource: 'image' }]);
-    expect(status.compose.map((f) => f.split('/').pop())).toEqual(['docker-compose.yml', 'docker-compose.override.yml']);
+    expect(status.compose.map((f) => basename(f))).toEqual(['docker-compose.yml', 'docker-compose.override.yml']);
     expect(status.services).toEqual([expect.objectContaining({ service: 'web', state: 'running' })]);
   });
 

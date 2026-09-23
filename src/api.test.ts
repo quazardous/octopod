@@ -46,7 +46,8 @@ afterEach(async () => {
   await rm(base, { recursive: true, force: true });
 });
 
-describe('the API', () => {
+// A unix socket: the API does not run on Windows yet.
+describe.skipIf(process.platform === 'win32')('the API', () => {
   it('is a socket only its owner can use', async () => {
     expect((await stat(socket)).mode & 0o777).toBe(0o600);
     expect((await stat(join(base, 'run'))).mode & 0o777).toBe(0o700);

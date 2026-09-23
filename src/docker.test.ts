@@ -27,7 +27,8 @@ describe('dockerEnv', () => {
 describe('the docker runner', () => {
   it('closes the input it gives a command, so a question never waits for an answer', async () => {
     const { cliDocker } = await import('./docker.js');
-    // `cat` reads its input to the end: it returns only because the input is closed.
-    await expect(cliDocker('cat').run([], { timeoutMs: 5000 })).resolves.toBe('');
+    // It reads its input to the end: it returns only because the input is closed. Node, not
+    // `cat`, which a Windows runner may not have.
+    await expect(cliDocker(process.execPath).run(['-e', 'process.stdin.resume()'], { timeoutMs: 5000 })).resolves.toBe('');
   });
 });

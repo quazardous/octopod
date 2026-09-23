@@ -9,8 +9,15 @@ permissions:
 
 jobs:
   unit:
-    name: Typecheck and unit tests
-    runs-on: ubuntu-latest
+    name: Typecheck and unit tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows too: what octopod hands docker there (its environment, paths, line
+        # endings) is checked without Docker, which hosted Windows runners cannot give with
+        # Linux containers — the integration tests stay on Linux.
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
