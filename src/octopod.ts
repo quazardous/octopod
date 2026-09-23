@@ -291,7 +291,10 @@ export class Octopod {
     // Always: compose leaves what has not changed alone, and brings what has — a console
     // added, a configuration changed — up to date.
     await this.docker.run(['compose', '-f', this.path('edge', 'compose.json'), 'up', '-d', '--remove-orphans']);
-    await this.writeLocalOnly();
+    // Docker Desktop (Windows) passes no file events through a bind mount: Traefik never
+    // sees the middleware change, and keeps the console and the dashboard closed until it
+    // starts again.
+    if ((await this.writeLocalOnly()) && process.platform === 'win32') await this.docker.run(['restart', edgeContainer(this.instance)]);
     // After a restart the edge has lost its project networks: connect it to each again,
     // every instance of each included.
     for (const name of Object.keys(await this.registry())) {
@@ -304,16 +307,19 @@ export class Octopod {
   /**
    * The middleware that keeps the console and the dashboard to the host, from the edge
    * network's subnets — known once compose has created it. Written in place atomically:
-   * Traefik watches the folder.
+   * Traefik watches the folder. Says whether it changed.
    */
-  private async writeLocalOnly(): Promise<void> {
+  private async writeLocalOnly(): Promise<boolean> {
     const network = `${this.instance}-edge_default`;
     const out = await this.docker.run(['network', 'inspect', network, '--format', '{{json .IPAM.Config}}']);
     const subnets = ((JSON.parse(out.trim() || 'null') ?? []) as { Subnet?: string }[]).map((c) => c.Subnet).filter((s): s is string => !!s);
     if (subnets.length === 0) throw new OctopodError(`network ${network} has no subnet: the console and the dashboard stay closed`);
     const file = this.path('edge', 'dynamic', 'local.yml');
-    await writeFile(`${file}.tmp`, JSON.stringify(localOnlyConfig(subnets), null, 2) + '\n');
+    const content = JSON.stringify(localOnlyConfig(subnets), null, 2) + '\n';
+    if ((await readFile(file, 'utf8').catch(() => undefined)) === content) return false;
+    await writeFile(`${file}.tmp`, content);
     await rename(`${file}.tmp`, file);
+    return true;
   }
 
   async edgeDown(): Promise<EdgeStatus> {

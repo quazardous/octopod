@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Windows: `setup.ps1` sets octopod up from a clone in PowerShell — the `octopod` command on the PATH, Docker checked, the edge started. There is no user service there: the API (`octopod serve`) and the console, which reads it through a unix socket, are not available on Windows yet.
 - Projects can declare a `group` and `tags` in `octopod.yaml`. The console groups projects by group and filters on `group:x` or `tag:y`; `octopod list --group x --tag y` and `GET /v1/projects?group=&tag=` list them.
 - The `php-app` recipe: PHP-FPM and nginx in one container run by supervisord, the project mounted at `/app` and its docroot (`public` by default) served at `http://<project>.localhost`. The PHP version (`8.4` by default, down to `8.1`; older PHP images sit on a Debian out of support, whose packages no longer install) and the extensions (`intl`, `pdo_mysql`, `redis`…) are parameters; composer is in the image; `DATABASE_URL` comes from a database recipe. A project that needs more copies it into `.octopod/recipes/` and adapts its Dockerfile.
 - A shell like a machine's: in `node-app`, `php-app` and `php-cli`, the prompt says where you are (`<user>@<project>:<service>`, red as root), with a history that lasts and `ll`/`la`; your `~/.bashrc` comes after. `home: true` on a service keeps its user's home — history, caches, tools' settings — in `.octopod/home/<service>`, or `home: <folder>` in a folder of the project. `workdir: /my-app` mounts the project there instead of `/app`.
@@ -25,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Windows: docker got too little of octopod's environment to find its plugins, so `docker compose` was missing and `octopod setup` refused to go on. Variables are now matched whatever their case (`Path`), and the few docker needs there (`ProgramFiles`, `USERPROFILE`…) are passed.
+- Windows: the console relay restarted in a loop — without an operator's uid it ran as root, and nginx could not chown its temp folders with no capability. It now runs as the image's own nginx user there.
+- Windows: the console and the dashboard stayed at 404 after the edge was first started. Docker Desktop passes no file events through a bind mount, so Traefik never saw the middleware that lets the host in; the edge is restarted when that middleware changes.
+- `octopod unregister` without `--json` failed once it had unregistered (`p.routes is not iterable`): it now says what it did.
 - Installing from the repository (`npm install github:quazardous/octopod#<tag>`) gave an `octopod` that could not start: `dist/` was not built. It is now, by a `prepare` script. npm is still the way to install a release (`npm i -g @quazardous/octopod`; `octopod` alone, without the scope, is another package).
 - `octopod exec` into a service restarting in a loop falls back to a one-off container with newer Docker versions too, which say `cannot exec in a stopped state`.
 - A project that cannot be read (a broken `octopod.yaml`, a recipe that does not load) no longer breaks the whole list, nor the console: it is listed with its `problem`, and the others as usual.

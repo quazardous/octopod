@@ -41,8 +41,16 @@ export interface Docker {
  */
 const PASSED = /^(PATH|HOME|USER|LOGNAME|LANG|LC_[A-Z_]+|TZ|TMPDIR|XDG_RUNTIME_DIR|XDG_CONFIG_HOME|SSH_AUTH_SOCK|DOCKER_[A-Z_]+|BUILDX_[A-Z_]+)$/;
 
-export function dockerEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  return Object.fromEntries(Object.entries(env).filter(([k]) => PASSED.test(k)));
+/**
+ * Windows names its variables in any case (`Path`), and docker needs a few more there: its
+ * plugins, compose among them, are found under ProgramFiles, its configuration and contexts
+ * under USERPROFILE.
+ */
+const PASSED_WINDOWS = /^(USERPROFILE|APPDATA|LOCALAPPDATA|PROGRAMDATA|PROGRAMFILES|PROGRAMW6432|SYSTEMROOT|SYSTEMDRIVE|WINDIR|TEMP|TMP|PATHEXT)$/;
+
+export function dockerEnv(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
+  const passed = platform === 'win32' ? (k: string) => PASSED.test(k.toUpperCase()) || PASSED_WINDOWS.test(k.toUpperCase()) : (k: string) => PASSED.test(k);
+  return Object.fromEntries(Object.entries(env).filter(([k]) => passed(k)));
 }
 
 export function cliDocker(binary = 'docker'): Docker {

@@ -16,6 +16,12 @@ describe('dockerEnv', () => {
     });
     expect(env).toEqual({ PATH: '/usr/bin', HOME: '/home/op', XDG_RUNTIME_DIR: '/run/user/1000', DOCKER_HOST: 'unix:///run/docker.sock', LC_ALL: 'C.UTF-8' });
   });
+
+  it('on Windows, whatever their case, and what docker needs there to find compose and its contexts', () => {
+    const vars = { Path: 'C:\\Windows', ProgramFiles: 'C:\\Program Files', USERPROFILE: 'C:\\Users\\op', SystemRoot: 'C:\\Windows', COMPOSE_FILE: 'other.yml' };
+    expect(dockerEnv(vars, 'win32')).toEqual({ Path: 'C:\\Windows', ProgramFiles: 'C:\\Program Files', USERPROFILE: 'C:\\Users\\op', SystemRoot: 'C:\\Windows' });
+    expect(dockerEnv(vars, 'linux')).toEqual({});
+  });
 });
 
 describe('the docker runner', () => {

@@ -75,6 +75,11 @@ describe('the edge', () => {
     expect(relay.volumes).toEqual(['/s/console.conf:/etc/nginx/nginx.conf:ro', '/run/user/1000/octopod:/run/octopod:ro']);
   });
 
+  it('runs it as nginx\'s own user where the operator has no uid (Windows): never as root', () => {
+    const relay = (edgeCompose({ ...settings, owner: undefined }).services as Record<string, Service>).console as unknown as Record<string, unknown>;
+    expect(relay.user).toBe('101:101');
+  });
+
   it('relays GET to the socket and refuses every other method', () => {
     const conf = consoleNginxConfig('octopod.sock');
     expect(conf).toContain('proxy_pass http://unix:/run/octopod/octopod.sock;');
