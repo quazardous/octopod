@@ -9,7 +9,7 @@ import { chmod, lstat, mkdir, readdir, readFile, rename, rm, writeFile } from 'n
 import { createHash } from 'node:crypto';
 import { createConnection } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, isAbsolute, join } from 'node:path';
 import { loadDeclaration, withInstance, type Declaration } from './declaration.js';
 import { lintDockerfile } from './recipes/lint.js';
 import { BUILTIN_RECIPES, envRecipeDirs, loadRecipes, type Shadowed } from './recipes/loader.js';
@@ -418,7 +418,7 @@ export class Octopod {
       }
       // A kept home in .octopod/, created as the operator: docker would create it as root.
       for (const service of rendered.services) {
-        if (service.home && !service.home.startsWith('/')) await mkdir(join(declaration.root, service.home), { recursive: true });
+        if (service.home && !isAbsolute(service.home)) await mkdir(join(declaration.root, service.home), { recursive: true });
       }
     }
     const declared = new Set(declaration.expose.map((e) => e.service));

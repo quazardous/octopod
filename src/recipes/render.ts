@@ -7,6 +7,7 @@
  * its own compose file on top.
  */
 import { createHash, randomBytes } from 'node:crypto';
+import { isAbsolute } from 'node:path';
 import type { ProgramSpec } from '../declaration.js';
 import { IDENT, type ActionSpec, type ParamSpec, type Recipe } from './recipe.js';
 import type { RecipeBook, RecipeEntry } from './loader.js';
@@ -304,7 +305,8 @@ export function renderServices(options: RenderOptions): Rendered {
       if (r.request.home) {
         const n = options.instance ?? 1;
         home = r.request.home === true ? `.octopod/home/${n > 1 ? `${n}/` : ''}${r.name}` : r.request.home;
-        mounts.push(`${home.startsWith('/') ? home : `./${home}`}:/home/${userNameOf(options.project)}`);
+        // A folder of the project is absolute (a drive letter on Windows); octopod's, relative.
+        mounts.push(`${isAbsolute(home) ? home : `./${home}`}:/home/${userNameOf(options.project)}`);
       }
     }
     if (recipe.supervisor) {
