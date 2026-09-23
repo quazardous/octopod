@@ -288,6 +288,12 @@ function render({ edge, projects }) {
   $('version').textContent = state.version ? `v${state.version}` : '';
   $('filter').hidden = Boolean(state.view);
   $('empty').hidden = projects.length > 0;
+  // Open by itself the first time when there is nothing yet; then as the operator leaves it.
+  if (!state.helpSet) {
+    state.helpSet = true;
+    $('help').open = projects.length === 0;
+  }
+  $('help').hidden = Boolean(state.view);
   if (state.view) return renderDetail(projects);
   state.logsPage = null;
   if (state.logs) closeLogs();
@@ -320,14 +326,39 @@ function render({ edge, projects }) {
     (needle ? ` · ${shown.length} shown` : '');
 }
 
+/**
+ * The tab's icon, and the one before octopod's name: the tako, asleep and grey when the edge is stopped — or when octopod does
+ * not answer, which is what a page served through a stopped edge sees. The grey one is
+ * fetched once at the start, while it can be: it comes from the cache when it is shown.
+ */
+const ICONS = { up: '/favicon.svg', down: '/favicon-down.svg' };
+function showIcon(up) {
+  const href = up ? ICONS.up : ICONS.down;
+  if ($('icon').getAttribute('href') !== href) $('icon').setAttribute('href', href);
+  if ($('mascot').getAttribute('src') !== href) $('mascot').setAttribute('src', href);
+}
+
+/** The refresh icon turns once for each reading that came back. */
+function spin() {
+  const node = $('updated');
+  node.classList.remove('spin');
+  void node.offsetWidth;
+  node.classList.add('spin');
+}
+
 async function refresh() {
   clearTimeout(state.timer);
   try {
     state.last = await load();
     render(state.last);
+    showIcon(state.last.edge.running);
     $('error').hidden = true;
     state.updatedAt = Date.now();
+    state.failed = false;
+    spin();
   } catch (e) {
+    showIcon(false);
+    state.failed = true;
     $('error').textContent = `Cannot read octopod: ${e.message}`;
     $('error').hidden = false;
   }
@@ -340,10 +371,15 @@ function schedule() {
   if (!state.paused && !document.hidden) state.timer = setTimeout(refresh, REFRESH_MS);
 }
 
+/** How fresh the page is: said by the refresh icon's tooltip, shown by its colour. */
 function tick() {
-  if (!state.updatedAt) return;
+  const node = $('updated');
   const s = Math.round((Date.now() - state.updatedAt) / 1000);
-  $('updated').textContent = state.paused ? 'paused' : s < 2 ? 'updated now' : `updated ${s}s ago`;
+  const said = !state.updatedAt ? 'not read yet' : `${state.paused ? 'paused, ' : ''}${state.failed ? 'cannot read octopod, ' : ''}updated ${s < 2 ? 'now' : `${s}s ago`}`;
+  node.title = said;
+  node.setAttribute('aria-label', said);
+  node.classList.toggle('paused', state.paused);
+  node.classList.toggle('bad', Boolean(state.failed));
 }
 
 // ─── Logs ────────────────────────────────────────────────────────────────────
@@ -417,5 +453,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (state.logs) loadLogs();
   });
   setInterval(tick, 1000);
+  fetch(ICONS.down).catch(() => {});
   refresh();
 });

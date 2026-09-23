@@ -143,11 +143,19 @@ describe.skipIf(process.platform === 'win32')('the API', () => {
     expect((await raw('GET', '/console.js')).headers['content-type']).toBe('text/javascript; charset=utf-8');
     expect((await raw('GET', '/console.css')).status).toBe(200);
     // The tray's icon as the tab's.
-    expect(page.text).toContain('<link rel="icon" href="/favicon.svg" type="image/svg+xml">');
+    expect(page.text).toContain('<link rel="icon" href="/favicon.svg" type="image/svg+xml" id="icon">');
+    expect(page.text).toContain('href="https://github.com/quazardous/octopod"');
+    expect(page.text).toContain('<img id="mascot" class="logo" src="/favicon.svg"');
+    expect(page.text).toContain('<details id="help" class="help">');
+    expect((await raw('GET', '/traefik.png')).headers['content-type']).toBe('image/png');
     const svg = await raw('GET', '/favicon.svg');
     expect(svg.headers['content-type']).toBe('image/svg+xml');
     expect(svg.text).toContain('<svg');
     expect((await raw('GET', '/favicon.ico')).headers['content-type']).toBe('image/x-icon');
+    // Kept by the browser: the grey one is shown when nothing can be fetched.
+    expect(svg.headers['cache-control']).toBe('max-age=86400');
+    expect((await raw('GET', '/favicon-down.svg')).text).toContain('<svg');
+    expect((await raw('GET', '/console.js')).headers['cache-control']).toBe('no-store');
     expect((await raw('GET', '/package.json')).status).toBe(404);
     expect((await raw('GET', '/../src/api.ts')).status).toBe(404);
   });
@@ -202,6 +210,7 @@ describe('the API on TCP', () => {
     expect(svg.status).toBe(200);
     expect(svg.text).toContain('<svg');
     expect((await get('/favicon.ico', token)).status).toBe(200);
+    expect((await get('/favicon-down.svg', token)).text).toContain('#9aa3ad');
   });
 
   it('keeps its port and token, and listens on loopback only', async () => {

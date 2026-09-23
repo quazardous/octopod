@@ -36,20 +36,26 @@ async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
 }
 
 /** The console's files, served at the root: the page and what it loads, nothing else. */
-const CONSOLE_FILES: Record<string, { file: string; type: string }> = {
+const CONSOLE_FILES: Record<string, { file: string; type: string; icon?: true }> = {
   '/': { file: 'index.html', type: 'text/html; charset=utf-8' },
   '/console.js': { file: 'console.js', type: 'text/javascript; charset=utf-8' },
   '/console.css': { file: 'console.css', type: 'text/css; charset=utf-8' },
-  // The tray's tako: the SVG the page names, and the .ico a browser asks for on its own.
-  '/favicon.svg': { file: '../assets/octopod.svg', type: 'image/svg+xml' },
-  '/favicon.ico': { file: '../assets/octopod.ico', type: 'image/x-icon' },
+  // The tray's tako: the SVG the page names, asleep and grey when the edge is stopped, and
+  // the .ico a browser asks for on its own.
+  '/favicon.svg': { file: '../assets/octopod.svg', type: 'image/svg+xml', icon: true },
+  '/favicon-down.svg': { file: '../assets/octopod-down.svg', type: 'image/svg+xml', icon: true },
+  '/favicon.ico': { file: '../assets/octopod.ico', type: 'image/x-icon', icon: true },
+  // Traefik's own logo, from its dashboard, on the link to it.
+  '/traefik.png': { file: '../assets/traefik-32.png', type: 'image/png', icon: true },
 };
 const CONSOLE_DIR = new URL('../console/', import.meta.url);
 
-async function sendConsole(res: ServerResponse, file: { file: string; type: string }): Promise<void> {
+async function sendConsole(res: ServerResponse, file: { file: string; type: string; icon?: true }): Promise<void> {
   res.writeHead(200, {
     'content-type': file.type,
-    'cache-control': 'no-store',
+    // The icons may be kept: the page shows the grey one when the edge is stopped, which is
+    // when nothing can be fetched through it.
+    'cache-control': file.icon ? 'max-age=86400' : 'no-store',
     // Its own files, its own API, nothing else — and never inside another site's frame.
     'content-security-policy': "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
     'x-content-type-options': 'nosniff',
