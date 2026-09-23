@@ -226,6 +226,8 @@ export class Octopod {
   private readonly ports: number[];
   readonly socket: string;
   readonly tcp: boolean;
+  /** Set by `serve`: octopod changed on disk since it started, and it is restarting. */
+  stale: () => boolean = () => false;
 
   constructor(options: OctopodOptions = {}) {
     this.socket = options.socket ?? defaultSocket();
@@ -628,7 +630,10 @@ export class Octopod {
         if (filter.tag !== undefined && !project.tags?.includes(filter.tag)) continue;
         out.push(project);
       } catch (e) {
-        if (!filtered) out.push({ name, root, compose: [], routes: [], problem: (e as Error).message });
+        // Between a change of octopod on disk and the service's restart, old code reads new
+        // recipes: say so, rather than what the old code made of them.
+        const why = this.stale() ? `octopod changed on disk since this service started: it is restarting (${(e as Error).message})` : (e as Error).message;
+        if (!filtered) out.push({ name, root, compose: [], routes: [], problem: why });
       }
     }
     return out;

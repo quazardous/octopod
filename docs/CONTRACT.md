@@ -314,7 +314,10 @@ the image has it; `--oneshot` for a service that is not running; CLI only: it ne
 terminal), `octopod setup [--no-service] [--no-edge] [--gnome-extension]` (Docker checked, the API as a
 systemd user service, the edge started; with `--gnome-extension`, the GNOME Shell extension
 installed in the user's extensions folder — a view of the edge and the projects that reads
-the API on its socket and runs the CLI, enabled the first time, refreshed after), `octopod serve [--socket path]` (the API, and the console's data; `setup.sh` installs it
+the API on its socket and runs the CLI, enabled the first time, refreshed after), `octopod serve [--socket path]` (the API, and the console's data; under a supervisor —
+systemd, which sets `INVOCATION_ID`, or the Windows tray, `OCTOPOD_SUPERVISED` — it exits
+with code 75 once octopod's code, version or built-in recipes changed on disk and held still
+for 3 s, and is started again onto the new code; run by hand, it only says to restart it; `setup.sh` installs it
 as the `octopod` systemd user service; on Windows the tray runs it). `OCTOPOD_STATE_DIR`, `OCTOPOD_INSTANCE` and `OCTOPOD_PORTS` select
 another instance (tests, a second edge).
 

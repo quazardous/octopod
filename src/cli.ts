@@ -28,6 +28,7 @@ import { dockerEnv } from './docker.js';
 import { loadDeclaration } from './declaration.js';
 import { listen } from './api.js';
 import { setup } from './setup.js';
+import { fingerprint, RESTART_EXIT, selfWatch, supervised } from './fingerprint.js';
 import { Octopod, version, type EdgeStatus, type Project, type ProjectStatus } from './octopod.js';
 
 function flag(args: string[], name: string): string | undefined {
@@ -287,7 +288,22 @@ async function main(argv: string[]): Promise<void> {
       await octopod.unregister(positional(rest)[0]);
       return json ? print({}, true) : console.log(`${positional(rest)[0]} unregistered`);
     case 'serve': {
-      await listen(octopod, octopod.socket);
+      const initial = await fingerprint();
+      const server = await listen(octopod, octopod.socket);
+      // Old code must not read new recipes: when octopod changes on disk, the supervisor
+      // (systemd, the Windows tray) brings the service back onto the new code.
+      const watch = selfWatch({
+        initial,
+        supervised: supervised(),
+        log: (l) => console.log(l),
+        restart: () => {
+          server.close(() => process.exit(RESTART_EXIT));
+          server.closeIdleConnections();
+          setTimeout(() => process.exit(RESTART_EXIT), 10_000).unref();
+        },
+      });
+      octopod.stale = () => watch.changed();
+      setInterval(() => void watch.tick(), 5000).unref();
       const edge = await octopod.edgeStatus();
       const where = octopod.tcp ? `http://127.0.0.1:${(await octopod.apiTcp()).port} (its token in ${join(octopod.stateDir, 'api.json')})` : octopod.socket;
       console.log(`octopod API on ${where}${edge.console ? ` — console ${edge.console}` : ''}`);

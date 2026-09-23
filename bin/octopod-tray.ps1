@@ -229,6 +229,8 @@ function Start-Api {
     $script:serveStartedAt = $now
     try {
         New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
+        # A supervisor: octopod serve may exit when octopod changes on disk, and is started again.
+        $env:OCTOPOD_SUPERVISED = '1'
         $script:serve = Start-Process -FilePath 'node' -ArgumentList "`"$octopodJs`"", 'serve' -WindowStyle Hidden -PassThru `
             -RedirectStandardOutput (Join-Path $stateDir 'serve.log') -RedirectStandardError (Join-Path $stateDir 'serve.err.log')
     } catch { $script:serve = $null }
