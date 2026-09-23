@@ -17,7 +17,7 @@
  *   octopod program reload [project] <service>
  *   octopod recipes [dir] [--check]
  *   octopod version
- *   octopod setup [--no-service] [--no-edge]
+ *   octopod setup [--no-service] [--no-edge] [--gnome-extension]
  *
  * `--json` prints the API's JSON; otherwise a short human summary.
  */
@@ -178,7 +178,12 @@ async function main(argv: string[]): Promise<void> {
       return;
     }
     case 'setup':
-      return setup(octopod, { service: !rest.includes('--no-service'), edge: !rest.includes('--no-edge'), log: (l) => console.log(l) });
+      return setup(octopod, {
+        service: !rest.includes('--no-service'),
+        edge: !rest.includes('--no-edge'),
+        gnomeExtension: rest.includes('--gnome-extension'),
+        log: (l) => console.log(l),
+      });
     case 'edge': {
       const sub = positional(rest)[0] ?? 'status';
       if (sub === 'up') return print(await octopod.edgeUp(), json);

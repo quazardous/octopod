@@ -7,6 +7,7 @@
 #   ./setup.sh                 # links the command into ~/.local/bin
 #   ./setup.sh --no-edge       # … without starting the edge
 #   ./setup.sh --no-service    # … without the user service (run `octopod serve` yourself)
+#   ./setup.sh --no-extension  # … without the GNOME Shell extension (installed under GNOME)
 #   BIN_DIR=~/bin ./setup.sh   # … or elsewhere
 #
 # The command is a link to bin/octopod.js, which runs the sources: a change to the code needs
@@ -14,10 +15,12 @@
 set -euo pipefail
 
 SETUP_ARGS=()
+EXTENSION=1
 for arg in "$@"; do
   case "$arg" in
     --no-edge|--no-service) SETUP_ARGS+=("$arg") ;;
-    -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
+    --no-extension) EXTENSION=0 ;;
+    -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
     *) echo "unknown option: $arg (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -54,6 +57,11 @@ echo "  $target → $ROOT/bin/octopod.js"
 case ":$PATH:" in
   *":$BIN_DIR:"*) ;;
   *) warn "$BIN_DIR is not on your PATH: add  export PATH=\"$BIN_DIR:\$PATH\"  to your shell's profile" ;;
+esac
+
+# Under GNOME, octopod in the top bar too: the Windows tray's counterpart.
+case "${XDG_CURRENT_DESKTOP:-}" in
+  *GNOME*|*gnome*) [ "$EXTENSION" = 1 ] && command -v gnome-extensions >/dev/null && SETUP_ARGS+=(--gnome-extension) ;;
 esac
 
 "$ROOT/bin/octopod.js" setup ${SETUP_ARGS[@]+"${SETUP_ARGS[@]}"}

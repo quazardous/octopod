@@ -1,0 +1,8 @@
+{
+  "uuid": "octopod@quazardous.github.io",
+  "name": "octopod",
+  "description": "octopod in the top bar: the edge's state, the projects and their URLs, up and down, the console. A view: the API is octopod's systemd user service.",
+  "shell-version": ["48", "49", "50"],
+  "url": "https://github.com/quazardous/octopod",
+  "version-name": "0.3"
+}

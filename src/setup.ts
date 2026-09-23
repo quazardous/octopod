@@ -9,6 +9,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { dockerEnv } from './docker.js';
+import { declaredShellVersions, gnomePresent, installGnomeExtension } from './gnome.js';
 import type { Octopod } from './octopod.js';
 
 const run = promisify(execFile);
@@ -16,6 +17,8 @@ const run = promisify(execFile);
 export interface SetupOptions {
   service: boolean;
   edge: boolean;
+  /** The GNOME Shell extension: installed, when GNOME is there. */
+  gnomeExtension?: boolean;
   log: (line: string) => void;
 }
 
@@ -67,6 +70,22 @@ export async function setup(octopod: Octopod, options: SetupOptions): Promise<vo
       log('  octopod.service enabled and started (systemctl --user status octopod)');
     } else {
       log('  ! no systemd user session: run `octopod serve` yourself for the console');
+    }
+  }
+
+  if (options.gnomeExtension) {
+    log('Installing the GNOME Shell extension');
+    if (!(await gnomePresent())) {
+      log('  ! no GNOME session here (XDG_CURRENT_DESKTOP, gnome-extensions): skipped');
+    } else {
+      // The command octopod's service runs, less `serve`: this very octopod, whatever the shell's PATH.
+      const installed = await installGnomeExtension({ argv: serviceCommand().slice(0, -1), path: process.env.PATH ?? '/usr/bin:/bin' });
+      log(`  ${installed.dir} (GNOME Shell ${(await declaredShellVersions()).join(', ')})`);
+      log(
+        installed.enabled
+          ? '  enabled: it shows after you log out and in again (Wayland loads extensions at login)'
+          : '  refreshed, enabled or not as you left it: log out and in again to load the new code',
+      );
     }
   }
 

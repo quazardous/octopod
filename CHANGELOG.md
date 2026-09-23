@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Linux: a GNOME Shell extension, the Windows tray's counterpart — the tako in the top bar, red while the edge runs, grey and asleep when it does not, Docker does not answer or octopod's service does not. Its menu lists the projects with their state and URLs, starts and stops them (`octopod up`/`down`) and the edge, opens a project's folder, the console, Traefik's dashboard and GitHub. It reads the API on its socket and runs the CLI; it supervises nothing. `octopod setup --gnome-extension` installs it, and `setup.sh` does under GNOME (`--no-extension` skips it); it shows after you log out and in again. GNOME Shell 48 to 50.
+
+### Added
+
 - The console wears the tray's tako: as its tab's icon (`/favicon.svg`, and `/favicon.ico` for a browser that asks for it on its own) and before its name, grey and asleep when the edge is stopped or octopod does not answer.
 - The console has an *Add a project* help — the `octopod.yaml`, then `octopod up` — open by itself while there is no project, and a link to octopod's GitHub; its links carry the GitHub and Traefik logos.
 - Windows: the tray's menu has *octopod on GitHub*, and its links carry the tako and the Traefik and GitHub logos.

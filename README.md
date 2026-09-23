@@ -60,7 +60,9 @@ octopod setup      # checks Docker, runs the API as a user service, starts the e
 Or from a clone: `git clone https://github.com/quazardous/octopod && cd octopod && ./setup.sh`.
 On Windows, with Docker Desktop running, `.\setup.ps1` in PowerShell does the same, and puts
 octopod in the notification area: its menu lists the projects and their URLs, starts or
-stops them and the edge, and opens the console, whose API the tray runs.
+stops them and the edge, and opens the console, whose API the tray runs. Under GNOME,
+`setup.sh` puts the same in the top bar: a GNOME Shell extension (`octopod setup
+--gnome-extension`; it shows after you log out and in again).
 
 Then try an example:
 

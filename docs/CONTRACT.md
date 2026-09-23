@@ -304,7 +304,10 @@ The CLI speaks the same operations and prints the same JSON with `--json`:
 `octopod shell [project] [service] [--instance N] [--root] [--oneshot] [-- command…]` (a
 shell in a running service, as its user — or root — in its working directory; bash when
 the image has it; `--oneshot` for a service that is not running; CLI only: it needs a
-terminal), `octopod serve [--socket path]` (the API, and the console's data; `setup.sh` installs it
+terminal), `octopod setup [--no-service] [--no-edge] [--gnome-extension]` (Docker checked, the API as a
+systemd user service, the edge started; with `--gnome-extension`, the GNOME Shell extension
+installed in the user's extensions folder — a view of the edge and the projects that reads
+the API on its socket and runs the CLI, enabled the first time, refreshed after), `octopod serve [--socket path]` (the API, and the console's data; `setup.sh` installs it
 as the `octopod` systemd user service; on Windows the tray runs it). `OCTOPOD_STATE_DIR`, `OCTOPOD_INSTANCE` and `OCTOPOD_PORTS` select
 another instance (tests, a second edge).
 

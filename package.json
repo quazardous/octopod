@@ -18,6 +18,7 @@
     "assets/*.png",
     "assets/README.md",
     "console",
+    "gnome",
     "docs",
     "README.md",
     "LICENSE",
