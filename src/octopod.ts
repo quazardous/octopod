@@ -319,7 +319,9 @@ export class Octopod {
     const nginx = consoleNginxConfig(this.tcp ? await this.apiTcp() : basename(this.socket));
     await mkdir(this.path('edge', 'dynamic'), { recursive: true });
     await writeFile(this.path('edge', 'traefik.yml'), traefik);
-    await writeFile(this.path('edge', 'console.conf'), nginx);
+    // It carries the API's token when the API is on TCP: the operator's alone, like api.json.
+    await writeFile(this.path('edge', 'console.conf'), nginx, { mode: 0o600 });
+    await chmod(this.path('edge', 'console.conf'), 0o600);
     const compose = edgeCompose({
       instance: this.instance,
       port,
