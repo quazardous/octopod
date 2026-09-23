@@ -77,3 +77,31 @@ project do not collide.
   any project's containers talk to any other's.
 - **Hosts are scoped to their project**: a project named `demo` can serve `demo.localhost`
   and `*.demo.localhost`, nothing else — one project cannot take another's name.
+
+## A service shared between projects
+
+Several projects using one project's database (B and C on A's MariaDB, say) is left to
+the projects' own compose files; octopod does not describe it, and does not touch the
+networks a project declares.
+
+- **A creates the network, with a fixed `name:`** — without it, compose names it
+  `<project>_<network>`, and that name moves with octopod's project name (an instance,
+  `a-2`, would get another):
+  ```yaml
+  # A's compose
+  networks:
+    shared: { name: m2m-shared }
+  services:
+    db: { networks: [default, shared] }
+  ```
+- **B and C join it as external**, under that name:
+  ```yaml
+  networks:
+    shared: { name: m2m-shared, external: true }
+  ```
+- **A starts first** (`octopod up a`); otherwise compose says the network was declared as
+  external but could not be found.
+
+This network links those projects to each other, outside the isolation octopod gives each
+one: that is the point, and the price.
+

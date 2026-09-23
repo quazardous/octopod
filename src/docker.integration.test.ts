@@ -74,7 +74,12 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
     octopod = new Octopod({ stateDir: join(base, 'state'), instance: INSTANCE, ports: [PORT], socket: join(base, 'run', 'octopod.sock') });
     const alpha = await project(base, 'alpha', 80);
     // The project's own override, which compose loads by itself and octopod must too.
-    await writeFile(join(alpha, 'docker-compose.override.yml'), 'services:\n  web:\n    environment:\n      WHOAMI_NAME: from-override\n');
+    // The project's own override: an environment, and a router of its own (a host outside
+    // its name, pointing at the service octopod generated) — the escape hatch of the layering.
+    await writeFile(
+      join(alpha, 'docker-compose.override.yml'),
+      'services:\n  web:\n    environment:\n      WHOAMI_NAME: from-override\n    labels:\n      traefik.http.routers.alpha-extra.rule: "Host(`extra.localhost`)"\n      traefik.http.routers.alpha-extra.entrypoints: web\n      traefik.http.routers.alpha-extra.service: alpha-alpha\n',
+    );
     await octopod.register(alpha);
     // No port: whoami's image says EXPOSE 80, and octopod has to find it. Its name comes
     // from a declared env file — and a variable of octopod's own shell must not reach it.
@@ -172,6 +177,11 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
     expect(from('alpha.localhost')).toMatch(/200/);
     // From the host, both answer.
     expect((await eventually('traefik.localhost', 302)).status).toBe(302);
+  });
+
+  it('serves a router the project added in its own compose file, next to octopod\'s', async () => {
+    expect((await eventually('extra.localhost', 200)).body).toContain('Name: from-override');
+    expect((await eventually('alpha.localhost', 200)).status).toBe(200);
   });
 
   it('answers 404 for a host no project declared', async () => {

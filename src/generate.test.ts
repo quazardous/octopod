@@ -106,6 +106,15 @@ describe('a project override', () => {
     expect(override.networks.octopod_edge).toEqual({ name: 'octopod-demo-edge', internal: true });
   });
 
+  it('exposes one service under several hosts: a router and a Traefik service per host, none overwriting another', () => {
+    const multi = { ...DEMO, expose: [{ service: 'web', host: 'demo.localhost', port: 80 }, { service: 'web', host: 'api.demo.localhost', port: 80 }, { service: 'web', host: 'apiv2.demo.localhost', port: 80 }] };
+    const labels = (projectOverride('octopod', multi, { web: {} }) as { services: { web: { labels: Record<string, string> } } }).services.web.labels;
+    expect(labels['traefik.http.routers.demo-demo.rule']).toBe('Host(`demo.localhost`)');
+    expect(labels['traefik.http.routers.demo-api-demo.rule']).toBe('Host(`api.demo.localhost`)');
+    expect(labels['traefik.http.routers.demo-apiv2-demo.rule']).toBe('Host(`apiv2.demo.localhost`)');
+    expect(labels['traefik.http.routers.demo-api-demo.service']).toBe('demo-api-demo');
+  });
+
   it('keeps a service on the networks it had — the implicit default one included', () => {
     expect(Object.keys(override.services.web.networks)).toEqual(['default', 'octopod_edge']);
     expect(Object.keys(override.services.api.networks)).toEqual(['backend', 'octopod_edge']);
