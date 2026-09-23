@@ -83,7 +83,7 @@ code { background: var(--code); padding: 1px 5px; border-radius: 4px; }
   .updated.spin svg { animation: none; }
 }
 
-.help { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; margin: 0 0 16px; }
+.help { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; margin: 16px 0 0; }
 .help > summary { cursor: pointer; font-weight: 600; }
 .help ol { margin: 8px 0 4px; padding-left: 20px; }
 .help li { margin: 6px 0; }

@@ -30,6 +30,8 @@
   <main>
     <p id="summary" class="summary muted">Loading the projects…</p>
     <p id="error" class="error" hidden></p>
+    <section id="projects" class="projects" aria-label="Projects"></section>
+    <p id="empty" class="empty muted" hidden>No project registered yet: see <em>Add a project</em>, below.</p>
     <details id="help" class="help">
       <summary>Add a project</summary>
       <ol>
@@ -43,8 +45,6 @@
         <li>It shows here, served at <code>http://&lt;project&gt;.localhost</code>. <code>octopod recipes</code> lists the recipes; <code>octopod plan</code> shows what <code>up</code> would run.</li>
       </ol>
     </details>
-    <section id="projects" class="projects" aria-label="Projects"></section>
-    <p id="empty" class="empty muted" hidden>No project registered yet: see <em>Add a project</em>, above.</p>
   </main>
 
   <aside id="logs" class="logs" hidden aria-label="Logs">
