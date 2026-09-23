@@ -1,5 +1,6 @@
-// octopod's console: reads the API it is served by, shows every project, its instances,
-// services, routes, warnings and logs. Read-only. Everything the API returns is shown as
+// octopod's console: reads the API it is served by. A gallery of the projects; each opens
+// on a page of its own (#/p/<project>[/<instance>]) with its services, routes, warnings and
+// logs. Read-only. Everything the API returns is shown as
 // text, never as markup: names and log lines come from the projects.
 'use strict';
 
@@ -20,7 +21,21 @@ const state = {
   logsTimer: 0,
   /** The last answer, re-shown when only the filter changes. */
   last: null,
+  /** octopod's version, read once. */
+  version: '',
+  /** The project page shown: { project, instance }, or null for the gallery. */
+  view: null,
+  /** The page whose logs were opened on arrival. */
+  logsPage: null,
 };
+
+/** The page the address names: `#/p/<project>[/<instance>]`, or the gallery. */
+function route() {
+  const m = /^#\/p\/([^/]+)(?:\/(\d+))?$/.exec(location.hash);
+  state.view = m ? { project: decodeURIComponent(m[1]), instance: Number(m[2] || 1) } : null;
+}
+
+const pageOf = (name, instance = 1) => `#/p/${encodeURIComponent(name)}${instance > 1 ? `/${instance}` : ''}`;
 
 const $ = (id) => document.getElementById(id);
 
@@ -60,6 +75,7 @@ const projectPath = (name, instance, action = '') =>
 
 /** Every project with its status, and the status of each other instance it runs. */
 async function load() {
+  if (!state.version) state.version = await api('/v1/version').then((v) => v.version, () => '');
   const [edge, projects] = await Promise.all([api('/v1/edge'), api('/v1/projects')]);
   const statuses = await Promise.all(
     projects.map(async (project) => {
@@ -183,7 +199,7 @@ function card(p, base, nested = false) {
     el(
       'div',
       { class: 'card-head' },
-      el('h2', {}, p.name, nested ? el('span', { class: 'muted' }, ` (instance ${instance})`) : null),
+      el('h2', {}, nested ? el('a', { href: pageOf(base, instance) }, p.name) : p.name, nested ? el('span', { class: 'muted' }, ` (instance ${instance})`) : null),
       el('span', { class: `pill ${tone}` }, label),
       nested ? null : (p.tags || []).map((t) => el('span', { class: 'tag' }, `#${t}`)),
       el('div', { class: 'routes' }, routes),
@@ -213,11 +229,68 @@ function matches(p, needle) {
     });
 }
 
+/** A project in the gallery: its state at a glance; the rest is on its page. */
+function tile(p) {
+  const { tone, label } = projectTone(p);
+  const services = (p.services || []).filter((s) => s.state !== 'tool');
+  const running = services.filter((s) => s.state === 'running').length;
+  const warnings = [p, ...(p.others || [])].reduce((n, x) => n + (x.warnings || []).length, 0);
+  const instances = (p.others || []).length;
+  const href = pageOf(p.name);
+  const facts = p.problem
+    ? null
+    : [`${running}/${services.length} running`, warnings ? `${warnings} warning${warnings > 1 ? 's' : ''}` : null, instances ? `+${instances} instance${instances > 1 ? 's' : ''}` : null]
+        .filter(Boolean)
+        .join(' · ');
+  return el(
+    'article',
+    {
+      class: `tile ${tone}`,
+      'data-name': p.name,
+      // The whole tile opens the page; its links (routes) keep their own target.
+      onclick: (e) => {
+        if (!e.target.closest('a')) location.hash = href;
+      },
+    },
+    el('div', { class: 'tile-head' }, el('a', { href, class: 'tile-name' }, p.name), el('span', { class: `pill ${tone}` }, label)),
+    p.problem ? el('p', { class: 'problem' }, p.problem) : el('p', { class: 'tile-facts muted' }, facts, warnings ? el('span', { class: 'dot warn tile-alert' }) : null),
+    el('div', { class: 'tile-routes' }, (p.routes || []).map((r) => el('a', { href: r.url, target: '_blank', rel: 'noreferrer' }, r.url.replace(/^http:\/\//, '')))),
+    (p.tags || []).length ? el('div', { class: 'tile-tags' }, p.tags.map((t) => el('span', { class: 'tag' }, `#${t}`))) : null,
+  );
+}
+
+/** A project's page: everything about it, and its logs. */
+function renderDetail(projects) {
+  const { project, instance } = state.view;
+  const base = projects.find((p) => p.name === project);
+  const p = base && (instance > 1 ? (base.others || []).find((o) => (o.instance || 1) === instance) : base);
+  const back = el('a', { href: '#', class: 'back' }, '← All projects');
+  if (!p) {
+    $('projects').replaceChildren(back, el('p', { class: 'problem' }, `No project "${project}"${instance > 1 ? `, instance ${instance}` : ''}: unregistered, or down.`));
+    $('summary').textContent = '';
+    return;
+  }
+  $('projects').replaceChildren(back, card(instance > 1 ? { ...p, others: [] } : p, project));
+  $('summary').textContent = [base.group ? `group ${base.group}` : '', instance > 1 ? `instance ${instance} of ${project}` : ''].filter(Boolean).join(' · ');
+  // The page opens on its logs, every service's; closed, they stay closed on this page.
+  const key = `${project}#${instance}`;
+  if (state.logsPage !== key) {
+    state.logsPage = key;
+    openLogs({ project, instance, service: '' });
+  }
+}
+
 function render({ edge, projects }) {
   const edgeNode = $('edge');
   edgeNode.textContent = edge.running ? `edge on 127.0.0.1:${edge.port}` : 'edge stopped';
   edgeNode.className = `pill ${edge.running ? 'ok' : 'bad'}`;
   if (edge.dashboard) $('dashboard').href = edge.dashboard;
+  $('version').textContent = state.version ? `v${state.version}` : '';
+  $('filter').hidden = Boolean(state.view);
+  $('empty').hidden = projects.length > 0;
+  if (state.view) return renderDetail(projects);
+  state.logsPage = null;
+  if (state.logs) closeLogs();
 
   const needle = state.filter.trim().toLowerCase();
   const shown = projects
@@ -228,19 +301,15 @@ function render({ edge, projects }) {
     });
   // By group, groups in name order, projects without a group last. No group anywhere: a flat list.
   const groups = [...new Set(shown.map((p) => p.group).filter(Boolean))].sort();
+  const gallery = (members) => el('div', { class: 'gallery' }, members.map(tile));
   if (groups.length === 0) {
-    $('projects').replaceChildren(...shown.map((p) => card(p, p.name)));
+    $('projects').replaceChildren(gallery(shown));
   } else {
-    const section = (key, title, members) =>
-      members.length === 0
-        ? null
-        : details(`group:${key}`, `${title} · ${members.length}`, ...members.map((p) => card(p, p.name)));
+    const section = (key, title, members) => (members.length === 0 ? null : details(`group:${key}`, `${title} · ${members.length}`, gallery(members)));
     $('projects').replaceChildren(
       ...[...groups.map((g) => section(g, g, shown.filter((p) => p.group === g))), section('', 'no group', shown.filter((p) => !p.group))].filter(Boolean),
     );
   }
-  $('empty').hidden = projects.length > 0;
-
   const up = projects.filter((p) => projectTone(p).label !== 'down' && !p.problem).length;
   const services = projects.flatMap((p) => [...(p.services || []), ...(p.others || []).flatMap((o) => o.services || [])]);
   const running = services.filter((s) => s.state === 'running').length;
@@ -334,8 +403,14 @@ document.addEventListener('DOMContentLoaded', () => {
   $('logs-tail').addEventListener('change', () => loadLogs(true));
   $('logs-follow').addEventListener('change', () => loadLogs());
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && state.logs) closeLogs();
+    if (e.key === 'Escape' && state.view) location.hash = '';
   });
+  window.addEventListener('hashchange', () => {
+    route();
+    window.scrollTo(0, 0);
+    if (state.last) render(state.last);
+  });
+  route();
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) return;
     refresh();

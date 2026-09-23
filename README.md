@@ -169,8 +169,10 @@ socket (`octopod serve`), for other tools: see [docs/CONTRACT.md](./docs/CONTRAC
 
 ![The console: two projects, their services, states and routes](docs/console.png)
 
-`http://octopod.localhost` lists every project and instance, the state and health of each
-service, their URLs, what octopod warns about, and the logs, which it refreshes. It is
+`http://octopod.localhost` shows every project as a tile — its state, the services
+running, its warnings and URLs — grouped by `group`. A project's page has the state and
+health of each service and its programs, every instance, what octopod warns about, and
+the logs, which it refreshes. It is
 read-only, and links to Traefik's dashboard at `http://traefik.localhost`. Both answer only
 from your machine, never from a project's container. The console reads the API, which
 `octopod setup` runs as the `octopod` systemd user service.

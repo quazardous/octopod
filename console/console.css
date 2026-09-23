@@ -1,34 +1,41 @@
+/* The colours of VS Code's Light Modern and Dark Modern themes; cards with a Material
+   elevation. */
 :root {
-  --bg: #f6f7f9;
+  --bg: #f8f8f8;
   --panel: #ffffff;
-  --text: #1c2129;
-  --muted: #677183;
-  --line: #e1e5eb;
-  --accent: #2f6fdb;
-  --ok: #1f9d55;
-  --warn: #c27c0e;
-  --bad: #d64545;
-  --idle: #9aa3b2;
-  --code: #eef1f5;
-  --logs-bg: #11151c;
-  --logs-text: #d7dde8;
+  --text: #3b3b3b;
+  --muted: #767676;
+  --line: #e5e5e5;
+  --accent: #005fb8;
+  --ok: #388a34;
+  --warn: #bf8803;
+  --bad: #e51400;
+  --idle: #a0a0a0;
+  --code: #f2f2f2;
+  --logs-bg: #1f1f1f;
+  --logs-text: #cccccc;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 1px 3px rgb(0 0 0 / 0.08);
+  --shadow-up: 0 4px 12px rgb(0 0 0 / 0.12), 0 2px 4px rgb(0 0 0 / 0.08);
+  --radius: 8px;
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0f1217;
-    --panel: #171b22;
-    --text: #e3e7ee;
-    --muted: #8d97a8;
-    --line: #262c36;
-    --accent: #6c9ef8;
-    --ok: #3fbf7f;
-    --warn: #e0a33a;
-    --bad: #ef6b6b;
-    --idle: #5d6676;
-    --code: #1f2530;
-    --logs-bg: #0a0d12;
+    --bg: #1f1f1f;
+    --panel: #181818;
+    --text: #cccccc;
+    --muted: #9d9d9d;
+    --line: #2b2b2b;
+    --accent: #4daafc;
+    --ok: #73c991;
+    --warn: #cca700;
+    --bad: #f85149;
+    --idle: #6e7681;
+    --code: #2b2b2b;
+    --logs-bg: #181818;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 1px 3px rgb(0 0 0 / 0.3);
+    --shadow-up: 0 6px 16px rgb(0 0 0 / 0.5), 0 2px 4px rgb(0 0 0 / 0.4);
     color-scheme: dark;
   }
 }
@@ -39,7 +46,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: 13px/1.45 "Segoe WPC", "Segoe UI", system-ui, -apple-system, Ubuntu, sans-serif;
 }
 
 a { color: var(--accent); text-decoration: none; }
@@ -56,7 +63,7 @@ code { background: var(--code); padding: 1px 5px; border-radius: 4px; }
   flex-wrap: wrap;
   align-items: center;
   gap: 12px 20px;
-  padding: 10px 16px;
+  padding: 8px 20px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
 }
@@ -70,40 +77,91 @@ input[type="search"], select, button {
   color: inherit;
   background: var(--bg);
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 4px 8px;
 }
+input[type="search"]:focus { outline: 1px solid var(--accent); outline-offset: -1px; }
 button { cursor: pointer; }
 button:hover { border-color: var(--accent); }
 button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
 
+/* Tonal chips: the state's colour on a tint of it. */
 .pill {
-  font-size: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
   padding: 2px 8px;
   border-radius: 999px;
-  border: 1px solid var(--line);
   color: var(--muted);
+  background: color-mix(in srgb, var(--idle) 16%, transparent);
   white-space: nowrap;
 }
-.pill.ok { color: var(--ok); border-color: currentColor; }
-.pill.bad { color: var(--bad); border-color: currentColor; }
-.pill.warn { color: var(--warn); border-color: currentColor; }
+.pill.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 16%, transparent); }
+.pill.bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 16%, transparent); }
+.pill.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }
 
-main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+/* The gallery takes the whole screen; a project's page keeps lines readable. */
+main { padding: 16px 20px; }
+main > .projects > .back ~ .card { max-width: 1400px; }
 .summary { margin: 0 0 12px; }
 .error { color: var(--bad); background: var(--panel); border: 1px solid var(--bad); border-radius: 8px; padding: 10px 12px; }
 .empty { text-align: center; padding: 40px 0; }
 
 .projects { display: grid; gap: 12px; }
 details.group > summary { cursor: pointer; font-weight: 600; margin: 4px 0 8px; color: var(--muted); }
-details.group > .card + .card { margin-top: 12px; }
+details.group > .gallery { margin-bottom: 8px; }
+
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px 16px 14px;
+  cursor: pointer;
+  min-width: 0;
+  overflow: hidden;
+  transition: box-shadow 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
+}
+/* The state, as a line along the top. */
+.tile::before { content: ''; position: absolute; inset: 0 0 auto 0; height: 3px; background: var(--idle); }
+.tile.ok::before { background: var(--ok); }
+.tile.warn::before { background: var(--warn); }
+.tile.bad::before { background: var(--bad); }
+.tile:hover { box-shadow: var(--shadow-up); transform: translateY(-2px); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.tile:focus-within { border-color: var(--accent); }
+.tile-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tile-name { font-weight: 600; font-size: 14px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile-name:hover { text-decoration: none; color: var(--accent); }
+.tile-facts { margin: 0; font-size: 12px; }
+.tile-alert { margin-left: 6px; }
+.tile-routes { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; margin-top: auto; }
+.tile-routes a {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--code);
+}
+.tile-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.back { display: inline-block; margin-bottom: 10px; font-size: 13px; }
 .tag { font-size: 12px; color: var(--muted); }
 
 .card {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 12px 14px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px;
 }
 .card.instance { margin-top: 10px; background: var(--bg); }
 .card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
@@ -157,7 +215,7 @@ table.services td.actions { text-align: right; width: 1%; white-space: nowrap; }
 .logs pre { flex: 1; margin: 0; padding: 10px 16px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 body.with-logs main { padding-bottom: 47vh; }
 
-.foot { max-width: 1100px; margin: 0 auto; padding: 8px 16px 24px; font-size: 12px; }
+.foot { padding: 8px 20px 24px; font-size: 12px; }
 
 @media (max-width: 640px) {
   .links { flex-basis: 100%; order: 3; }

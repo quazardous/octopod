@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The console shows the projects as a gallery — each at a glance: its state, services running, warnings, routes, tags — and each opens on a page of its own (`#/p/<project>`, one per instance) with its services, programs, warnings and logs. The gallery takes the whole screen, in the colours of VS Code's Light and Dark Modern themes. The header gives octopod's version.
+
 ## [0.3.0] - 2026-09-23
 
 ### Added

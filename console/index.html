@@ -12,6 +12,7 @@
     <div class="brand">
       <span class="logo" aria-hidden="true">◉</span>
       <strong>octopod</strong>
+      <span id="version" class="muted"></span>
       <span id="edge" class="pill">edge …</span>
     </div>
     <nav class="links">
@@ -25,7 +26,7 @@
   </header>
 
   <main>
-    <p id="summary" class="summary muted"></p>
+    <p id="summary" class="summary muted">Loading the projects…</p>
     <p id="error" class="error" hidden></p>
     <section id="projects" class="projects" aria-label="Projects"></section>
     <p id="empty" class="empty muted" hidden>No project registered yet. In a project folder: <code>octopod register &amp;&amp; octopod up</code>.</p>
@@ -48,6 +49,6 @@
     <pre id="logs-lines" tabindex="0"></pre>
   </aside>
 
-  <footer class="foot muted">Read-only: octopod's console shows the projects; <code>octopod up|down|restart</code> act on them.</footer>
+  <footer class="foot muted">Read-only: octopod's console shows the projects; <code>octopod up|down|restart</code> act on them. A project's page has its services and its logs.</footer>
 </body>
 </html>
