@@ -48,6 +48,11 @@ describe('the recipe folders', () => {
     await expect(loadRecipes([base])).rejects.toThrow(RecipeError);
   });
 
+  it('refuses a tool that would be routed', async () => {
+    await recipe(base, 'routed-tool', 'title: T\nsummary: s\nimage: x\nunpinned: true\ntool: true\nroute: true\n');
+    await expect(loadRecipes([base])).rejects.toThrow(/a tool is run on demand/);
+  });
+
   it('lets an enum param choose the image\'s version, and nothing else choose it', async () => {
     const dir = join(base, 'recipes');
     const versioned = 'title: T\nsummary: s\nimage: "php:{{params.php}}-fpm"\nunpinned: true\nparams:\n  php: { type: enum, values: ["8.4", "7.4"], default: "8.4" }\n';
@@ -137,7 +142,7 @@ describe('a recipe\'s Dockerfile, checked', () => {
 describe('the built-in recipes', () => {
   it('load, and install none of a project\'s dependencies in an image — system packages and extensions make the environment', async () => {
     const book = await loadRecipes([BUILTIN_RECIPES]);
-    expect([...book.recipes.keys()].sort()).toEqual(['mariadb', 'node-app', 'php-app', 'postgres', 'whoami']);
+    expect([...book.recipes.keys()].sort()).toEqual(['mailpit', 'mariadb', 'memcached', 'mongo-express', 'mongodb', 'node-app', 'php-app', 'php-cli', 'phpmyadmin', 'postgres', 'redis', 'whoami']);
     for (const id of await readdir(BUILTIN_RECIPES)) {
       const dockerfile = await readFile(join(BUILTIN_RECIPES, id, 'Dockerfile'), 'utf8').catch(() => '');
       if (dockerfile) expect(lintDockerfile(dockerfile), id).toEqual([]);
@@ -179,6 +184,58 @@ describe('the built-in recipes', () => {
     expect(() => renderServices({ project: 'p', book, services: { app: { recipe: 'node-app', programs: { w: program } } }, workspace: '/w' })).toThrow(/runs no supervisor/);
     expect(() => renderServices({ project: 'p', book, services: { app: { recipe: 'php-app', programs: { nginx: program } } }, workspace: '/w' })).toThrow(/is the recipe's own/);
     expect(() => renderServices({ project: 'p', book, services: { app: { recipe: 'node-app', supervisorD: '/p/sup' } }, workspace: '/w' })).toThrow(/takes no supervisor_d/);
+  });
+
+  it('wires a whole stack by capabilities: the app gets each address, the admins their database', async () => {
+    const book = await loadRecipes([BUILTIN_RECIPES]);
+    const services = {
+      app: { recipe: 'php-app' },
+      db: { recipe: 'mariadb', params: { version: '10.6' } },
+      cache: { recipe: 'redis' },
+      sessions: { recipe: 'memcached' },
+      docs: { recipe: 'mongodb', params: { version: '5.0' } },
+      mail: { recipe: 'mailpit' },
+      pma: { recipe: 'phpmyadmin' },
+      me: { recipe: 'mongo-express' },
+    };
+    const out = renderServices({ project: 'shop', book, services, workspace: '/p', owner: '1:1', secretFactory: (n) => `s${n}` });
+    const env = (name: string) => out.compose.services[name].environment as Record<string, string>;
+    expect(env('app')).toEqual(
+      expect.objectContaining({
+        DATABASE_URL: 'mysql://app:s24@db:3306/app',
+        REDIS_URL: 'redis://cache:6379',
+        MEMCACHED_URL: 'memcached://sessions:11211',
+        MONGODB_URL: 'mongodb://app:s24@docs:27017/app?authSource=admin',
+        MAILER_DSN: 'smtp://mail:1025',
+      }),
+    );
+    expect(env('pma')).toEqual(expect.objectContaining({ PMA_HOST: 'db', PMA_PORT: '3306', PMA_USER: 'app', PMA_PASSWORD: 's24' }));
+    expect(env('me').ME_CONFIG_MONGODB_URL).toBe('mongodb://app:s24@docs:27017/app?authSource=admin');
+    expect((out.compose.services.db.build as { args: Record<string, string> }).args.BASE_IMAGE).toBe('mariadb:10.6');
+    expect((out.compose.services.docs.build as { args: Record<string, string> }).args.BASE_IMAGE).toBe('mongo:5.0');
+    // A cache keeps nothing unless asked; a database keeps its data.
+    expect(out.compose.services.cache.volumes).toBeUndefined();
+    expect(out.compose.services.docs.volumes).toEqual(['docs-data:/data/db']);
+    const routes = Object.fromEntries(out.services.filter((x) => x.route !== undefined).map((x) => [x.name, x.route]));
+    expect(routes).toEqual({ app: '', mail: 'mail', pma: 'pma', me: 'mongo' });
+    expect(out.compose.services.app.depends_on).toEqual({
+      db: { condition: 'service_healthy' },
+      cache: { condition: 'service_healthy' },
+      sessions: { condition: 'service_started' },
+      docs: { condition: 'service_healthy' },
+      mail: { condition: 'service_healthy' },
+    });
+  });
+
+  it('renders php-cli as a tool: in a profile up never activates, never restarted, its cache kept', async () => {
+    const book = await loadRecipes([BUILTIN_RECIPES]);
+    const out = renderServices({ project: 'shop', book, services: { app: { recipe: 'php-app' }, cli: { recipe: 'php-cli', params: { php: '8.3' } } }, workspace: '/p', owner: '1:1' });
+    const cli = out.compose.services.cli;
+    expect(cli.profiles).toEqual(['octopod-tool']);
+    expect(cli.restart).toBeUndefined();
+    expect(cli.volumes).toEqual(['cli-cache:/cache', '/p:/app']);
+    expect(out.services.find((x) => x.name === 'cli')?.tool).toBe(true);
+    expect(formatPlan('shop', out.services, '/p')).toContain('tool    never started by up: octopod shell shop cli -- <command…>');
   });
 
   it('mounts a supervisor_d folder read-only where php-app includes it', async () => {

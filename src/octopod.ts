@@ -13,7 +13,7 @@ import { basename, dirname, join } from 'node:path';
 import { loadDeclaration, withInstance, type Declaration } from './declaration.js';
 import { lintDockerfile } from './recipes/lint.js';
 import { BUILTIN_RECIPES, envRecipeDirs, loadRecipes, type Shadowed } from './recipes/loader.js';
-import { formatPlan, renderServices, type RenderedService } from './recipes/render.js';
+import { formatPlan, renderServices, TOOL_PROFILE, type RenderedService } from './recipes/render.js';
 import { cliDocker, DockerError, type Docker } from './docker.js';
 import { choosePort, composePorts, CONSOLE_HOST, consoleNginxConfig, DASHBOARD_HOST, DATA_DIR, dataVolumes, duplicationBlockers, edgeCompose, edgeContainer, imagePorts, localOnlyConfig, projectOverride, traefikConfig, type ComposeService, type ComposeVolume, type ResolvedPort } from './generate.js';
 import { edgeNetwork, fullHost, instanceName } from './names.js';
@@ -412,8 +412,10 @@ export class Octopod {
       if (taken) throw new OctopodError(`services ${taken.service} and ${service.name} both want ${host}: expose one of them under a host of its own`);
       expose.push({ service: service.name, host });
     }
-    const profiles = [...new Set(Object.values(rendered.compose.services).flatMap((svc) => (svc.profiles as string[] | undefined) ?? []))];
-    return { ...declaration, compose: [composeFile, ...declaration.compose], expose, ...(profiles.length > 0 ? { profiles } : {}) };
+    // Tools' profile is never activated: `up` leaves them alone, `compose run` starts one.
+    const profiles = [...new Set(Object.values(rendered.compose.services).flatMap((svc) => (svc.profiles as string[] | undefined) ?? []))].filter((p) => p !== TOOL_PROFILE);
+    const tools = rendered.services.filter((s) => s.tool).map((s) => s.name);
+    return { ...declaration, compose: [composeFile, ...declaration.compose], expose, ...(profiles.length > 0 ? { profiles } : {}), ...(tools.length > 0 ? { tools } : {}) };
   }
 
   /** The recipes a project (or any project) can name, and where each comes from. */
@@ -573,7 +575,10 @@ export class Octopod {
 
   async up(name: string, instance = 1): Promise<ProjectStatus> {
     const declaration = await this.declaration(name, instance);
-    const config = JSON.parse(await this.docker.run([...this.composeArgs(declaration, false), 'config', '--format', 'json'])) as {
+    // Tools included: their volumes are bound into .octopod/data like the others', or `compose
+    // run` would make them Docker volumes.
+    const tools = declaration.tools ? ['--profile', TOOL_PROFILE] : [];
+    const config = JSON.parse(await this.docker.run([...this.composeArgs(declaration, false), ...tools, 'config', '--format', 'json'])) as {
       services?: Record<string, ComposeService>;
       volumes?: Record<string, ComposeVolume>;
     };
@@ -589,6 +594,8 @@ export class Octopod {
     await this.writeJson(join('projects', declaration.project, 'override.json'), override);
     await this.edgeUp();
     await this.docker.run([...this.composeArgs(declaration, true), 'up', '-d']);
+    // Tools are not started, but built now: run on demand, they answer at once.
+    if (declaration.tools) await this.docker.run([...this.composeArgs(declaration, true), '--profile', TOOL_PROFILE, 'build', ...declaration.tools]);
     await this.connect(declaration.project);
     if (instance > 1) await this.noteInstance(name, instance, true);
     return this.status(name, instance);
@@ -686,7 +693,9 @@ export class Octopod {
     // Before `down`: compose cannot remove a network the edge is still attached to.
     await this.disconnect(declaration.project);
     // `--rmi local`: the images compose built for the project (recipes that build), never a pulled one.
-    await this.docker.run([...this.composeArgs(declaration, true), 'down', ...(options.volumes ? ['--volumes'] : []), ...(options.images ? ['--rmi', 'local'] : [])]);
+    // Tools' profile too: their image goes with the others, and a one-off left behind with them.
+    const tools = declaration.services ? ['--profile', TOOL_PROFILE] : [];
+    await this.docker.run([...this.composeArgs(declaration, true), ...tools, 'down', ...(options.volumes ? ['--volumes'] : []), ...(options.images ? ['--rmi', 'local'] : [])]);
     if (instance > 1) await this.noteInstance(name, instance, false);
     return this.status(name, instance);
   }
@@ -702,7 +711,10 @@ export class Octopod {
       : out.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l) as Record<string, string>);
     // A supervised service stays up when its app crashes: what runs in it is asked of its supervisor.
     const running = new Set(rows.filter((r) => r.State === 'running').map((r) => r.Service));
-    const supervisors = new Map([...(await this.supervisors(declaration))].filter(([service]) => running.has(service)));
+    const made = await this.recipeServices(declaration);
+    const supervisors = new Map(made.flatMap((s) => (s.supervisor && running.has(s.name) ? [[s.name, s.supervisor] as const] : [])));
+    // A tool has no container to list: it is shown as what it is, not as a service down.
+    const tools = made.filter((s) => s.tool && !rows.some((r) => r.Service === s.name)).map((s) => ({ service: s.name, state: 'tool' }));
     const programs = supervisors.size > 0 ? await this.programStates(declaration, supervisors) : [];
     const failing = programs.filter((p) => p.state === 'FATAL' || p.state === 'BACKOFF').map((p) => `${p.service}/${p.program} is ${p.state}: it keeps failing to start — octopod logs --service ${p.service}`);
     const warnings = [...(await this.portWarnings(declaration)), ...(await this.foreignData(declaration)), ...(await this.rootWarnings(rows)), ...failing];
@@ -713,7 +725,7 @@ export class Octopod {
       services: rows.map((r) => {
         const own = programs.filter((p) => p.service === r.Service).map(({ program, state, detail }) => ({ program, state, detail }));
         return { service: r.Service, state: r.State, ...(r.Health ? { health: r.Health } : {}), ...(supervisors.has(r.Service) ? { programs: own } : {}) };
-      }),
+      }).concat(tools),
       ...(warnings.length > 0 ? { warnings } : {}),
     };
   }
@@ -787,9 +799,13 @@ export class Octopod {
   }
 
   private async supervisors(declaration: Declaration): Promise<Map<string, string>> {
-    if (!declaration.services) return new Map();
-    const { rendered } = await this.render(declaration, false);
-    return new Map(rendered.services.flatMap((s) => (s.supervisor ? [[s.name, s.supervisor] as const] : [])));
+    return new Map((await this.recipeServices(declaration)).flatMap((s) => (s.supervisor ? [[s.name, s.supervisor] as const] : [])));
+  }
+
+  /** The services made of recipes, as rendered (secrets left out): what each is. */
+  private async recipeServices(declaration: Declaration): Promise<RenderedService[]> {
+    if (!declaration.services) return [];
+    return (await this.render(declaration, false)).rendered.services;
   }
 
   /**
@@ -884,7 +900,9 @@ export class Octopod {
     const program = options.command && options.command.length > 0 ? options.command : SHELL;
     const tty = options.tty === false ? ['-T'] : [];
     const user = options.root ? ['-u', '0'] : [];
-    if (options.oneshot) {
+    // A tool never runs: entering it is running it.
+    const tool = status.services.some((s) => s.service === service && s.state === 'tool');
+    if (options.oneshot || tool) {
       return ['docker', ...this.composeArgs(declaration, true), 'run', '--rm', '--no-deps', ...tty, ...user, '--label', 'traefik.enable=false', '--entrypoint', program[0], service, ...program.slice(1)];
     }
     const state = status.services.find((s) => s.service === service)?.state;

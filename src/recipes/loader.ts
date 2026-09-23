@@ -97,6 +97,7 @@ export async function loadRecipe(dir: string, id: string): Promise<RecipeEntry> 
       throw new RecipeError(`${file}: volume '${volume.name}': "when" must name a bool param, not '${volume.when}'`);
     }
   }
+  if (recipe.tool && (recipe.route || recipe.supervisor)) throw new RecipeError(`${file}: a tool is run on demand: it takes no route and no supervisor`);
   for (const req of recipe.requires) {
     if (recipe.provides.includes(req.capability)) throw new RecipeError(`${file}: requires '${req.capability}', which it also provides`);
   }

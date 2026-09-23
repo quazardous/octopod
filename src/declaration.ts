@@ -87,6 +87,8 @@ export interface Declaration {
   /** Its group and its tags, to find it among the others. */
   group?: string;
   tags?: string[];
+  /** Services made of tool recipes: built by `up`, never started by it. */
+  tools?: string[];
   /** Compose profiles the recipes put services in: activated, or those services would not start. */
   profiles?: string[];
   expose: Exposure[];

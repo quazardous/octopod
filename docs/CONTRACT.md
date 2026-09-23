@@ -161,6 +161,21 @@ workspace: .               # the folder a recipe's workspace mounts; the project
 - The recipe's digest covers its Dockerfile. `octopod plan [dir]` renders without writing
   anything, for an approval.
 - No networks and no hardening: a client with stricter needs adds its own compose file.
+- **Capabilities** connect recipes: a recipe `provides` some, another `requires` them and
+  gets the provider's `exports` as variables. The built-in ones: `sql` (`postgres`,
+  `mariadb`: `url`), `mysql` (`mariadb`: `host`, `port`, `user`, `password`, `db`),
+  `redis` (`url`), `memcached` (`url`), `mongodb` (`url`), `smtp` (`mailpit`: `url`).
+  `php-app` and `node-app` require each of them optionally (`DATABASE_URL`, `REDIS_URL`,
+  `MEMCACHED_URL`, `MONGODB_URL`, `MAILER_DSN` and `SMTP_URL`); `phpmyadmin` requires
+  `mysql`, `mongo-express` requires `mongodb`. Two providers of one capability a service
+  requires is an error: name the one you mean in a recipe of your own.
+- **Tools.** A recipe with `tool: true` (`php-cli`) makes a service run on demand only: in
+  the `octopod-tool` compose profile, which octopod never activates, so `up` builds its
+  image and never starts it; no restart policy, no route, no supervisor. `octopod shell
+  <project> <tool> -- <command…>` and `exec` run it in a one-off container (the same
+  image, mounts, user and network), removed once done. `status` lists it with the state
+  `tool`, not as a service down; `down` and `unregister` take its image and leftovers with
+  the rest.
 - **Programs.** A recipe that runs supervisord says so (`supervisor: { config, programs }`:
   its configuration, and the programs it runs itself); `php-app` does. A service made of
   it takes `programs:` in `octopod.yaml`, run beside the recipe's own:

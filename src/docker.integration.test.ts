@@ -494,6 +494,7 @@ describe.skipIf(!dockerAvailable())('a PHP project made of recipes (real docker)
         '      worker: { command: "php -r \\"while (true) sleep(60);\\"" }',
         '      seed: { command: "php -r \\"file_put_contents(\'/app/seeded.txt\', \'s\');\\"", autostart: false }',
         '  db: { recipe: mariadb }',
+        '  cli: { recipe: php-cli }',
         '',
       ].join('\n'),
     );
@@ -532,6 +533,20 @@ describe.skipIf(!dockerAvailable())('a PHP project made of recipes (real docker)
     await expect(octopod.program('phpapp', 'db', 'x', 'start')).rejects.toThrow(/runs no supervisor/);
   });
 
+  it('keeps a tool out of up, and runs it on demand as the project\'s user, its cache kept', async () => {
+    const status = await octopod.status('phpapp');
+    expect(status.services.find((x) => x.service === 'cli')?.state).toBe('tool');
+    const result = await octopod.exec('phpapp', 'cli', ['php', '-r', 'file_put_contents("/cache/probe", "x"); echo posix_getpwuid(posix_geteuid())["name"], " ", getenv("COMPOSER_CACHE_DIR"), " ", getcwd();']);
+    expect(result).toEqual(expect.objectContaining({ ok: true, mode: 'run' }));
+    expect(result.output.trim().split('\n')[0]).toMatch(/^phpapp \/cache\/composer \/app/);
+    const argv = await octopod.shellCommand('phpapp', { service: 'cli', command: ['php', '-v'], tty: false });
+    expect(argv).toContain('run');
+    // Its cache kept in the project, the operator's — not in Docker's storage.
+    expect((await stat(join(root, '.octopod', 'data', 'cli-cache', 'probe'))).uid).toBe(process.getuid?.());
+    // Nothing left running of it.
+    expect((await octopod.status('phpapp')).services.filter((x) => x.service === 'cli')).toEqual([{ service: 'cli', state: 'tool' }]);
+  });
+
   it('runs a program dropped in the supervisor_d folder once reloaded, the others untouched', async () => {
     await writeFile(
       join(root, 'docker', 'supervisor', 'ticker.conf'),
@@ -545,5 +560,77 @@ describe.skipIf(!dockerAvailable())('a PHP project made of recipes (real docker)
     }
     expect(programs.find((p) => p.program === 'ticker')?.state).toBe('RUNNING');
     expect(programs.find((p) => p.program === 'php-fpm')?.detail.split(',')[0]).toBe(pid?.split(',')[0]);
+  });
+});
+
+describe.skipIf(!dockerAvailable())('the service recipes, together (real docker)', { timeout: 900_000 }, () => {
+  let base: string;
+  let root: string;
+  let octopod: Octopod;
+
+  beforeAll(async () => {
+    base = await mkdtemp(join(tmpdir(), 'octopod-stack-'));
+    root = join(base, 'stack');
+    await mkdir(root);
+    await writeFile(
+      join(root, 'octopod.yaml'),
+      [
+        'services:',
+        '  db: { recipe: mariadb, version: "10.11" }',
+        '  cache: { recipe: redis, persist: true }',
+        '  sessions: { recipe: memcached }',
+        '  docs: { recipe: mongodb, version: "7.0" }',
+        '  mail: { recipe: mailpit }',
+        '  pma: { recipe: phpmyadmin }',
+        '  me: { recipe: mongo-express }',
+        '',
+      ].join('\n'),
+    );
+    octopod = new Octopod({ stateDir: join(base, 'state'), instance: INSTANCE, ports: [PORT] });
+  }, 900_000);
+
+  afterAll(async () => {
+    await octopod.unregister('stack').catch(() => undefined);
+    await octopod.edgeDown();
+    await rm(base, { recursive: true, force: true });
+  }, 900_000);
+
+  it('runs each one healthy, none as root, its data the operator\'s, its admin routed', async () => {
+    await octopod.register(root);
+    await octopod.up('stack');
+    const settled = async () => {
+      for (let i = 0; i < 120; i++) {
+        const s = await octopod.status('stack');
+        if (s.services.length === 7 && s.services.every((x) => x.state === 'running' && (!x.health || x.health === 'healthy'))) return s;
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+      return octopod.status('stack');
+    };
+    const status = await settled();
+    expect(status.services.map((x) => `${x.service}:${x.state}:${x.health ?? '-'}`).sort()).toEqual([
+      'cache:running:healthy',
+      'db:running:healthy',
+      'docs:running:healthy',
+      'mail:running:healthy',
+      'me:running:-',
+      'pma:running:-',
+      'sessions:running:-',
+    ]);
+    expect(status.warnings ?? []).toEqual([]);
+    for (const volume of ['db-data', 'cache-data', 'docs-data']) {
+      expect((await stat(join(root, '.octopod', 'data', volume))).uid, volume).toBe(process.getuid?.());
+    }
+    const served = async (host: string, pattern: RegExp) => {
+      let last = { status: 0, body: '' };
+      for (let i = 0; i < 60 && !(last.status === 200 && pattern.test(last.body)); i++) {
+        last = await get(host, '/').catch(() => ({ status: 0, body: '' }));
+        if (!(last.status === 200 && pattern.test(last.body))) await new Promise((r) => setTimeout(r, 1000));
+      }
+      return last;
+    };
+    expect((await served('mail.stack.localhost', /Mailpit/i)).status).toBe(200);
+    // Logged in with the database's user: the page names the server it is connected to.
+    expect((await served('pma.stack.localhost', /phpMyAdmin/)).body).toMatch(/db/);
+    expect((await served('mongo.stack.localhost', /Mongo Express/i)).status).toBe(200);
   });
 });

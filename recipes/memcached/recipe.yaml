@@ -1,0 +1,17 @@
+# Memcached, reachable inside the project as host `<service>` on 11211. Its address goes
+# to whoever requires `memcached` (MEMCACHED_URL). It keeps nothing, and runs as the
+# image's own unprivileged user.
+title: Memcached
+summary: In-memory cache, reachable inside the project as host <service> on port 11211.
+image: memcached:1.6
+unpinned: true
+provides: [memcached]
+params:
+  memory: { type: int, min: 16, max: 4096, default: 64 }
+command: [memcached, -m, "{{params.memory}}"]
+exports:
+  host: "{{service}}"
+  port: "11211"
+  url: "memcached://{{service}}:11211"
+port: 11211
+limits: { memory: 1g, cpus: "1", pids: 256 }

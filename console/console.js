@@ -98,7 +98,8 @@ function programTone(g) {
 /** up: every service running; partial: some; down: none. */
 function projectTone(p) {
   if (p.problem) return { tone: 'bad', label: 'error' };
-  const services = p.services || [];
+  // A tool never runs: it counts neither as up nor as down.
+  const services = (p.services || []).filter((s) => s.state !== 'tool');
   const running = services.filter((s) => s.state === 'running').length;
   if (services.length === 0 || running === 0) return { tone: '', label: 'down' };
   if (running === services.length && services.every((s) => serviceTone(s) === 'ok')) return { tone: 'ok', label: 'up' };
@@ -135,6 +136,7 @@ function servicesTable(p, base, instance) {
           'td',
           {},
           s.state,
+          s.state === 'tool' ? el('span', { class: 'muted' }, ` · run on demand: octopod shell ${base}${instance > 1 ? ` --instance ${instance}` : ''} ${s.service} -- …`) : null,
           s.health ? el('span', { class: 'muted' }, ` · ${s.health}`) : null,
           // A supervised service: what runs in it, each program with its state.
           (s.programs || []).length
@@ -156,7 +158,7 @@ function servicesTable(p, base, instance) {
         el(
           'td',
           { class: 'actions' },
-          s.state === 'not created'
+          s.state === 'not created' || s.state === 'tool'
             ? null
             : el('button', { type: 'button', onclick: () => openLogs({ project: base, instance, service: s.service }) }, 'Logs'),
         ),

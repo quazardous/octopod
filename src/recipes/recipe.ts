@@ -86,6 +86,11 @@ export const RecipeSchema = z
     /** Routed by the edge: at the project's host, or at `<subdomain>.<project>.localhost`. */
     route: z.union([z.literal(true), z.object({ subdomain: Ident }).strict()]).optional(),
     profiles: z.array(Ident).default([]),
+    /**
+     * A tool (phpstan, a code formatter): never started by `up`, never routed, run on demand
+     * in a one-off container (`octopod shell <project> <service> -- …`).
+     */
+    tool: z.boolean().default(false),
     limits: z
       .object({
         memory: z.string().regex(/^\d+[mg]$/).optional(),

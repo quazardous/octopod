@@ -1,0 +1,24 @@
+# Redis, reachable inside the project as host `<service>` on 6379, without a password: the
+# project's network is its own. Its URL goes to whoever requires `redis` (REDIS_URL). A
+# cache by default: nothing kept; `persist: true` keeps its data in .octopod/data.
+title: Redis
+summary: In-memory store (cache, queues, sessions), reachable inside the project as host <service> on port 6379.
+image: "redis:{{params.version}}"
+unpinned: true
+build: true
+provides: [redis]
+params:
+  version: { type: enum, values: ["8.0", "7.4", "7.2", "6.2"], default: "7.4" }
+  persist: { type: bool, default: false }
+exports:
+  host: "{{service}}"
+  port: "6379"
+  url: "redis://{{service}}:6379"
+volumes:
+  - { name: data, path: /data, when: persist }
+port: 6379
+health:
+  test: [CMD, redis-cli, ping]
+  intervalMs: 2000
+  retries: 30
+limits: { memory: 512m, cpus: "1", pids: 256 }

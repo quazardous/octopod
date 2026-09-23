@@ -55,6 +55,8 @@ export interface RenderedService {
   route?: string;
   /** The project's programs, run by the recipe's supervisor. */
   programs?: string[];
+  /** Run on demand only. */
+  tool?: boolean;
   /** The supervisor's configuration, when the recipe runs one: what supervisorctl reads. */
   supervisor?: string;
   /** The project's folder of supervisord files, mounted at SUPERVISOR_D. */
@@ -119,6 +121,8 @@ interface Resolved {
 export const PROGRAMS_FILE = '/etc/octopod/programs.conf';
 /** Where a supervised service reads the project's own supervisord files (`*.conf`). */
 export const SUPERVISOR_D = '/etc/octopod/supervisord.d';
+/** The profile of tools: never activated, so `up` never starts them; `compose run` still can. */
+export const TOOL_PROFILE = 'octopod-tool';
 
 /**
  * The project's programs as supervisord entries. A crashed program is started again, with
@@ -212,7 +216,7 @@ export function renderServices(options: RenderOptions): Rendered {
       if (!waits.some((w) => w.service === provider.name)) waits.push({ service: provider.name, healthy: Boolean(provider.entry.recipe.health) });
     }
 
-    const service: Record<string, unknown> = { restart: 'unless-stopped' };
+    const service: Record<string, unknown> = recipe.tool ? {} : { restart: 'unless-stopped' };
     const image = render(recipe.image, { params: r.params }, `${r.name}.image`);
     if (recipe.build) {
       // An empty context: the Dockerfile alone. The project never goes to the Docker daemon.
@@ -269,7 +273,8 @@ export function renderServices(options: RenderOptions): Rendered {
       service.depends_on = Object.fromEntries(waits.map((w) => [w.service, { condition: w.healthy ? 'service_healthy' : 'service_started' }]));
     }
     if (recipe.port) service.expose = [String(recipe.port)];
-    if (recipe.profiles.length > 0) service.profiles = recipe.profiles;
+    if (recipe.tool) service.profiles = [TOOL_PROFILE];
+    else if (recipe.profiles.length > 0) service.profiles = recipe.profiles;
     if (recipe.limits.memory) service.mem_limit = recipe.limits.memory;
     if (recipe.limits.cpus) service.cpus = Number(recipe.limits.cpus);
     if (recipe.limits.pids) service.pids_limit = recipe.limits.pids;
@@ -291,6 +296,7 @@ export function renderServices(options: RenderOptions): Rendered {
       ...(waits.length > 0 ? { waits } : {}),
       ...(Object.keys(r.programs).length > 0 ? { programs: Object.keys(r.programs) } : {}),
       ...(recipe.supervisor ? { supervisor: recipe.supervisor.config } : {}),
+      ...(recipe.tool ? { tool: true } : {}),
       ...(r.supervisorD ? { supervisorD: r.supervisorD } : {}),
     });
   }
@@ -314,6 +320,7 @@ export function formatPlan(project: string, services: RenderedService[], workspa
     if (s.workspace) lines.push(`    files   ${workspace} → ${s.workspace}  READ-WRITE`);
     if (s.programs) lines.push(`    runs    ${s.programs.join(', ')} (supervised)`);
     if (s.supervisorD) lines.push(`    runs    the programs of ${s.supervisorD} (supervised, read-only)`);
+    if (s.tool) lines.push(`    tool    never started by up: octopod shell ${project} ${s.name} -- <command…>`);
     if (s.waits) lines.push(`    waits   for ${s.waits.map((w) => `${w.service} (${w.healthy ? 'healthy' : 'started'})`).join(', ')}`);
     if (s.route !== undefined) lines.push(`    served  ${s.route ? `${s.route}.` : ''}${project}.localhost, port ${s.port ?? 'from the image'}`);
   }

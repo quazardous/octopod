@@ -1,0 +1,32 @@
+# MongoDB, reachable inside the project as host `<service>` on 27017, its user the
+# server's administrator (a development database: one user, one password). Its URL goes to whoever requires `mongodb` (MONGODB_URL). The data is
+# kept in the project (.octopod/data) unless `persist: false`.
+title: MongoDB
+summary: Document database, reachable inside the project as host <service> on port 27017.
+image: "mongo:{{params.version}}"
+unpinned: true
+build: true
+provides: [mongodb]
+params:
+  version: { type: enum, values: ["8.0", "7.0", "6.0", "5.0"], default: "8.0" }
+  db: { type: ident, default: app }
+  user: { type: ident, default: app }
+  password: { type: secret, bytes: 24 }
+  persist: { type: bool, default: true }
+env:
+  MONGO_INITDB_ROOT_USERNAME: "{{params.user}}"
+  MONGO_INITDB_ROOT_PASSWORD: "{{secrets.password}}"
+  MONGO_INITDB_DATABASE: "{{params.db}}"
+exports:
+  host: "{{service}}"
+  port: "27017"
+  url: "mongodb://{{params.user}}:{{secrets.password}}@{{service}}:27017/{{params.db}}?authSource=admin"
+volumes:
+  - { name: data, path: /data/db, when: persist }
+port: 27017
+# mongosh from 6.0; the older images have the legacy shell.
+health:
+  test: [CMD-SHELL, "mongosh --quiet --eval 'db.adminCommand(\"ping\")' || mongo --quiet --eval 'db.adminCommand(\"ping\")'"]
+  intervalMs: 2000
+  retries: 30
+limits: { memory: 1g, cpus: "1", pids: 512 }

@@ -1,0 +1,22 @@
+# mongo-express at http://mongo.<project>.localhost, connected to the project's MongoDB —
+# the service that provides `mongodb`. No login of its own: a development admin, answering
+# only on the machine, like every route of the edge.
+title: mongo-express
+summary: Web admin of the project's MongoDB at http://mongo.<project>.localhost.
+image: mongo-express:1.0
+unpinned: true
+build: true
+env:
+  ME_CONFIG_BASICAUTH: "false"
+  ME_CONFIG_BASICAUTH_ENABLED: "false"
+  ME_CONFIG_OPTIONS_EDITORTHEME: default
+requires:
+  - capability: mongodb
+    env:
+      ME_CONFIG_MONGODB_URL: "{{provider.url}}"
+      ME_CONFIG_MONGODB_ENABLE_ADMIN: "true"
+port: 8081
+route: { subdomain: mongo }
+profiles: [dev]
+tmpfs: [/tmp]
+limits: { memory: 512m, cpus: "1", pids: 256 }

@@ -1,13 +1,15 @@
 # MariaDB, reachable inside the project as host `<service>` on 3306; its URL goes to
-# whoever requires `sql`. The data is kept in the project (.octopod/data) unless
-# `persist: false`.
-title: MariaDB 11.4
+# whoever requires `sql`, its address and credentials to whoever requires `mysql` (an
+# admin like phpmyadmin). The version is one of the supported LTS releases. The data is
+# kept in the project (.octopod/data) unless `persist: false`.
+title: MariaDB
 summary: Relational database, reachable inside the project as host <service> on port 3306.
-image: mariadb:11.4
+image: "mariadb:{{params.version}}"
 unpinned: true
 build: true
-provides: [sql]
+provides: [sql, mysql]
 params:
+  version: { type: enum, values: ["11.8", "11.4", "10.11", "10.6"], default: "11.4" }
   db: { type: ident, default: app }
   user: { type: ident, default: app }
   password: { type: secret, bytes: 24 }
@@ -21,6 +23,9 @@ env:
 exports:
   host: "{{service}}"
   port: "3306"
+  user: "{{params.user}}"
+  password: "{{secrets.password}}"
+  db: "{{params.db}}"
   url: "mysql://{{params.user}}:{{secrets.password}}@{{service}}:3306/{{params.db}}"
 volumes:
   - { name: data, path: /var/lib/mysql, when: persist }

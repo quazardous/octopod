@@ -1,0 +1,23 @@
+# phpMyAdmin at http://pma.<project>.localhost, logged in to the project's MariaDB — the
+# service that provides `mysql` — with its user: a development admin, answering only on the
+# machine, like every route of the edge.
+title: phpMyAdmin
+summary: Web admin of the project's MariaDB at http://pma.<project>.localhost, logged in with its user.
+image: phpmyadmin:5.2
+unpinned: true
+build: true
+env:
+  APACHE_PORT: "8080"
+  UPLOAD_LIMIT: 64M
+requires:
+  - capability: mysql
+    env:
+      PMA_HOST: "{{provider.host}}"
+      PMA_PORT: "{{provider.port}}"
+      PMA_USER: "{{provider.user}}"
+      PMA_PASSWORD: "{{provider.password}}"
+port: 8080
+route: { subdomain: pma }
+profiles: [dev]
+tmpfs: [/tmp]
+limits: { memory: 512m, cpus: "1", pids: 256 }

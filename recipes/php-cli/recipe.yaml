@@ -1,0 +1,27 @@
+# PHP on the command line, as a tool: never started by `up`, run on demand in a one-off
+# container — `octopod shell <project> <service> -- vendor/bin/phpstan analyse`. The project
+# mounted at /app, as the project's user; composer in the image; the tools themselves are
+# the project's (composer require --dev), never installed in the image. Its cache (composer's,
+# and any tool that follows XDG) is kept in .octopod/data.
+title: PHP command line (tool)
+summary: PHP CLI and composer, run on demand for the project's tools (phpstan, php-cs-fixer…) as the project's user; never kept up.
+image: "php:{{params.php}}-cli"
+unpinned: true
+build: true
+tool: true
+params:
+  php: { type: enum, values: ["8.4", "8.3", "8.2", "8.1"], default: "8.4" }
+  extensions:
+    type: set
+    values: [apcu, bcmath, exif, gd, imagick, intl, memcached, mongodb, mysqli, opcache, pcntl, pdo_mysql, pdo_pgsql, redis, soap, sockets, xdebug, zip]
+    default: [intl, zip]
+buildArgs:
+  EXTENSIONS: "{{params.extensions}}"
+env:
+  COMPOSER_CACHE_DIR: /cache/composer
+  XDG_CACHE_HOME: /cache
+workspace: /app
+volumes:
+  - { name: cache, path: /cache }
+tmpfs: [/tmp]
+limits: { memory: 2g, cpus: "2", pids: 1024 }

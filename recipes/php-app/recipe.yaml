@@ -30,5 +30,17 @@ requires:
   - capability: sql
     env: { DATABASE_URL: "{{provider.url}}" }
     optional: true
+  - capability: redis
+    env: { REDIS_URL: "{{provider.url}}" }
+    optional: true
+  - capability: memcached
+    env: { MEMCACHED_URL: "{{provider.url}}" }
+    optional: true
+  - capability: mongodb
+    env: { MONGODB_URL: "{{provider.url}}" }
+    optional: true
+  - capability: smtp
+    env: { MAILER_DSN: "{{provider.url}}", SMTP_URL: "{{provider.url}}" }
+    optional: true
 tmpfs: [/tmp]
 limits: { memory: 2g, cpus: "2", pids: 1024 }

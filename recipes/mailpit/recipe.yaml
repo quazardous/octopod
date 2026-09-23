@@ -1,0 +1,22 @@
+# Mailpit catches the mail the project sends: SMTP inside the project as host `<service>`
+# on 1025, its address to whoever requires `smtp` (MAILER_DSN, SMTP_URL); the mails read at
+# http://mail.<project>.localhost. It keeps nothing.
+title: Mailpit
+summary: Catches the project's outgoing mail (SMTP on <service>:1025) and shows it at http://mail.<project>.localhost.
+image: axllent/mailpit:v1
+unpinned: true
+build: true
+provides: [smtp]
+exports:
+  host: "{{service}}"
+  port: "1025"
+  url: "smtp://{{service}}:1025"
+port: 8025
+route: { subdomain: mail }
+profiles: [dev]
+health:
+  test: [CMD, /mailpit, readyz]
+  intervalMs: 2000
+  retries: 30
+tmpfs: [/tmp]
+limits: { memory: 256m, cpus: "1", pids: 256 }

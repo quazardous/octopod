@@ -27,8 +27,10 @@ the whole machine.
   their URLs and their logs.
 - **Data in the project, nothing owned by root.** Named volumes are kept in the project's
   `.octopod/data`, created as you. A service that runs or writes there as root is reported.
-- **Or no compose file at all.** A project can name recipes (`node-app`, `php-app`,
-  `postgres`, `mariadb`) instead.
+- **Or no compose file at all.** A project can name recipes instead: apps (`node-app`,
+  `php-app`), databases (`postgres`, `mariadb`, `mongodb`), `redis`, `memcached`,
+  `mailpit`, admins (`phpmyadmin`, `mongo-express`) and tools (`php-cli`), each handing
+  its address to the apps.
 
 octopod is only infrastructure: Traefik and Docker composition. It knows nothing about
 what runs in your containers, and adds no variable to the services of your own compose
@@ -90,6 +92,18 @@ services:
   db:  { recipe: postgres }   # its URL handed to the app as DATABASE_URL
 ```
 
+A PHP stack, each service's address handed to the app (`DATABASE_URL`, `REDIS_URL`,
+`MAILER_DSN`), the admins at `pma.` and `mail.<project>.localhost`:
+
+```yaml
+services:
+  app:   { recipe: php-app, php: "8.3", extensions: [intl, pdo_mysql, redis] }
+  db:    { recipe: mariadb, version: "10.11" }
+  cache: { recipe: redis }
+  mail:  { recipe: mailpit }
+  pma:   { recipe: phpmyadmin }
+```
+
 The app's image gets a user named after the project, at your uid, and nothing installed in
 it: its dependencies are the project's (`octopod shell -- npm install`). The user is the
 image's own, renamed and moved to your uid when the image is built — `node-app` starts from
@@ -109,7 +123,13 @@ services:
       seed:   { command: php bin/console app:seed, autostart: false }   # octopod program start app/seed
 ```
 
-`octopod ps` shows them. A project that already keeps its programs as supervisord files
+The project's tools run on demand, never kept up:
+
+```yaml
+  cli: { recipe: php-cli, php: "8.3" }   # octopod shell cli -- vendor/bin/phpstan analyse
+```
+
+`octopod ps` shows the programs. A project that already keeps its programs as supervisord files
 mounts their folder instead (`supervisor_d: docker/supervisor`), and `octopod program
 reload app` applies a change to them.
 
