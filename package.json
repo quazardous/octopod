@@ -24,7 +24,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "prepack": "npm run build",
+    "prepare": "npm run build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "check:leaks": "scripts/check-leaks.sh"

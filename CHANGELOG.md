@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Installing from the repository (`npm install github:quazardous/octopod#<tag>`) gave an `octopod` that could not start: `dist/` was not built. It is now, by a `prepare` script. npm is still the way to install a release (`npm i -g @quazardous/octopod`; `octopod` alone, without the scope, is another package).
 - `octopod exec` into a service restarting in a loop falls back to a one-off container with newer Docker versions too, which say `cannot exec in a stopped state`.
 - A project that cannot be read (a broken `octopod.yaml`, a recipe that does not load) no longer breaks the whole list, nor the console: it is listed with its `problem`, and the others as usual.
 
