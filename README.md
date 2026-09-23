@@ -1,5 +1,7 @@
 # octopod
 
+[![npm](https://img.shields.io/npm/v/@quazardous/octopod)](https://www.npmjs.com/package/@quazardous/octopod)
+
 > One local edge for all your Docker projects: a shared Traefik, declared projects and isolated networks — behind a small API.
 
 On a development machine, every Docker project grows its own Traefik, its own labels, its
