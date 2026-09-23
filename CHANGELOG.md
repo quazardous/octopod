@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- [docs/WINDOWS.md](docs/WINDOWS.md): octopod on Windows — WSL 2 and Docker Desktop, npm or a clone, the tray, and what differs from Linux: files changed on Windows raise no event in a container (a watcher must poll), `*.localhost` resolves in browsers and `curl` only, line endings, port 80.
+
 ## [0.3.2] - 2026-09-23
 
 ### Added
