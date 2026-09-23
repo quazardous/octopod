@@ -40,6 +40,9 @@ const CONSOLE_FILES: Record<string, { file: string; type: string }> = {
   '/': { file: 'index.html', type: 'text/html; charset=utf-8' },
   '/console.js': { file: 'console.js', type: 'text/javascript; charset=utf-8' },
   '/console.css': { file: 'console.css', type: 'text/css; charset=utf-8' },
+  // The tray's tako: the SVG the page names, and the .ico a browser asks for on its own.
+  '/favicon.svg': { file: '../assets/octopod.svg', type: 'image/svg+xml' },
+  '/favicon.ico': { file: '../assets/octopod.ico', type: 'image/x-icon' },
 };
 const CONSOLE_DIR = new URL('../console/', import.meta.url);
 

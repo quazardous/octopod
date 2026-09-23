@@ -142,6 +142,12 @@ describe.skipIf(process.platform === 'win32')('the API', () => {
     expect(page.text).toContain('<script src="/console.js" defer></script>');
     expect((await raw('GET', '/console.js')).headers['content-type']).toBe('text/javascript; charset=utf-8');
     expect((await raw('GET', '/console.css')).status).toBe(200);
+    // The tray's icon as the tab's.
+    expect(page.text).toContain('<link rel="icon" href="/favicon.svg" type="image/svg+xml">');
+    const svg = await raw('GET', '/favicon.svg');
+    expect(svg.headers['content-type']).toBe('image/svg+xml');
+    expect(svg.text).toContain('<svg');
+    expect((await raw('GET', '/favicon.ico')).headers['content-type']).toBe('image/x-icon');
     expect((await raw('GET', '/package.json')).status).toBe(404);
     expect((await raw('GET', '/../src/api.ts')).status).toBe(404);
   });
@@ -188,6 +194,14 @@ describe('the API on TCP', () => {
     const answer = await get('/v1/version', token);
     expect(answer.status).toBe(200);
     expect(JSON.parse(answer.text)).toMatchObject({ contract: 1 });
+  });
+
+  it('serves the tako of the tray as the icon of the console', async () => {
+    const { token } = await octopod.apiTcp();
+    const svg = await get('/favicon.svg', token);
+    expect(svg.status).toBe(200);
+    expect(svg.text).toContain('<svg');
+    expect((await get('/favicon.ico', token)).status).toBe(200);
   });
 
   it('keeps its port and token, and listens on loopback only', async () => {
