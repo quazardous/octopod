@@ -58,7 +58,9 @@ cd octopod
 .\setup.ps1              # -NoEdge: without starting the edge; -NoTray: without the tray
 ```
 
-It installs the dependencies, puts `octopod` on your PATH (`~\.local\bin`, for PowerShell,
+It installs the dependencies, compiles octopod (the command runs `dist\` with node alone,
+which Smart App Control lets run; `-Dev` runs the sources through tsx instead, whose
+esbuild.exe Smart App Control blocks), puts `octopod` on your PATH (`~\.local\bin`, for PowerShell,
 cmd and Git Bash), starts the edge, adds *octopod* to the Start menu and starts the tray.
 Run it again after a `git pull`: it replaces the running tray with the new one.
 

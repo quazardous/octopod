@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Windows: octopod from a clone runs under Smart App Control, which blocks unsigned programs: `setup.ps1` compiles it, and the command runs the build with Node alone (`-Dev` keeps the sources, through tsx).
+- Windows: the tray starts on a Windows without VBScript (being removed from Windows); it used to never appear there. An older "Start with Windows" is moved to the new command.
+- Windows: `setup.ps1` no longer says Node.js 22+ is too old under Windows PowerShell 5.1.
+
 ## [0.3.3] - 2026-09-23
 
 ### Added
