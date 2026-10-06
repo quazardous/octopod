@@ -1,20 +1,23 @@
 <#
 Sets octopod up from a clone on Windows: dependencies and the `octopod` command on your
-PATH, then `octopod setup` — Docker checked, the shared edge started. Safe to run again
+PATH, then `octopod setup` - Docker checked, the shared edge started. Safe to run again
 (after a pull, for instance). Needs no admin. Docker Desktop must be running.
 
   .\setup.ps1                        # puts the command in ~\.local\bin
   .\setup.ps1 -NoEdge                # ... without starting the edge
   .\setup.ps1 -NoTray                # ... without the tray icon and its Start menu shortcut
+  .\setup.ps1 -Dev                   # the command runs the sources (tsx), not a build
   $env:BIN_DIR="$HOME\bin"; .\setup.ps1   # ... or elsewhere
 
-The command runs the sources: a change to the code needs no new setup. Run it again after a
-dependency change. There is no user service on Windows: run `octopod serve` yourself for
-the API.
+The command runs a build (dist\): node alone, which Smart App Control lets run - tsx runs
+esbuild.exe, an unsigned binary it blocks. Run this again after a pull. With -Dev it runs
+the sources, and a change to the code needs no new setup. There is no user service on
+Windows: the tray starts `octopod serve` for the API.
 #>
 param(
   [switch]$NoEdge,
   [switch]$NoTray,
+  [switch]$Dev,
   [switch]$Help
 )
 $ErrorActionPreference = 'Stop'
@@ -30,7 +33,8 @@ function Fail($m) { Write-Host "x $m" -ForegroundColor Red; exit 1 }
 
 Say 'Checking requirements'
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Fail 'Node.js is not installed (22 or later is needed)' }
-$major = [int](node -p 'process.versions.node.split(".")[0]')
+# Double quotes outside: Windows PowerShell 5.1 drops the inner ones of a native argument.
+$major = [int](node -p "process.versions.node.split('.')[0]")
 if ($major -lt 22) { Fail "Node.js $(node -v) is too old: 22 or later is needed" }
 if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { Fail 'npm is not installed' }
 Write-Host "  node $(node -v)"
@@ -38,8 +42,21 @@ Write-Host "  node $(node -v)"
 Say 'Installing dependencies'
 Push-Location $Root
 try {
-  npm install --no-fund --no-audit
+  # --ignore-scripts: esbuild's own install script runs its binary, which Smart App Control
+  # blocks; and `prepare` would build before the choice below.
+  npm install --no-fund --no-audit --ignore-scripts
   if ($LASTEXITCODE -ne 0) { Fail 'npm install failed' }
+  $runDist = Join-Path $Root 'dist\.run-dist'
+  if ($Dev) {
+    Remove-Item $runDist -Force -ErrorAction SilentlyContinue
+    Write-Host '  the command runs the sources, through tsx (-Dev)'
+  } else {
+    Say 'Compiling octopod'
+    npm run --silent build
+    if ($LASTEXITCODE -ne 0) { Fail 'the build failed' }
+    Set-Content -Path $runDist -Encoding ascii -Value 'setup.ps1: bin\octopod.js runs dist\, not the sources'
+    Write-Host "  the command runs $Root\dist (run this again after a pull)"
+  }
 } finally { Pop-Location }
 
 Say 'Installing the octopod command'
@@ -80,11 +97,14 @@ if ($LASTEXITCODE -ne 0) { Fail 'octopod setup failed (is Docker Desktop running
 
 if (-not $NoTray) {
   Say 'The tray icon'
-  $vbs = Join-Path $Root 'bin\octopod-tray.vbs'
+  # The tray with no window at all: conhost --headless. Not a .vbs through wscript: Windows
+  # is removing VBScript, and a fresh install may not have it.
+  $tray = Join-Path $Root 'bin\octopod-tray.ps1'
+  $trayArgs = "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$tray`""
   $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'octopod.lnk'
   $link = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcut)
-  $link.TargetPath = 'wscript.exe'
-  $link.Arguments = "`"$vbs`""
+  $link.TargetPath = Join-Path $env:windir 'System32\conhost.exe'
+  $link.Arguments = $trayArgs
   $link.IconLocation = Join-Path $Root 'assets\octopod.ico'
   $link.Description = 'octopod: the edge, the projects and their URLs'
   $link.Save()
@@ -103,7 +123,11 @@ if (-not $NoTray) {
       try { Wait-Process -Id $p.ProcessId -Timeout 5 -ErrorAction Stop } catch { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
     }
   }
-  Start-Process -FilePath 'wscript.exe' -ArgumentList "`"$vbs`""
+  # "Start with Windows" set by an older tray ran the .vbs: the same command as the shortcut now.
+  $run = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+  $was = (Get-ItemProperty -Path $run -Name 'octopod-tray' -ErrorAction SilentlyContinue).'octopod-tray'
+  if ($was -and $was -match '\.vbs') { Set-ItemProperty -Path $run -Name 'octopod-tray' -Value "conhost.exe $trayArgs" -Type String }
+  Start-Process -FilePath 'conhost.exe' -ArgumentList $trayArgs
   Write-Host '  started: the tako in the notification area (right-click it; "Start with Windows" is there)'
 }
 
