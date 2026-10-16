@@ -86,6 +86,10 @@ Rules, checked when the project is registered and every time it is brought up:
   `COMPOSE_*` or any other variable of the calling shell, which a compose file would
   otherwise interpolate unseen. A project's variables come from its `.env`, or from its
   declared `env_file` (passed as `--env-file`). The override never adds an `environment`.
+- **The project's mounted folders**: before `up`, each bind-mount source inside the project
+  that does not exist (`./dataset:/data` in the project's compose file) is created as the
+  operator — Docker would create it as root. A source outside the project is not octopod's
+  to create. `status` warns about one the operator does not own.
 - **Ownership**: `status` reports, in `warnings`, each data folder holding files the
   operator does not own — a service writing as root leaves files only root can delete —
   and each running service whose main process runs as root, read from the process itself

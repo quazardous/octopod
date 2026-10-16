@@ -5,17 +5,17 @@
  * the registry of projects, each project's generated override. Nothing is written into a
  * project.
  */
-import { chmod, lstat, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { createHash, randomBytes } from 'node:crypto';
 import { createConnection, createServer } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
-import { basename, dirname, isAbsolute, join } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative } from 'node:path';
 import { loadDeclaration, withInstance, type Declaration } from './declaration.js';
 import { lintDockerfile } from './recipes/lint.js';
 import { BUILTIN_RECIPES, envRecipeDirs, loadRecipes, type Shadowed } from './recipes/loader.js';
 import { BUILD_LABEL, formatPlan, PROJECT_LABEL, renderServices, TOOL_PROFILE, type RenderedService } from './recipes/render.js';
 import { cliDocker, composeUp, DockerError, type Docker } from './docker.js';
-import { choosePort, composePorts, CONSOLE_HOST, consoleNginxConfig, DASHBOARD_HOST, DATA_DIR, dataVolumes, duplicationBlockers, edgeCompose, edgeContainer, imagePorts, localOnlyConfig, projectOverride, traefikConfig, type ComposeService, type ComposeVolume, type ResolvedPort } from './generate.js';
+import { bindSources, choosePort, composePorts, CONSOLE_HOST, consoleNginxConfig, DASHBOARD_HOST, DATA_DIR, dataVolumes, duplicationBlockers, edgeCompose, edgeContainer, imagePorts, localOnlyConfig, projectOverride, traefikConfig, type ComposeService, type ComposeVolume, type ResolvedPort } from './generate.js';
 import { edgeNetwork, fullHost, instanceName } from './names.js';
 
 /** The version of the contract in docs/CONTRACT.md: the declaration, the API, the CLI's JSON. */
@@ -669,6 +669,12 @@ export class Octopod {
     }
     const data = dataVolumes(declaration.root, config.volumes ?? {}, instance);
     await this.prepareData(declaration, config.volumes ?? {}, data);
+    // The project's folders its services mount: a missing one, Docker would create as root.
+    const binds = bindSources(declaration.root, config.services ?? {});
+    for (const source of binds) {
+      if (!(await stat(source).then(() => true, () => false))) await mkdir(source, { recursive: true });
+    }
+    await this.writeJson(join('projects', declaration.project, 'binds.json'), binds);
     const ports = await this.resolvePorts(declaration, config.services ?? {});
     await this.writeJson(join('projects', declaration.project, 'ports.json'), ports);
     const override = projectOverride(this.instance, declaration, config.services ?? {}, data, Object.fromEntries(Object.entries(ports).map(([h, r]) => [h, r.port])));
@@ -776,6 +782,27 @@ export class Octopod {
     return out;
   }
 
+  /**
+   * The project's mounted folders (as `up` last found them) that the operator does not own:
+   * what a service writes there, or what Docker created there as root before octopod made
+   * them, the operator can neither change nor remove. `.octopod/data` is foreignData's.
+   */
+  private async foreignBinds(declaration: Declaration): Promise<string[]> {
+    const uid = process.getuid?.();
+    if (uid === undefined) return [];
+    const binds = await this.readJson<string[]>(join('projects', declaration.project, 'binds.json'), []);
+    const data = join(declaration.root, DATA_DIR);
+    const out: string[] = [];
+    for (const source of binds) {
+      if (source === data || source.startsWith(`${data}/`)) continue;
+      const info = await lstat(source).catch(() => undefined);
+      if (info && info.uid !== uid) {
+        out.push(`${relative(declaration.root, source)} is owned by uid ${info.uid}, not you: neither you nor a service running as you can write there — give it back (sudo chown -R $(id -u):$(id -g) ${source})`);
+      }
+    }
+    return out;
+  }
+
   async down(name: string, options: { volumes?: boolean; instance?: number; images?: boolean } = {}): Promise<ProjectStatus> {
     const instance = options.instance ?? 1;
     const declaration = await this.declaration(name, instance);
@@ -806,7 +833,13 @@ export class Octopod {
     const tools = made.filter((s) => s.tool && !rows.some((r) => r.Service === s.name)).map((s) => ({ service: s.name, state: 'tool' }));
     const programs = supervisors.size > 0 ? await this.programStates(declaration, supervisors) : [];
     const failing = programs.filter((p) => p.state === 'FATAL' || p.state === 'BACKOFF').map((p) => `${p.service}/${p.program} is ${p.state}: it keeps failing to start — octopod logs --service ${p.service}`);
-    const warnings = [...(await this.portWarnings(declaration)), ...(await this.foreignData(declaration)), ...(await this.rootWarnings(rows)), ...failing];
+    const warnings = [
+      ...(await this.portWarnings(declaration)),
+      ...(await this.foreignData(declaration)),
+      ...(await this.foreignBinds(declaration)),
+      ...(await this.rootWarnings(rows)),
+      ...failing,
+    ];
     const others = instance === 1 ? await this.instances(name) : [];
     return {
       ...(await this.project(declaration)),

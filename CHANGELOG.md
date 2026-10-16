@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A folder of the project that its compose file mounts (`./dataset:/data`), missing at the first `octopod up`, was created by Docker as root: the app, running as you, could not write there, nor you remove it. octopod now creates the missing ones as you before `up`, and `status` warns about one root owns. A folder outside the project is left to Docker.
 - A recipe whose Dockerfile or build arguments changed (a fix in the Dockerfile, an extension added) was not built again by `octopod up`: compose builds only a missing image, and the container kept the old one. Built images now carry what they were built from, and `up` builds again those that changed, then removes the images they replaced.
 - `octopod up` and `octopod edge up` failed with `network … not found` once Docker had lost the edge's or a project's network (a `docker network prune`, a restart of Docker): compose made the network again but started the old containers, which pointed at the old one. They are now made again in that case, and start.
 

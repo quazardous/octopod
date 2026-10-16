@@ -2,6 +2,7 @@
  * What octopod writes: the shared Traefik's static configuration and compose file, and a
  * project's compose override. Pure functions of their inputs — tested without Docker.
  */
+import { isAbsolute, relative } from 'node:path';
 import { edgeNetwork } from './names.js';
 import type { Declaration } from './declaration.js';
 
@@ -228,6 +229,8 @@ export function dataVolumes(root: string, volumes: Record<string, ComposeVolume>
 /** A service of the project as `docker compose config` sees it: only what octopod needs. */
 export interface ComposeService {
   networks?: Record<string, unknown> | string[];
+  /** As `compose config` writes them: the long syntax. */
+  volumes?: ({ type?: string; source?: string } | string)[];
   image?: string;
   build?: unknown;
   expose?: (string | number)[];
@@ -235,6 +238,25 @@ export interface ComposeService {
 }
 
 export type PortSource = 'declared' | 'compose' | 'image' | 'guess';
+
+/**
+ * The project's folders its services mount (`./dataset:/data`): the bind sources inside
+ * the project. A missing one Docker would create as root — octopod creates it, as the
+ * operator. One outside the project is not octopod's to create.
+ */
+export function bindSources(root: string, services: Record<string, ComposeService>): string[] {
+  const inside = (p: string): boolean => {
+    const rel = relative(root, p);
+    return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
+  };
+  const out = new Set<string>();
+  for (const service of Object.values(services)) {
+    for (const v of service.volumes ?? []) {
+      if (typeof v === 'object' && v.type === 'bind' && v.source && isAbsolute(v.source) && inside(v.source)) out.add(v.source);
+    }
+  }
+  return [...out].sort();
+}
 
 export interface ResolvedPort {
   port: number;

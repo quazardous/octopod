@@ -744,3 +744,39 @@ describe.skipIf(!dockerAvailable())('a recipe whose Dockerfile changes (real doc
     expect(docker('image', 'ls', '-q', '--filter', 'dangling=true', '--filter', 'label=octopod.project=rebuilt').trim()).toBe('');
   });
 });
+
+describe.skipIf(!dockerAvailable())("the project's own mounted folders (real docker)", { timeout: 300_000 }, () => {
+  let base: string;
+  let root: string;
+  let octopod: Octopod;
+
+  beforeAll(async () => {
+    base = await mkdtemp(join(tmpdir(), 'octopod-binds-'));
+    root = join(base, 'binds');
+    await mkdir(root);
+    await writeFile(
+      join(root, 'docker-compose.yml'),
+      'services:\n  web:\n    image: traefik/whoami:v1.10\n    volumes:\n      - ./.octopod/dataset/img:/img\n      - ./made/here:/made\n      - ./rooted:/rooted\n',
+    );
+    await writeFile(join(root, 'octopod.yaml'), 'expose:\n  - service: web\n    port: 80\n');
+    // What Docker does to a missing mount source when octopod is not there to make it first.
+    docker('run', '--rm', '-v', `${join(root, 'rooted')}:/x`, 'alpine:3.20', 'true');
+    octopod = new Octopod({ stateDir: join(base, 'state'), instance: INSTANCE, ports: [PORT] });
+    await octopod.register(root);
+  }, 300_000);
+
+  afterAll(async () => {
+    await octopod.unregister('binds').catch(() => undefined);
+    await octopod.edgeDown();
+    docker('run', '--rm', '-v', `${base}:/base`, 'alpine:3.20', 'rm', '-rf', '/base/binds/rooted');
+    await rm(base, { recursive: true, force: true });
+  }, 300_000);
+
+  it('creates the missing ones as the operator, and says which one root owns', async () => {
+    await octopod.up('binds');
+    for (const dir of ['.octopod/dataset/img', 'made/here']) expect((await stat(join(root, dir))).uid, dir).toBe(process.getuid?.());
+    const status = await octopod.status('binds');
+    expect(status.warnings).toContainEqual(expect.stringMatching(/^rooted is owned by uid 0, not you/));
+    expect((status.warnings ?? []).filter((w) => w.startsWith('made') || w.startsWith('.octopod/dataset'))).toEqual([]);
+  });
+});

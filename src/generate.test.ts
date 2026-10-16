@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { choosePort, composePorts, consoleNginxConfig, dataVolumes, duplicationBlockers, edgeCompose, imagePorts, LOCAL_ONLY, localOnlyConfig, projectOverride, traefikConfig } from './generate.js';
+import { bindSources, choosePort, composePorts, consoleNginxConfig, dataVolumes, duplicationBlockers, edgeCompose, imagePorts, LOCAL_ONLY, localOnlyConfig, projectOverride, traefikConfig } from './generate.js';
 import { withInstance } from './declaration.js';
 import { instanceName } from './names.js';
 import { fullHost, slugify } from './names.js';
@@ -225,5 +225,24 @@ describe('instances', () => {
     expect(duplicationBlockers({ web: {}, db: { ports: [{ target: 5432 }] } })).toEqual([]);
     expect(duplicationBlockers({ web: { container_name: 'shop' }, db: { ports: [{ target: 5432, published: '5432' } as { target: number }] } }))
       .toEqual(['web: container_name "shop" is fixed', 'db: publishes a fixed host port (5432)']);
+  });
+});
+
+describe("the project's mounted folders", () => {
+  it('are the bind sources inside the project — not outside it, not named volumes', () => {
+    const services = {
+      app: {
+        volumes: [
+          { type: 'bind', source: '/p/.octopod/dataset/img', target: '/img' },
+          { type: 'bind', source: '/p/made/here', target: '/m' },
+          { type: 'bind', source: '/elsewhere/cache', target: '/c' },
+          { type: 'bind', source: '/p', target: '/app' },
+          { type: 'volume', source: 'data', target: '/data' },
+          './relative:/x',
+        ],
+      },
+      db: { volumes: [{ type: 'bind', source: '/p/made/here', target: '/again' }] },
+    };
+    expect(bindSources('/p', services)).toEqual(['/p/.octopod/dataset/img', '/p/made/here']);
   });
 });
