@@ -73,6 +73,11 @@ export interface RenderedService {
   digest: string;
   image: string;
   build: boolean;
+  /**
+   * What its image is built from — the recipe (its Dockerfile included) and the build's
+   * arguments — as a short digest, labelled on the image: when it changes, `up` builds again.
+   */
+  buildTag?: string;
   params: Record<string, ParamValue>;
   /** Names only. */
   secrets: string[];
@@ -177,6 +182,9 @@ export const PROGRAMS_FILE = '/etc/octopod/programs.conf';
 export const SUPERVISOR_D = '/etc/octopod/supervisord.d';
 /** The profile of tools: never activated, so `up` never starts them; `compose run` still can. */
 export const TOOL_PROFILE = 'octopod-tool';
+/** On an image octopod built: what it was built from, and for which project. */
+export const BUILD_LABEL = 'octopod.build';
+export const PROJECT_LABEL = 'octopod.project';
 
 /**
  * The project's programs as supervisord entries. A crashed program is started again, with
@@ -284,13 +292,16 @@ export function renderServices(options: RenderOptions): Rendered {
 
     const service: Record<string, unknown> = recipe.tool ? {} : { restart: 'unless-stopped' };
     const image = render(recipe.image, { params: r.params }, `${r.name}.image`);
+    let buildTag: string | undefined;
     if (recipe.build) {
       // An empty context: the Dockerfile alone. The project never goes to the Docker daemon.
       const context = `.octopod/build/${r.name}`;
       files[`${context}/Dockerfile`] = r.entry.dockerfile!;
       const extra = renderMap(recipe.buildArgs, { params: r.params }, `${r.name}.buildArgs`);
       const workspaceArg = recipe.workspace ? { WORKSPACE: r.request.workdir ?? recipe.workspace } : {};
-      service.build = { context, args: { ...extra, BASE_IMAGE: image, UID: uid, GID: gid, USER_NAME: userNameOf(options.project), ...workspaceArg } };
+      const args = { ...extra, BASE_IMAGE: image, UID: uid, GID: gid, USER_NAME: userNameOf(options.project), ...workspaceArg };
+      buildTag = createHash('sha256').update(r.entry.digest).update(JSON.stringify(args)).digest('hex').slice(0, 12);
+      service.build = { context, args, labels: { [BUILD_LABEL]: buildTag, [PROJECT_LABEL]: options.project } };
     } else {
       service.image = image;
     }
@@ -367,6 +378,7 @@ export function renderServices(options: RenderOptions): Rendered {
       digest: r.entry.digest,
       image,
       build: recipe.build,
+      ...(buildTag ? { buildTag } : {}),
       params: r.params,
       secrets: Object.keys(r.secrets),
       volumes: kept,

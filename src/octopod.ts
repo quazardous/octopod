@@ -13,7 +13,7 @@ import { basename, dirname, isAbsolute, join } from 'node:path';
 import { loadDeclaration, withInstance, type Declaration } from './declaration.js';
 import { lintDockerfile } from './recipes/lint.js';
 import { BUILTIN_RECIPES, envRecipeDirs, loadRecipes, type Shadowed } from './recipes/loader.js';
-import { formatPlan, renderServices, TOOL_PROFILE, type RenderedService } from './recipes/render.js';
+import { BUILD_LABEL, formatPlan, PROJECT_LABEL, renderServices, TOOL_PROFILE, type RenderedService } from './recipes/render.js';
 import { cliDocker, composeUp, DockerError, type Docker } from './docker.js';
 import { choosePort, composePorts, CONSOLE_HOST, consoleNginxConfig, DASHBOARD_HOST, DATA_DIR, dataVolumes, duplicationBlockers, edgeCompose, edgeContainer, imagePorts, localOnlyConfig, projectOverride, traefikConfig, type ComposeService, type ComposeVolume, type ResolvedPort } from './generate.js';
 import { edgeNetwork, fullHost, instanceName } from './names.js';
@@ -674,9 +674,17 @@ export class Octopod {
     const override = projectOverride(this.instance, declaration, config.services ?? {}, data, Object.fromEntries(Object.entries(ports).map(([h, r]) => [h, r.port])));
     await this.writeJson(join('projects', declaration.project, 'override.json'), override);
     await this.edgeUp();
+    // compose builds an image only when it is missing: one whose recipe or build arguments
+    // changed is built again here, before up recreates its container.
+    const stale = await this.staleBuilds(declaration);
+    if (stale.length > 0) await this.docker.run([...this.composeArgs(declaration, true), 'build', ...stale]);
     await composeUp(this.docker, [...this.composeArgs(declaration, true), 'up', '-d']);
     // Tools are not started, but built now: run on demand, they answer at once.
     if (declaration.tools) await this.docker.run([...this.composeArgs(declaration, true), '--profile', TOOL_PROFILE, 'build', ...declaration.tools]);
+    // The images those builds replaced, now nameless: the project's only.
+    if (stale.length > 0 || declaration.tools) {
+      await this.docker.run(['image', 'prune', '-f', '--filter', `label=${PROJECT_LABEL}=${declaration.project}`]).catch(() => undefined);
+    }
     await this.connect(declaration.project);
     if (instance > 1) await this.noteInstance(name, instance, true);
     return this.status(name, instance);
@@ -881,6 +889,23 @@ export class Octopod {
 
   private async supervisors(declaration: Declaration): Promise<Map<string, string>> {
     return new Map((await this.recipeServices(declaration)).flatMap((s) => (s.supervisor ? [[s.name, s.supervisor] as const] : [])));
+  }
+
+  /**
+   * The built services whose image exists but was built from something else — another
+   * Dockerfile, other arguments — than what the recipe now says. A missing image compose
+   * builds by itself; a tool is built at each up anyway.
+   */
+  private async staleBuilds(declaration: Declaration): Promise<string[]> {
+    const stale: string[] = [];
+    for (const s of await this.recipeServices(declaration)) {
+      if (!s.buildTag || s.tool) continue;
+      const built = await this.docker
+        .run(['image', 'inspect', `${declaration.project}-${s.name}`, '--format', `{{index .Config.Labels "${BUILD_LABEL}"}}`])
+        .catch(() => undefined);
+      if (built !== undefined && built.trim() !== s.buildTag) stale.push(s.name);
+    }
+    return stale;
   }
 
   /** The services made of recipes, as rendered (secrets left out): what each is. */

@@ -314,12 +314,29 @@ describe('rendering services', () => {
     expect(Object.keys(env('macos'))).not.toContain('CHOKIDAR_USEPOLLING');
   });
 
+  it('tags what an image is built from: another Dockerfile or other arguments build it again', async () => {
+    const book = await loadRecipes([BUILTIN_RECIPES]);
+    const tag = (b: typeof book, params: Record<string, unknown> = {}) =>
+      renderServices({ project: 'shop', book: b, services: { app: { recipe: 'php-app', params } }, workspace: '/p', owner: '1:1' }).services[0].buildTag;
+    const first = tag(book);
+    expect(first).toMatch(/^[0-9a-f]{12}$/);
+    expect(tag(book)).toBe(first);
+    expect(tag(book, { extensions: ['intl', 'gd'] })).not.toBe(first);
+    const entry = book.recipes.get('php-app')!;
+    const changed = { ...book, recipes: new Map(book.recipes).set('php-app', { ...entry, dockerfile: `${entry.dockerfile}\nRUN true`, digest: digestOf(entry.recipe, `${entry.dockerfile}\nRUN true`) }) };
+    expect(tag(changed)).not.toBe(first);
+  });
+
   it('builds the app with its user named after the project at the operator\'s uid, from an empty context', async () => {
     const book = await loadRecipes([BUILTIN_RECIPES]);
     const out = renderServices({ project: 'shop', book, services: { app: { recipe: 'node-app' } }, workspace: '/home/op/shop', owner: '1234:5678', secretFactory: secrets, hostOs: 'linux' });
     const app = out.compose.services.app;
     expect(app.image).toBeUndefined();
-    expect(app.build).toEqual({ context: '.octopod/build/app', args: { BASE_IMAGE: 'node:22-bookworm-slim', UID: '1234', GID: '5678', USER_NAME: 'shop', WORKSPACE: '/app' } });
+    expect(app.build).toEqual({
+      context: '.octopod/build/app',
+      args: { BASE_IMAGE: 'node:22-bookworm-slim', UID: '1234', GID: '5678', USER_NAME: 'shop', WORKSPACE: '/app' },
+      labels: { 'octopod.build': out.services[0].buildTag, 'octopod.project': 'shop' },
+    });
     expect(out.files['.octopod/build/app/Dockerfile']).toContain('usermod');
     expect(app.volumes).toEqual(['/home/op/shop:/app', './.octopod/bashrc:/etc/octopod/bashrc:ro']);
     expect(app.working_dir).toBe('/app');

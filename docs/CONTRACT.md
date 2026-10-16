@@ -159,6 +159,10 @@ workspace: .               # the folder a recipe's workspace mounts; the project
   never in the project.
 - Routed recipes are exposed without an `expose` entry, at the project's host or their
   subdomain; two wanting the same host is an error. Their profiles are activated.
+- A built image is labelled `octopod.build` with a digest of what it is built from — the
+  recipe, its Dockerfile, the build's arguments — and `octopod.project`. `up` builds again
+  the services whose label no longer matches (compose alone builds only a missing image),
+  then removes the images they replaced.
 - The recipe's digest covers its Dockerfile. `octopod plan [dir]` renders without writing
   anything, for an approval.
 - No networks and no hardening: a client with stricter needs adds its own compose file.

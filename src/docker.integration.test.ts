@@ -709,3 +709,38 @@ describe.skipIf(!dockerAvailable())('after Docker lost its networks (real docker
     expect((await eventually('pruned.localhost', 200)).status).toBe(200);
   });
 });
+
+describe.skipIf(!dockerAvailable())('a recipe whose Dockerfile changes (real docker)', { timeout: 300_000 }, () => {
+  let base: string;
+  let root: string;
+  let octopod: Octopod;
+  const dockerfile = (word: string) => `ARG BASE_IMAGE\nFROM \${BASE_IMAGE}\nRUN echo ${word} > /version\n`;
+
+  beforeAll(async () => {
+    base = await mkdtemp(join(tmpdir(), 'octopod-rebuild-'));
+    root = join(base, 'rebuilt');
+    const recipe = join(root, '.octopod', 'recipes', 'probe');
+    await mkdir(recipe, { recursive: true });
+    await writeFile(join(recipe, 'recipe.yaml'), 'title: Probe\nsummary: s\nimage: alpine:3.20\nunpinned: true\nbuild: true\ncommand: [sleep, "3600"]\n');
+    await writeFile(join(recipe, 'Dockerfile'), dockerfile('one'));
+    await writeFile(join(root, 'octopod.yaml'), 'services:\n  app: { recipe: probe }\n');
+    octopod = new Octopod({ stateDir: join(base, 'state'), instance: INSTANCE, ports: [PORT] });
+    await octopod.register(root);
+  }, 300_000);
+
+  afterAll(async () => {
+    await octopod.unregister('rebuilt').catch(() => undefined);
+    await octopod.edgeDown();
+    await rm(base, { recursive: true, force: true });
+  }, 300_000);
+
+  it('is built again by up, and its container runs the new image', async () => {
+    await octopod.up('rebuilt');
+    expect((await octopod.exec('rebuilt', 'app', ['cat', '/version'])).output.trim()).toBe('one');
+    await writeFile(join(root, '.octopod', 'recipes', 'probe', 'Dockerfile'), dockerfile('two'));
+    await octopod.up('rebuilt');
+    expect((await octopod.exec('rebuilt', 'app', ['cat', '/version'])).output.trim()).toBe('two');
+    // The image it replaced is gone, not left nameless.
+    expect(docker('image', 'ls', '-q', '--filter', 'dangling=true', '--filter', 'label=octopod.project=rebuilt').trim()).toBe('');
+  });
+});
