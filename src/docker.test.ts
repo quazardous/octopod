@@ -32,3 +32,29 @@ describe('the docker runner', () => {
     await expect(cliDocker(process.execPath).run(['-e', 'process.stdin.resume()'], { timeoutMs: 5000 })).resolves.toBe('');
   });
 });
+
+describe('compose up after Docker lost a network', () => {
+  it('makes the containers again, once, when one refers to a network that is gone — and only then', async () => {
+    const { composeUp, DockerError } = await import('./docker.js');
+    const calls: string[][] = [];
+    let fail: string | undefined = 'Error response from daemon: failed to set up container networking: network 61b9df29a1b2c3d4 not found';
+    const docker = {
+      run: async (args: string[]) => {
+        calls.push(args);
+        if (fail) {
+          const message = fail;
+          fail = undefined;
+          throw new DockerError(message);
+        }
+        return '';
+      },
+    };
+    await composeUp(docker, ['compose', 'up', '-d']);
+    expect(calls).toEqual([['compose', 'up', '-d'], ['compose', 'up', '-d', '--force-recreate']]);
+
+    calls.length = 0;
+    fail = 'pull access denied for nope';
+    await expect(composeUp(docker, ['compose', 'up', '-d'])).rejects.toThrow(/pull access denied/);
+    expect(calls).toEqual([['compose', 'up', '-d']]);
+  });
+});

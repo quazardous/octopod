@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `octopod up` and `octopod edge up` failed with `network … not found` once Docker had lost the edge's or a project's network (a `docker network prune`, a restart of Docker): compose made the network again but started the old containers, which pointed at the old one. They are now made again in that case, and start.
+
 ## [0.3.3] - 2026-09-23
 
 ### Added

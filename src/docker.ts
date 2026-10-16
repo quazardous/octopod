@@ -113,3 +113,21 @@ export function cliDocker(binary = 'docker'): Docker {
     },
   };
 }
+
+/** What docker says when a container it starts refers to a network that is gone. */
+const NETWORK_GONE = /network [0-9a-f]{12,} not found|failed to set up container networking/i;
+
+/**
+ * `docker compose … up -d`, and once more with every container made again when one of
+ * them refers to a network that no longer exists — after a `docker network prune` or a
+ * restart of Docker, compose creates the network again but starts the old containers,
+ * which still point at the old one.
+ */
+export async function composeUp(docker: Docker, args: string[]): Promise<void> {
+  try {
+    await docker.run(args);
+  } catch (e) {
+    if (!(e instanceof DockerError) || !NETWORK_GONE.test(e.message)) throw e;
+    await docker.run([...args, '--force-recreate']);
+  }
+}

@@ -680,3 +680,32 @@ describe.skipIf(!dockerAvailable())('the service recipes, together (real docker)
     expect(me.status).toBe(200);
   });
 });
+
+describe.skipIf(!dockerAvailable())('after Docker lost its networks (real docker)', { timeout: 300_000 }, () => {
+  let base: string;
+  let octopod: Octopod;
+
+  beforeAll(async () => {
+    base = await mkdtemp(join(tmpdir(), 'octopod-prune-'));
+    octopod = new Octopod({ stateDir: join(base, 'state'), instance: INSTANCE, ports: [PORT] });
+    await octopod.register(await project(base, 'pruned', 80));
+    await octopod.up('pruned');
+  }, 300_000);
+
+  afterAll(async () => {
+    await octopod.unregister('pruned').catch(() => undefined);
+    await octopod.edgeDown();
+    await rm(base, { recursive: true, force: true });
+  }, 300_000);
+
+  it('brings the edge and a project back up, their containers made again on the new networks', async () => {
+    // What a `docker network prune` does to stopped stacks: their containers stay, their
+    // networks go — and starting them again would point at networks that no longer exist.
+    docker('compose', '-f', join(base, 'state', 'edge', 'compose.json'), 'stop');
+    docker('compose', '-p', 'pruned', 'stop');
+    docker('network', 'rm', `${INSTANCE}-edge_default`, `${INSTANCE}-pruned-edge`);
+    expect((await octopod.edgeUp()).running).toBe(true);
+    await octopod.up('pruned');
+    expect((await eventually('pruned.localhost', 200)).status).toBe(200);
+  });
+});

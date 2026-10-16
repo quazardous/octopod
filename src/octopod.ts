@@ -14,7 +14,7 @@ import { loadDeclaration, withInstance, type Declaration } from './declaration.j
 import { lintDockerfile } from './recipes/lint.js';
 import { BUILTIN_RECIPES, envRecipeDirs, loadRecipes, type Shadowed } from './recipes/loader.js';
 import { formatPlan, renderServices, TOOL_PROFILE, type RenderedService } from './recipes/render.js';
-import { cliDocker, DockerError, type Docker } from './docker.js';
+import { cliDocker, composeUp, DockerError, type Docker } from './docker.js';
 import { choosePort, composePorts, CONSOLE_HOST, consoleNginxConfig, DASHBOARD_HOST, DATA_DIR, dataVolumes, duplicationBlockers, edgeCompose, edgeContainer, imagePorts, localOnlyConfig, projectOverride, traefikConfig, type ComposeService, type ComposeVolume, type ResolvedPort } from './generate.js';
 import { edgeNetwork, fullHost, instanceName } from './names.js';
 
@@ -337,7 +337,7 @@ export class Octopod {
     await this.writeJson('edge/compose.json', compose);
     // Always: compose leaves what has not changed alone, and brings what has — a console
     // added, a configuration changed — up to date.
-    await this.docker.run(['compose', '-f', this.path('edge', 'compose.json'), 'up', '-d', '--remove-orphans']);
+    await composeUp(this.docker, ['compose', '-f', this.path('edge', 'compose.json'), 'up', '-d', '--remove-orphans']);
     // Docker Desktop (Windows) passes no file events through a bind mount: Traefik never
     // sees the middleware change, and keeps the console and the dashboard closed until it
     // starts again.
@@ -674,7 +674,7 @@ export class Octopod {
     const override = projectOverride(this.instance, declaration, config.services ?? {}, data, Object.fromEntries(Object.entries(ports).map(([h, r]) => [h, r.port])));
     await this.writeJson(join('projects', declaration.project, 'override.json'), override);
     await this.edgeUp();
-    await this.docker.run([...this.composeArgs(declaration, true), 'up', '-d']);
+    await composeUp(this.docker, [...this.composeArgs(declaration, true), 'up', '-d']);
     // Tools are not started, but built now: run on demand, they answer at once.
     if (declaration.tools) await this.docker.run([...this.composeArgs(declaration, true), '--profile', TOOL_PROFILE, 'build', ...declaration.tools]);
     await this.connect(declaration.project);
