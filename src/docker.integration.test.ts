@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import type { Server } from 'node:http';
 import { listen } from './api.js';
-import { Octopod } from './octopod.js';
+import { Octopod, prepareSocketDir } from './octopod.js';
 
 const INSTANCE = 'octopodtest';
 const PORT = 18480;
@@ -778,5 +778,45 @@ describe.skipIf(!dockerAvailable())("the project's own mounted folders (real doc
     const status = await octopod.status('binds');
     expect(status.warnings).toContainEqual(expect.stringMatching(/^rooted is owned by uid 0, not you/));
     expect((status.warnings ?? []).filter((w) => w.startsWith('made') || w.startsWith('.octopod/dataset'))).toEqual([]);
+  });
+});
+
+describe.skipIf(!dockerAvailable())('after a reboot: the relay before the API (real docker)', { timeout: 300_000 }, () => {
+  let base: string;
+  let octopod: Octopod;
+  let socketDir: string;
+  let api: Server | undefined;
+
+  beforeAll(async () => {
+    base = await mkdtemp(join(tmpdir(), 'octopod-boot-'));
+    socketDir = join(base, 'run');
+    octopod = new Octopod({ stateDir: join(base, 'state'), instance: INSTANCE, ports: [PORT], socket: join(socketDir, 'octopod.sock') });
+    await octopod.edgeUp();
+  }, 300_000);
+
+  afterAll(async () => {
+    if (api) await new Promise((r) => api?.close(r));
+    await octopod.edgeDown();
+    docker('run', '--rm', '-v', `${base}:/base`, 'alpine:3.20', 'rm', '-rf', '/base/run', '/base/root-made');
+    await rm(base, { recursive: true, force: true });
+  }, 300_000);
+
+  it('does not let Docker make the API folder as root; serve makes it, and starts the relay', async () => {
+    // A reboot: the folder is gone (a tmpfs), and Docker starts the relay on its own.
+    docker('stop', `${INSTANCE}-console`);
+    await rm(socketDir, { recursive: true, force: true });
+    expect(() => docker('start', `${INSTANCE}-console`)).toThrow();
+    await expect(stat(socketDir)).rejects.toThrow();
+    // Then octopod's service starts.
+    api = await listen(octopod, join(socketDir, 'octopod.sock'));
+    await octopod.ensureConsole();
+    expect((await stat(socketDir)).uid).toBe(process.getuid?.());
+    expect(docker('inspect', '--format', '{{.State.Running}}', `${INSTANCE}-console`).trim()).toBe('true');
+  });
+
+  it('says how to get back a folder Docker made as root, instead of a bare EPERM', async () => {
+    const made = join(base, 'root-made');
+    docker('run', '--rm', '-v', `${made}:/x`, 'alpine:3.20', 'true');
+    await expect(prepareSocketDir(made)).rejects.toThrow(/belongs to uid 0, not you: .*sudo chown/);
   });
 });

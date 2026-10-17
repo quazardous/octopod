@@ -303,6 +303,8 @@ async function main(argv: string[]): Promise<void> {
         },
       });
       octopod.stale = () => watch.changed();
+      // After a reboot the relay could not start before the API's folder existed.
+      await octopod.ensureConsole();
       setInterval(() => void watch.tick(), 5000).unref();
       const edge = await octopod.edgeStatus();
       const where = octopod.tcp ? `http://127.0.0.1:${(await octopod.apiTcp()).port} (its token in ${join(octopod.stateDir, 'api.json')})` : octopod.socket;

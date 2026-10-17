@@ -50,8 +50,11 @@ Rules, checked when the project is registered and every time it is brought up:
     routes, warnings and logs. Read-only. Served by `octopod serve` (the API), through
     `octopod-console`, a relay (nginx, running as the operator, read-only, no capability)
     that passes GET to the API's socket and refuses every other method. When the API is
-    not running, the console says how to start it. On Windows the relay reaches the API on
-    the host's loopback (`host.docker.internal`), adding its token.
+    not running, the console says how to start it. The relay mounts the socket's folder
+    without letting Docker create it (`create_host_path: false`): after a reboot Docker
+    starts the relay before octopod's service, and a folder it made would be root's; the
+    relay waits instead, and `octopod serve` starts it once it listens. On Windows the relay
+    reaches the API on the host's loopback (`host.docker.internal`), adding its token.
 
   "From the host" is a Traefik middleware (`octopod-local`, in the file provider): the
   edge's own network, where the host's requests come from through the published port.

@@ -15,7 +15,7 @@ import { lintDockerfile } from './recipes/lint.js';
 import { BUILTIN_RECIPES, envRecipeDirs, loadRecipes, type Shadowed } from './recipes/loader.js';
 import { BUILD_LABEL, formatPlan, PROJECT_LABEL, renderServices, TOOL_PROFILE, type RenderedService } from './recipes/render.js';
 import { cliDocker, composeUp, DockerError, type Docker } from './docker.js';
-import { bindSources, choosePort, composePorts, CONSOLE_HOST, consoleNginxConfig, DASHBOARD_HOST, DATA_DIR, dataVolumes, duplicationBlockers, edgeCompose, edgeContainer, imagePorts, localOnlyConfig, projectOverride, traefikConfig, type ComposeService, type ComposeVolume, type ResolvedPort } from './generate.js';
+import { bindSources, choosePort, composePorts, CONSOLE_HOST, consoleContainer, consoleNginxConfig, DASHBOARD_HOST, DATA_DIR, dataVolumes, duplicationBlockers, edgeCompose, edgeContainer, imagePorts, localOnlyConfig, projectOverride, traefikConfig, type ComposeService, type ComposeVolume, type ResolvedPort } from './generate.js';
 import { edgeNetwork, fullHost, instanceName } from './names.js';
 
 /** The version of the contract in docs/CONTRACT.md: the declaration, the API, the CLI's JSON. */
@@ -183,6 +183,24 @@ export function defaultSocket(): string {
   return join(process.env.XDG_RUNTIME_DIR || join(tmpdir(), `octopod-${process.getuid?.() ?? 'user'}`), 'octopod', 'octopod.sock');
 }
 
+/**
+ * The API socket's folder, the operator's alone. One that exists but is not theirs was made
+ * by Docker for the console before octopod's service started (an octopod before 0.3.4, after
+ * a reboot): said plainly, with the way out, rather than a bare EPERM.
+ */
+export async function prepareSocketDir(dir: string): Promise<void> {
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  const uid = process.getuid?.();
+  const owner = (await lstat(dir)).uid;
+  if (uid !== undefined && owner !== uid) {
+    throw new OctopodError(
+      `${dir} belongs to uid ${owner}, not you: Docker made it for the console before octopod's service started. ` +
+        `Give it back — sudo chown $(id -u):$(id -g) ${dir} — then: systemctl --user reset-failed octopod && systemctl --user restart octopod`,
+    );
+  }
+  await chmod(dir, 0o700);
+}
+
 /** The operator's `uid:gid`, where there is one (not on Windows). */
 function currentOwner(): string | undefined {
   return typeof process.getuid === 'function' && typeof process.getgid === 'function' ? `${process.getuid()}:${process.getgid()}` : undefined;
@@ -313,10 +331,7 @@ export class Octopod {
     // The socket's folder, before Docker binds it into the console: Docker would create it as root.
     // With the API on TCP, no socket: the console reaches it through host.docker.internal.
     const socketDir = this.tcp ? undefined : dirname(this.socket);
-    if (socketDir) {
-      await mkdir(socketDir, { recursive: true, mode: 0o700 });
-      await chmod(socketDir, 0o700);
-    }
+    if (socketDir) await prepareSocketDir(socketDir);
     const traefik = JSON.stringify(traefikConfig(this.instance), null, 2) + '\n';
     const nginx = consoleNginxConfig(this.tcp ? await this.apiTcp() : basename(this.socket));
     await mkdir(this.path('edge', 'dynamic'), { recursive: true });
@@ -372,6 +387,18 @@ export class Octopod {
   async edgeDown(): Promise<EdgeStatus> {
     await this.docker.run(['compose', '-f', this.path('edge', 'compose.json'), 'down']).catch(() => '');
     return this.edgeStatus();
+  }
+
+  /**
+   * The console's relay, started when it is not running — after a reboot Docker cannot start
+   * it before the API's folder exists (it no longer makes it, as root). Called by `serve`
+   * once it listens. Nothing to do when the edge was never set up, or on TCP.
+   */
+  async ensureConsole(): Promise<void> {
+    if (this.tcp) return;
+    const name = consoleContainer(this.instance);
+    const running = await this.docker.run(['inspect', '--format', '{{.State.Running}}', name]).catch(() => undefined);
+    if (running?.trim() === 'false') await this.docker.run(['start', name]).catch(() => undefined);
   }
 
   private async connect(project: string): Promise<void> {

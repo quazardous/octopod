@@ -72,7 +72,11 @@ describe('the edge', () => {
     expect(relay.read_only).toBe(true);
     expect(relay.cap_drop).toEqual(['ALL']);
     expect(relay.ports).toBeUndefined();
-    expect(relay.volumes).toEqual(['/s/console.conf:/etc/nginx/nginx.conf:ro', '/run/user/1000/octopod:/run/octopod:ro']);
+    expect(relay.volumes).toEqual([
+      '/s/console.conf:/etc/nginx/nginx.conf:ro',
+      // Docker must never make the API's folder (as root, after a reboot): missing, the relay waits for serve.
+      { type: 'bind', source: '/run/user/1000/octopod', target: '/run/octopod', read_only: true, bind: { create_host_path: false } },
+    ]);
   });
 
   it('runs it as nginx\'s own user where the operator has no uid (Windows): never as root', () => {

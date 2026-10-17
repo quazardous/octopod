@@ -5,11 +5,11 @@
  */
 import { timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { chmod, mkdir, readFile, rm } from 'node:fs/promises';
+import { chmod, readFile, rm } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { DeclarationError } from './declaration.js';
 import { DockerError } from './docker.js';
-import { defaultSocket, Octopod, OctopodError, TOKEN_HEADER, version, type ApiTcp } from './octopod.js';
+import { defaultSocket, Octopod, OctopodError, prepareSocketDir, TOKEN_HEADER, version, type ApiTcp } from './octopod.js';
 
 export { defaultSocket };
 
@@ -178,8 +178,7 @@ export function handler(octopod: Octopod) {
  */
 export async function listen(octopod: Octopod, socket = defaultSocket()): Promise<Server> {
   if (octopod.tcp) return listenTcp(octopod, await octopod.apiTcp());
-  await mkdir(dirname(socket), { recursive: true, mode: 0o700 });
-  await chmod(dirname(socket), 0o700);
+  await prepareSocketDir(dirname(socket));
   await rm(socket, { force: true });
   const server = createServer((req, res) => void handler(octopod)(req, res));
   await new Promise<void>((resolve, reject) => {

@@ -175,7 +175,13 @@ export function edgeCompose(settings: EdgeSettings): Record<string, unknown> {
         tmpfs: ['/tmp'],
         cap_drop: ['ALL'],
         security_opt: ['no-new-privileges=true'],
-        volumes: [`${settings.consoleConfig}:/etc/nginx/nginx.conf:ro`, ...(settings.socketDir ? [`${settings.socketDir}:/run/octopod:ro`] : [])],
+        volumes: [
+          `${settings.consoleConfig}:/etc/nginx/nginx.conf:ro`,
+          // Never created by Docker: after a reboot Docker starts the relay before octopod's
+          // service, and would make the socket's folder as root, where the API can no longer
+          // listen. Missing, the relay does not start; `octopod serve` starts it.
+          ...(settings.socketDir ? [{ type: 'bind', source: settings.socketDir, target: '/run/octopod', read_only: true, bind: { create_host_path: false } }] : []),
+        ],
         // The API on the host's loopback (TCP, Windows): Docker Desktop answers this name, and
         // host-gateway makes a Linux engine answer it too.
         ...(settings.socketDir ? {} : { extra_hosts: ['host.docker.internal:host-gateway'] }),
