@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-19
+
 ### Added
 
 - The `python-app` recipe: supervisord running the project's programs (`programs:` in `octopod.yaml` — an ASGI/WSGI server on port 8000, workers, tasks) as the project's user, uv in the image, the project's dependencies in its `.venv` (`octopod shell -- uv sync`), first on the PATH. Python 3.13, 3.12 or 3.11; the same optional capabilities as `php-app`.
@@ -128,7 +130,8 @@ The first preview: tested on Linux with Docker.
 - Traefik's dashboard and the console answer only from the host: a project's containers, which reach the edge over their edge network, get a 403.
 - `octopod` and `traefik` can no longer be project names: they are the edge's own hosts.
 
-[Unreleased]: https://github.com/quazardous/octopod/compare/v0.3.3...HEAD
+[Unreleased]: https://github.com/quazardous/octopod/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/quazardous/octopod/compare/v0.3.3...v0.4.0
 [0.3.3]: https://github.com/quazardous/octopod/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/quazardous/octopod/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/quazardous/octopod/compare/v0.3.0...v0.3.1
