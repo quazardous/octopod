@@ -1,0 +1,25 @@
+# Valkey, reachable inside the project as host `<service>` on 6379, without a password: the
+# project's network is its own. It provides `redis`, like the redis recipe — same exports —
+# so the apps get REDIS_URL from it unchanged; a project names one or the other. A cache by
+# default: nothing kept; `persist: true` keeps its data in .octopod/data.
+title: Valkey
+summary: In-memory store compatible with Redis (cache, queues, messages), reachable inside the project as host <service> on port 6379.
+image: "valkey/valkey:{{params.version}}"
+unpinned: true
+build: true
+provides: [redis]
+params:
+  version: { type: enum, values: ["8.1", "8.0", "7.2"], default: "8.1" }
+  persist: { type: bool, default: false }
+exports:
+  host: "{{service}}"
+  port: "6379"
+  url: "redis://{{service}}:6379"
+volumes:
+  - { name: data, path: /data, when: persist }
+port: 6379
+health:
+  test: [CMD, valkey-cli, ping]
+  intervalMs: 2000
+  retries: 30
+limits: { memory: 512m, cpus: "1", pids: 256 }

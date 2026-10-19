@@ -26,6 +26,8 @@ export interface ServiceRequest {
   home?: true | string;
   /** Where the project is mounted, instead of the recipe's workspace. */
   workdir?: string;
+  /** Not routed, though the recipe would be: a worker that serves nothing over HTTP. */
+  route?: false;
 }
 
 export type ParamValue = string | number | boolean;
@@ -386,7 +388,7 @@ export function renderServices(options: RenderOptions): Rendered {
       ...(workdir ? { workspace: workdir } : {}),
       ...(home ? { home } : {}),
       ...(recipe.port ? { port: recipe.port } : {}),
-      ...(recipe.route ? { route: recipe.route === true ? '' : recipe.route.subdomain } : {}),
+      ...(recipe.route && r.request.route !== false ? { route: recipe.route === true ? '' : recipe.route.subdomain } : {}),
       ...(waits.length > 0 ? { waits } : {}),
       ...(Object.keys(r.programs).length > 0 ? { programs: Object.keys(r.programs) } : {}),
       ...(recipe.supervisor ? { supervisor: recipe.supervisor.config } : {}),

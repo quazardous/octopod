@@ -159,7 +159,7 @@ describe('a recipe\'s Dockerfile, checked', () => {
 describe('the built-in recipes', () => {
   it('load, and install none of a project\'s dependencies in an image — system packages and extensions make the environment', async () => {
     const book = await loadRecipes([BUILTIN_RECIPES]);
-    expect([...book.recipes.keys()].sort()).toEqual(['mailpit', 'mariadb', 'memcached', 'mongo-express', 'mongodb', 'node-app', 'php-app', 'php-cli', 'phpmyadmin', 'postgres', 'redis', 'whoami']);
+    expect([...book.recipes.keys()].sort()).toEqual(['mailpit', 'mariadb', 'memcached', 'mongo-express', 'mongodb', 'node-app', 'php-app', 'php-cli', 'phpmyadmin', 'postgres', 'python-app', 'redis', 'valkey', 'whoami']);
     for (const id of await readdir(BUILTIN_RECIPES)) {
       const dockerfile = await readFile(join(BUILTIN_RECIPES, id, 'Dockerfile'), 'utf8').catch(() => '');
       if (dockerfile) expect(lintDockerfile(dockerfile), id).toEqual([]);
@@ -278,6 +278,27 @@ describe('the built-in recipes', () => {
     expect(third.compose.services.app.volumes).toContain('./.octopod/home/2/app:/home/shop-2');
     expect(() => renderServices({ project: 'p', book, services: { db: { recipe: 'postgres', home: true } }, workspace: '/p' })).toThrow(/no user's home/);
     expect(() => renderServices({ project: 'p', book, services: { db: { recipe: 'postgres', workdir: '/x' } }, workspace: '/p' })).toThrow(/takes no workdir/);
+  });
+
+  it('serves Python through the project\'s programs, and a worker without a route', async () => {
+    const book = await loadRecipes([BUILTIN_RECIPES]);
+    const worker = { command: 'uvicorn app:app --host 0.0.0.0 --port 8000', autostart: true };
+    const out = renderServices({
+      project: 'mockpit',
+      book,
+      services: { api: { recipe: 'python-app', params: { python: '3.12' }, programs: { api: worker } }, jobs: { recipe: 'python-app', route: false }, cache: { recipe: 'valkey' } },
+      workspace: '/p',
+      owner: '1:1',
+    });
+    const api = out.compose.services.api as Record<string, unknown> & { build: { args: Record<string, string> } };
+    expect(api.build.args.BASE_IMAGE).toBe('python:3.12-slim');
+    expect((api.environment as Record<string, string>).REDIS_URL).toBe('redis://cache:6379');
+    expect(out.files['.octopod/programs.mockpit.api.conf']).toContain('command=uvicorn app:app --host 0.0.0.0 --port 8000');
+    expect(api.expose).toEqual(['8000']);
+    const routes = Object.fromEntries(out.services.map((x) => [x.name, x.route]));
+    expect(routes).toEqual({ api: '', jobs: undefined, cache: undefined });
+    expect(out.compose.services.cache.depends_on).toBeUndefined();
+    expect(api.depends_on).toEqual({ cache: { condition: 'service_healthy' } });
   });
 
   it('renders php-cli as a tool: in a profile up never activates, never restarted, its cache kept', async () => {

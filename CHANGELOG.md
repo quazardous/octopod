@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The `python-app` recipe: supervisord running the project's programs (`programs:` in `octopod.yaml` — an ASGI/WSGI server on port 8000, workers, tasks) as the project's user, uv in the image, the project's dependencies in its `.venv` (`octopod shell -- uv sync`), first on the PATH. Python 3.13, 3.12 or 3.11; the same optional capabilities as `php-app`.
+- The `valkey` recipe: Valkey 8.1, 8.0 or 7.2, providing `redis` like the `redis` recipe, so the apps get `REDIS_URL` from it unchanged.
+- `route: false` on a service turns its recipe's route off: a worker that serves nothing over HTTP.
+
 ### Fixed
 
 - After a reboot, octopod stayed down: Docker started the console's relay before octopod's service, and created the API's socket folder (`/run/user/<uid>/octopod`) as root; the service failed with EPERM, and so did every `octopod up`, until a `sudo chown`. The relay no longer lets Docker create that folder: it waits, and `octopod serve` starts it once it listens. A folder already made as root is reported with the command to take it back. Run `octopod edge up` (or any `octopod up`) once after upgrading, to apply it to a running edge.

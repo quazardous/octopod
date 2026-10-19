@@ -165,7 +165,8 @@ workspace: .               # the folder a recipe's workspace mounts; the project
   writes an image. Secrets are generated once and kept in octopod's state (`0600`),
   never in the project.
 - Routed recipes are exposed without an `expose` entry, at the project's host or their
-  subdomain; two wanting the same host is an error. Their profiles are activated.
+  subdomain; two wanting the same host is an error. `route: false` on a service turns its
+  recipe's route off (a worker that serves nothing over HTTP). Their profiles are activated.
 - A built image is labelled `octopod.build` with a digest of what it is built from — the
   recipe, its Dockerfile, the build's arguments — and `octopod.project`. `up` builds again
   the services whose label no longer matches (compose alone builds only a missing image),
@@ -176,8 +177,8 @@ workspace: .               # the folder a recipe's workspace mounts; the project
 - **Capabilities** connect recipes: a recipe `provides` some, another `requires` them and
   gets the provider's `exports` as variables. The built-in ones: `sql` (`postgres`,
   `mariadb`: `url`), `mysql` (`mariadb`: `host`, `port`, `user`, `password`, `db`),
-  `redis` (`url`), `memcached` (`url`), `mongodb` (`url`), `smtp` (`mailpit`: `url`).
-  `php-app` and `node-app` require each of them optionally (`DATABASE_URL`, `REDIS_URL`,
+  `redis` (`redis` and `valkey`: `url`), `memcached` (`url`), `mongodb` (`url`), `smtp`
+  (`mailpit`: `url`). `php-app`, `node-app` and `python-app` require each of them optionally (`DATABASE_URL`, `REDIS_URL`,
   `MEMCACHED_URL`, `MONGODB_URL`, `MAILER_DSN` and `SMTP_URL`); `phpmyadmin` requires
   `mysql`, `mongo-express` requires `mongodb`. Two providers of one capability a service
   requires is an error: name the one you mean in a recipe of your own.

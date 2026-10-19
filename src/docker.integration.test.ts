@@ -820,3 +820,43 @@ describe.skipIf(!dockerAvailable())('after a reboot: the relay before the API (r
     await expect(prepareSocketDir(made)).rejects.toThrow(/belongs to uid 0, not you: .*sudo chown/);
   });
 });
+
+describe.skipIf(!dockerAvailable())('a Python project made of recipes (real docker)', { timeout: 900_000 }, () => {
+  let base: string;
+  let root: string;
+  let octopod: Octopod;
+
+  beforeAll(async () => {
+    base = await mkdtemp(join(tmpdir(), 'octopod-py-'));
+    root = join(base, 'pyapp');
+    await mkdir(root);
+    await writeFile(join(root, 'index.html'), 'served by python-app\n');
+    await writeFile(join(root, 'pyproject.toml'), '[project]\nname = "pyapp"\nversion = "0.1.0"\nrequires-python = ">=3.11"\ndependencies = []\n');
+    await writeFile(
+      join(root, 'octopod.yaml'),
+      'services:\n  app:\n    recipe: python-app\n    programs:\n      web: { command: python -m http.server 8000 }\n  cache: { recipe: valkey }\n',
+    );
+    octopod = new Octopod({ stateDir: join(base, 'state'), instance: INSTANCE, ports: [PORT] });
+    await octopod.register(root);
+  }, 900_000);
+
+  afterAll(async () => {
+    await octopod.unregister('pyapp').catch(() => undefined);
+    await octopod.edgeDown();
+    await rm(base, { recursive: true, force: true });
+  }, 900_000);
+
+  it("serves the project's program as its user, with uv, and Valkey as its REDIS_URL", async () => {
+    await octopod.up('pyapp');
+    expect((await eventually('pyapp.localhost', 200)).body).toContain('served by python-app');
+    const who = await octopod.exec('pyapp', 'app', ['sh', '-c', 'id -un; id -u; command -v uv; echo "$REDIS_URL"']);
+    expect(who.output.trim().split('\n')).toEqual(['pyapp', String(process.getuid?.()), '/usr/local/bin/uv', 'redis://cache:6379']);
+    expect((await octopod.logs('pyapp', 'app', 50)).join('\n')).toContain('python-app: no .venv yet');
+    const ping = await octopod.exec('pyapp', 'app', ['python', '-c', "import socket; s = socket.create_connection(('cache', 6379)); s.sendall(b'PING\\r\\n'); print(s.recv(16).decode().strip())"]);
+    expect(ping.output.trim()).toBe('+PONG');
+    // The dependencies are the project's: uv sync in the running app, its .venv in the project.
+    const sync = await octopod.exec('pyapp', 'app', ['uv', 'sync'], { timeoutMs: 120_000 });
+    expect(sync.ok).toBe(true);
+    expect((await stat(join(root, '.venv'))).uid).toBe(process.getuid?.());
+  });
+});

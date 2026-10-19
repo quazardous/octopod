@@ -28,7 +28,7 @@ the whole machine.
 - **Data in the project, nothing owned by root.** Named volumes are kept in the project's
   `.octopod/data`, created as you. A service that runs or writes there as root is reported.
 - **Or no compose file at all.** A project can name recipes instead: apps (`node-app`,
-  `php-app`), databases (`postgres`, `mariadb`, `mongodb`), `redis`, `memcached`,
+  `php-app`, `python-app`), databases (`postgres`, `mariadb`, `mongodb`), `redis`, `valkey`, `memcached`,
   `mailpit`, admins (`phpmyadmin`, `mongo-express`) and tools (`php-cli`), each handing
   its address to the apps.
 
