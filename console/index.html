@@ -23,11 +23,25 @@
     <div class="tools">
       <input id="filter" type="search" placeholder="Filter: name, group:x, tag:y" aria-label="Filter projects">
       <button id="pause" type="button" aria-pressed="false" title="Pause the refresh">Pause</button>
+      <button id="signout" type="button" title="Sign this browser out: it enrolls again with a new code" hidden>Sign out</button>
       <span id="updated" class="updated" role="img" aria-label="not read yet" title="not read yet"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/><path d="M13.5 2.5v3h-3"/></svg></span>
     </div>
   </header>
 
-  <main>
+  <section id="login" class="login" hidden aria-label="Enroll this browser">
+    <form id="login-form" class="login-card" autocomplete="off">
+      <img class="login-logo" src="/favicon.svg" alt="" width="56" height="56">
+      <h1>Enroll this browser</h1>
+      <p class="muted">The console shows your projects only to browsers you enrolled. In a terminal, run:</p>
+      <pre>octopod console code</pre>
+      <p class="muted">and paste the code it prints, valid 10 minutes, here.</p>
+      <input id="login-code" name="code" placeholder="XXXX-XXXX" aria-label="Enrollment code" spellcheck="false" autocapitalize="characters" required>
+      <button type="submit">Enroll</button>
+      <p id="login-error" class="problem" hidden></p>
+    </form>
+  </section>
+
+  <main id="main">
     <p id="summary" class="summary muted">Loading the projects…</p>
     <p id="error" class="error" hidden></p>
     <section id="projects" class="projects" aria-label="Projects"></section>

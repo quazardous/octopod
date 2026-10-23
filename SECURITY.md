@@ -49,9 +49,18 @@ API's socket (on Windows, to its loopback port, with its token), and a project's
 another site cannot send that header without a CORS preflight, which the relay never
 answers, so it cannot make the browser start or stop a project. Every other method and path
 is refused — no `exec`, no `run`, nothing that reaches into a container — and the page is
-served with a strict Content Security Policy. A process of the host can still send the
-header itself: on a machine shared with other users, they can start and stop the projects
-as they can already read the console. Everything it shows
+served with a strict Content Security Policy.
+
+The console shows nothing to a browser that is not enrolled. A code from
+`octopod console code` — which only the operator can run, since it needs the state
+directory or the API's socket — is pasted in its login page and opens a session, kept in an
+`HttpOnly`, `SameSite=Strict` cookie for 30 days. The relay marks everything it passes as
+coming from the console, whatever a request brought, and the API answers such a request
+with nothing but the login until its session is valid. A code is good once, for 10
+minutes, and 5 wrong ones in a row void those waiting: 8 signs of 31 cannot be guessed in
+that. Only digests of the codes and sessions are kept. So another user of the machine, or a
+container on the host's network, which can reach the edge's port, cannot read the console
+or act through it; `octopod console revoke` signs every browser out. Everything it shows
 comes from the projects (names, log lines) and is rendered as text, never as markup.
 
 **The Docker socket** is mounted read-only into Traefik, which needs it to discover

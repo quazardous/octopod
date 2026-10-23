@@ -90,11 +90,17 @@ export function localOnlyConfig(subnets: string[]): Record<string, unknown> {
  * cannot send it without asking first (a CORS preflight), which the relay never answers.
  */
 export const CONSOLE_HEADER = 'X-Octopod-Console';
+/**
+ * The header the relay sets on everything it passes, whatever a request brought: to the API,
+ * it says the request comes through the console, which must be enrolled.
+ */
+export const VIA_HEADER = 'X-Octopod-Via';
 
 /**
  * The console relay: GET and HEAD to the API; and a project's up and down, the only acts
- * the console has, carrying {@link CONSOLE_HEADER}. Anything else refused. When the API is
- * not running, a page that says how to start it.
+ * the console has, and the console's enrollment, carrying {@link CONSOLE_HEADER}. Anything
+ * else refused. Everything passed carries {@link VIA_HEADER}: the API answers it only for an
+ * enrolled browser. When the API is not running, a page that says how to start it.
  *
  * The API is the socket named `api` in the mounted folder, or, on TCP (Windows), the host's
  * loopback port with the token the API asks for: the relay adds it, and replaces any a
@@ -102,10 +108,12 @@ export const CONSOLE_HEADER = 'X-Octopod-Console';
  */
 export function consoleNginxConfig(api: string | { port: number; token: string }): string {
   const upstream =
-    typeof api === 'string'
+    (typeof api === 'string'
       ? `proxy_pass http://unix:/run/octopod/${api};`
       : `proxy_pass http://host.docker.internal:${api.port};
-      proxy_set_header X-Octopod-Token "${api.token}";`;
+      proxy_set_header X-Octopod-Token "${api.token}";`) +
+    `
+      proxy_set_header ${VIA_HEADER} console;`;
   const start =
     typeof api === 'string'
       ? 'run <code>octopod serve</code>, or start its service (<code>systemctl --user start octopod</code>)'
@@ -129,9 +137,10 @@ http {
     location ~ ^/v1/projects/[^/]+/secrets {
       return 403;
     }
-    # A project's up and down, from the console's own page: the header proves it (a cross-site
-    # form or fetch cannot add it). An up may build images: it may take minutes.
-    location ~ ^/v1/projects/[^/]+/(up|down)$ {
+    # A project's up and down, and the console's enrollment, from the console's own page: the
+    # header proves it (a cross-site form or fetch cannot add it). An up may build images: it
+    # may take minutes.
+    location ~ ^/v1/(projects/[^/]+/(up|down)|console/(enroll|signout))$ {
       limit_except POST { deny all; }
       if ($http_${CONSOLE_HEADER.toLowerCase().replace(/-/g, '_')} != "1") { return 403; }
       ${upstream}

@@ -1,6 +1,7 @@
 // octopod's console: reads the API it is served by. A gallery of the projects; each opens
 // on a page of its own (#/p/<project>[/<instance>]) with its services, routes, warnings and
-// logs. It acts only to bring a project up or down. Everything the API returns is shown as
+// logs. It acts only to bring a project up or down. A browser enrolls first, with a code
+// from `octopod console code`: until then the API shows it nothing, and the page its login. Everything the API returns is shown as
 // text, never as markup: names and log lines come from the projects.
 'use strict';
 
@@ -65,17 +66,23 @@ function el(tag, attrs = {}, ...children) {
   return node;
 }
 
-async function api(path) {
-  const res = await fetch(path, { headers: { accept: 'application/json' }, cache: 'no-store' });
+/** The API's JSON, or its error; `enroll` set when this browser must enroll first. */
+async function answer(res) {
   const text = await res.text();
   let body;
   try {
     body = JSON.parse(text);
   } catch {
+    // A 403 that is not the API's: a relay older than this page, which refuses what it does not know.
+    if (res.status === 403) throw new Error('the console relay refused it: run octopod edge up to bring it up to date');
     throw new Error(res.ok ? 'the API answered something that is not JSON' : `the API answered ${res.status}`);
   }
-  if (!res.ok) throw new Error(body && body.error ? body.error : `the API answered ${res.status}`);
+  if (!res.ok) throw Object.assign(new Error(body && body.error ? body.error : `the API answered ${res.status}`), { enroll: Boolean(body && body.enroll) });
   return body;
+}
+
+async function api(path) {
+  return answer(await fetch(path, { headers: { accept: 'application/json' }, cache: 'no-store' }));
 }
 
 /**
@@ -83,22 +90,61 @@ async function api(path) {
  * without a preflight, which the relay never answers.
  */
 async function post(path, payload) {
-  const res = await fetch(path, {
-    method: 'POST',
-    headers: { accept: 'application/json', 'content-type': 'application/json', 'x-octopod-console': '1' },
-    body: JSON.stringify(payload),
-    cache: 'no-store',
-  });
-  const text = await res.text();
-  let body;
-  try {
-    body = JSON.parse(text);
-  } catch {
-    throw new Error(res.ok ? 'the API answered something that is not JSON' : `the API answered ${res.status}`);
-  }
-  if (!res.ok) throw new Error(body && body.error ? body.error : `the API answered ${res.status}`);
-  return body;
+  return answer(
+    await fetch(path, {
+      method: 'POST',
+      headers: { accept: 'application/json', 'content-type': 'application/json', 'x-octopod-console': '1' },
+      body: JSON.stringify(payload),
+      cache: 'no-store',
+    }),
+  );
 }
+
+// ─── Enrolling ───────────────────────────────────────────────────────────────
+
+/** The login: this browser is not enrolled (or no longer), and the API shows it nothing. */
+function showLogin() {
+  state.locked = true;
+  clearTimeout(state.timer);
+  if (state.logs) closeLogs();
+  $('login').hidden = false;
+  $('main').hidden = true;
+  for (const id of ['filter', 'pause', 'signout']) $(id).hidden = true;
+  $('summary').textContent = '';
+  if (document.activeElement !== $('login-code')) $('login-code').focus();
+}
+
+function hideLogin() {
+  state.locked = false;
+  $('login').hidden = true;
+  $('main').hidden = false;
+  $('pause').hidden = false;
+  $('signout').hidden = false;
+  $('login-error').hidden = true;
+  $('login-code').value = '';
+}
+
+async function enroll(e) {
+  e.preventDefault();
+  const button = e.currentTarget.querySelector('button');
+  button.disabled = true;
+  try {
+    await post('/v1/console/enroll', { code: $('login-code').value });
+    hideLogin();
+    refresh();
+  } catch (err) {
+    $('login-error').textContent = err.message;
+    $('login-error').hidden = false;
+  }
+  button.disabled = false;
+}
+
+async function signOut() {
+  await post('/v1/console/signout', {}).catch(() => {});
+  state.last = null;
+  showLogin();
+}
+
 
 const projectPath = (name, instance, action = '') =>
   `/v1/projects/${encodeURIComponent(name)}${action ? `/${action}` : ''}${instance > 1 ? `?instance=${instance}` : ''}`;
@@ -139,6 +185,7 @@ async function act(project, instance, what) {
   try {
     await post(`/v1/projects/${encodeURIComponent(project)}/${what}`, instance > 1 ? { instance } : {});
   } catch (e) {
+    if (e.enroll) return (state.busy.delete(key), showLogin());
     state.actFailed.set(key, `${what} failed: ${e.message}`);
   }
   state.busy.delete(key);
@@ -384,6 +431,7 @@ function render({ edge, projects }) {
   if (edge.dashboard) $('dashboard').href = edge.dashboard;
   $('version').textContent = state.version ? `v${state.version}` : '';
   $('filter').hidden = Boolean(state.view);
+  $('signout').hidden = false;
   $('empty').hidden = projects.length > 0;
   // Open by itself the first time when there is nothing yet; then as the operator leaves it.
   if (!state.helpSet) {
@@ -447,6 +495,7 @@ async function refresh() {
   clearTimeout(state.timer);
   try {
     state.last = await load();
+    if (state.locked) hideLogin();
     render(state.last);
     showIcon(state.last.edge.running);
     $('error').hidden = true;
@@ -454,6 +503,7 @@ async function refresh() {
     state.failed = false;
     spin();
   } catch (e) {
+    if (e.enroll) return showLogin();
     showIcon(false);
     state.failed = true;
     $('error').textContent = `Cannot read octopod: ${e.message}`;
@@ -512,6 +562,7 @@ async function loadLogs(scroll = false) {
     if (state.logs !== target) return;
     pre.textContent = lines.length ? lines.join('\n') : '(no output)';
   } catch (e) {
+    if (e.enroll) return showLogin();
     if (state.logs !== target) return;
     pre.textContent = `Cannot read the logs: ${e.message}`;
   }
@@ -533,6 +584,8 @@ document.addEventListener('DOMContentLoaded', () => {
     state.paused ? (clearTimeout(state.timer), tick()) : refresh();
   });
   $('logs-close').addEventListener('click', closeLogs);
+  $('login-form').addEventListener('submit', enroll);
+  $('signout').addEventListener('click', signOut);
   $('logs-tail').addEventListener('change', () => loadLogs(true));
   $('logs-follow').addEventListener('change', () => loadLogs());
   document.addEventListener('keydown', (e) => {

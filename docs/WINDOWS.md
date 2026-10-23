@@ -90,7 +90,8 @@ stopped or Docker Desktop is off. Its menu (right or left click):
 The tray also runs octopod's API, which the console reads: Windows has no unix sockets, so
 there `octopod serve` listens on `127.0.0.1` with a token (see
 [SECURITY.md](../SECURITY.md)). The tray starts it, and starts it again if it ends. Without
-the tray, run `octopod serve` in a terminal for the console.
+the tray, run `octopod serve` in a terminal for the console. The first time, the console
+asks for a code: run `octopod console code` in a terminal and paste it there.
 
 ## Docker Desktop settings worth a look
 

@@ -16,6 +16,7 @@
  *   octopod program start|stop|restart [project] <service>/<program>
  *   octopod program reload [project] <service>
  *   octopod recipes [dir] [--check]
+ *   octopod console code|revoke
  *   octopod version
  *   octopod setup [--no-service] [--no-edge] [--gnome-extension]
  *
@@ -283,6 +284,21 @@ async function main(argv: string[]): Promise<void> {
       const out = await octopod.plan(resolve(positional(rest)[0] ?? '.'), instanceOf(rest));
       return json ? print(out, true) : console.log(out.text);
     }
+    case 'console': {
+      // The console's login: a code to paste there, or every browser signed out.
+      const what = positional(rest)[0];
+      if (what === 'code') {
+        const out = await octopod.access.code();
+        const edge = await octopod.edgeStatus();
+        if (json) return print(out, true);
+        return console.log(`${out.code}\n\nPaste it in the console's login${edge.console ? `, ${edge.console}` : ''}: valid 10 minutes, once.`);
+      }
+      if (what === 'revoke') {
+        const closed = await octopod.access.revoke();
+        return json ? print({ closed }, true) : console.log(`${closed} session${closed === 1 ? '' : 's'} closed: each browser enrolls again`);
+      }
+      throw new Error('usage: octopod console code|revoke');
+    }
     case 'unregister':
       if (!positional(rest)[0]) throw new Error('usage: octopod unregister <project>');
       await octopod.unregister(positional(rest)[0]);
@@ -312,7 +328,7 @@ async function main(argv: string[]): Promise<void> {
       return;
     }
     default:
-      console.log(`usage: ${basename(process.argv[1] ?? 'octopod')} edge up|down|status | register [dir] | list | up|down|status|logs [project] | unregister <project> | shell [project] [service] | serve | setup | version  [--json]`);
+      console.log(`usage: ${basename(process.argv[1] ?? 'octopod')} edge up|down|status | register [dir] | list | up|down|status|logs [project] | unregister <project> | shell [project] [service] | console code|revoke | serve | setup | version  [--json]`);
       if (command) process.exitCode = 2;
   }
 }

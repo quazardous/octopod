@@ -14,6 +14,7 @@ import { loadDeclaration, withInstance, type Declaration } from './declaration.j
 import { lintDockerfile } from './recipes/lint.js';
 import { BUILTIN_RECIPES, envRecipeDirs, loadRecipes, type Shadowed } from './recipes/loader.js';
 import { BUILD_LABEL, formatPlan, PROJECT_LABEL, renderServices, TOOL_PROFILE, type RenderedService } from './recipes/render.js';
+import { ConsoleAccess } from './consoleAccess.js';
 import { cliDocker, composeUp, DockerError, type Docker } from './docker.js';
 import { bindSources, choosePort, composePorts, CONSOLE_HOST, consoleContainer, consoleNginxConfig, DASHBOARD_HOST, DATA_DIR, dataVolumes, duplicationBlockers, edgeCompose, edgeContainer, imagePorts, localOnlyConfig, projectOverride, traefikConfig, type ComposeService, type ComposeVolume, type ResolvedPort } from './generate.js';
 import { edgeNetwork, fullHost, instanceName } from './names.js';
@@ -244,6 +245,8 @@ export class Octopod {
   private readonly ports: number[];
   readonly socket: string;
   readonly tcp: boolean;
+  /** The browsers enrolled in the console, and the codes waiting to enroll one. */
+  readonly access: ConsoleAccess;
   /** Set by `serve`: octopod changed on disk since it started, and it is restarting. */
   stale: () => boolean = () => false;
 
@@ -254,6 +257,7 @@ export class Octopod {
     this.instance = options.instance ?? process.env.OCTOPOD_INSTANCE ?? 'octopod';
     this.docker = options.docker ?? cliDocker();
     this.ports = options.ports ?? envPorts() ?? [PREFERRED_PORT, FALLBACK_PORT];
+    this.access = new ConsoleAccess(this.path('console-access.json'));
   }
 
   // ─── State ──────────────────────────────────────────────────────────────────

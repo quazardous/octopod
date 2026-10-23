@@ -52,7 +52,8 @@ Rules, checked when the project is registered and every time it is brought up:
     read-only, no capability) that passes GET to the API's socket, and
     `POST /v1/projects/:name/up` and `/down` when they carry the header
     `X-Octopod-Console: 1`, which a page of another site cannot add (it would need a CORS
-    preflight the relay never answers); every other method and path is refused. When the API is
+    preflight the relay never answers); every other method and path is refused. It shows
+    nothing but its login to a browser not enrolled: see *The console's enrollment*. When the API is
     not running, the console says how to start it. The relay mounts the socket's folder
     without letting Docker create it (`create_host_path: false`): after a reboot Docker
     starts the relay before octopod's service, and a folder it made would be root's; the
@@ -298,6 +299,18 @@ first time, kept after), and answers only a request that carries that token in t
 | POST | `/v1/plan` | `{ root, instance? }` | `{ project, text, services, compose }` — writes nothing |
 | DELETE | `/v1/projects/:name` | | `{}` (brought down first) |
 | GET | `/` · `/console.js` · `/console.css` | | the console's page and files |
+| POST | `/v1/console/code` | | `{ code, expires }` — a code that enrolls one browser in the console, `XXXX-XXXX`, valid 10 minutes, once. Socket only: refused through the relay |
+| DELETE | `/v1/console/sessions` | | `{ closed }` — every browser signed out, every waiting code void. Socket only |
+| POST | `/v1/console/enroll` | `{ code }` | `{}` and the session's cookie (`octopod_console`, `HttpOnly`, `SameSite=Strict`, 30 days); `403` for a wrong or expired code. Through the relay only |
+| POST | `/v1/console/signout` | | `{}`, the session closed and its cookie removed. Through the relay only |
+
+**The console's enrollment.** The relay sets `X-Octopod-Via: console` on everything it
+passes, replacing whatever a request brought. To such a request, the API answers only
+`enroll` and `signout` without a session; anything else gets
+`401 { error, enroll: true }` until the browser's cookie carries a session, which a code
+from `POST /v1/console/code` (`octopod console code`) opens. After 5 wrong codes in a row,
+the waiting ones are void. The state directory's `console-access.json` (`0600`) keeps
+digests of the codes and sessions, never the values. Clients of the socket never enroll.
 
 ```ts
 interface Project {
@@ -316,7 +329,7 @@ interface ProjectStatus extends Project {
 ```
 
 The CLI speaks the same operations and prints the same JSON with `--json`:
-`octopod edge up|down|status`, `octopod register [dir]`, `octopod up|down|status|logs|restart
+`octopod edge up|down|status`, `octopod console code|revoke`, `octopod register [dir]`, `octopod up|down|status|logs|restart
 [project]`, `octopod exec <project> <service> -- <command…>`, `octopod unregister <project>`,
 `octopod recipes [dir] [--check]`, `octopod ps [project]` (the programs),
 `octopod run [project] <service> [<action> [file]] [--yes]`,

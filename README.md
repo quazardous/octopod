@@ -162,6 +162,7 @@ octopod down                  # --volumes removes Docker's volume objects; the d
 octopod up --instance 2       # the same project a second time, at demo-2.localhost
 octopod unregister <project>
 octopod edge status           # the edge, the console and the dashboard's addresses
+octopod console code          # a code that enrolls a browser in the console; revoke signs every one out
 octopod version
 ```
 
@@ -180,6 +181,11 @@ the logs, which it refreshes. It brings a project up or down — the rest (`rest
 `exec`, `run`, removing volumes) stays on the command line — and links to Traefik's dashboard at `http://traefik.localhost`. Both answer only
 from your machine, never from a project's container. The console reads the API, which
 `octopod setup` runs as the `octopod` systemd user service.
+
+The console shows nothing to a browser you have not enrolled: the first time, it opens on
+a login page. Run `octopod console code` and paste the code it prints there, valid 10
+minutes and once; the browser stays enrolled for 30 days, or until *Sign out*.
+`octopod console revoke` signs every browser out.
 
 ## How it works
 

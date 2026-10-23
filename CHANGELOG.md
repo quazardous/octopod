@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - The console brings a project up or down: a button on each tile, and both on a project's page, for every instance. Down asks for a second click. Its relay lets through these two requests only, from the console's own page (the `X-Octopod-Console` header, which another site cannot send); the console never removes volumes. Run `octopod edge up` once after upgrading, for the relay's new configuration.
+- The console shows nothing to a browser that is not enrolled: it opens on a login page, where the code of `octopod console code` (valid 10 minutes, once) is pasted. The browser stays enrolled 30 days, or until *Sign out*; `octopod console revoke` signs every browser out. API: `POST /v1/console/code`, `DELETE /v1/console/sessions` on the socket, `POST /v1/console/enroll` and `/signout` through the console.
 
 ## [0.4.0] - 2026-10-19
 

@@ -28,20 +28,32 @@ function docker(...args: string[]): string {
   return execFileSync('docker', args, { encoding: 'utf8' });
 }
 
-async function get(host: string, path = '/', method = 'GET', headers: Record<string, string> = {}, timeoutMs = 3000): Promise<{ status: number; body: string }> {
+/** The console's session, once the tests enrolled: sent with every request to the console. */
+let consoleCookie = '';
+
+async function get(
+  host: string,
+  path = '/',
+  method = 'GET',
+  headers: Record<string, string> = {},
+  timeoutMs = 3000,
+  payload?: string,
+): Promise<{ status: number; body: string; cookie?: string }> {
   // Node's fetch refuses to set Host; a plain request to the edge with the header does it.
   const { request } = await import('node:http');
+  const all: Record<string, string> = { Host: host, ...(host === 'octopod.localhost' && consoleCookie ? { Cookie: consoleCookie } : {}), ...headers };
+  if (payload !== undefined) all['Content-Type'] = 'application/json';
   return new Promise((resolve, reject) => {
-    const req = request({ host: '127.0.0.1', port: PORT, path, method, headers: { Host: host, ...headers }, timeout: timeoutMs }, (res) => {
+    const req = request({ host: '127.0.0.1', port: PORT, path, method, headers: all, timeout: timeoutMs }, (res) => {
       let body = '';
       res.on('data', (c) => (body += String(c)));
-      res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, body, cookie: res.headers['set-cookie']?.[0]?.split(';')[0] }));
     });
     // The option only says the time is up: the request must be ended here, or a route to a
     // service that just went down can keep it open for ever.
     req.on('timeout', () => req.destroy(new Error(`no answer from ${host} within ${timeoutMs / 1000} s`)));
     req.on('error', reject);
-    req.end();
+    req.end(payload);
   });
 }
 
@@ -171,6 +183,18 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
     api = await listen(octopod, octopod.socket);
     const page = await eventually('octopod.localhost', 200);
     expect(page.body).toContain('<script src="/console.js" defer></script>');
+    // Nothing but the page until the browser enrolls, with a code from the command line.
+    expect((await get('octopod.localhost', '/v1/projects')).status).toBe(401);
+    const enroll = (code: string, header: Record<string, string> = { 'X-Octopod-Console': '1' }) =>
+      get('octopod.localhost', '/v1/console/enroll', 'POST', header, 3000, JSON.stringify({ code }));
+    const { code } = await octopod.access.code();
+    expect((await enroll(code, {})).status).toBe(403);
+    const enrolled = await enroll(code);
+    expect(enrolled.status).toBe(200);
+    consoleCookie = enrolled.cookie ?? '';
+    expect(consoleCookie).toMatch(/^octopod_console=/);
+    // A header a request brings cannot pass for the relay's: the API still sees the console.
+    expect((await get('octopod.localhost', '/v1/projects', 'GET', { Cookie: '', 'X-Octopod-Via': '' })).status).toBe(401);
     const projects = JSON.parse((await eventually('octopod.localhost', 200, '/v1/projects')).body) as { name: string }[];
     expect(projects.map((p) => p.name).sort()).toEqual(['alpha', 'beta']);
     expect(JSON.parse((await get('octopod.localhost', '/v1/edge')).body)).toEqual(expect.objectContaining({ running: true, console: `http://octopod.localhost:${PORT}` }));
