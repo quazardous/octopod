@@ -97,10 +97,14 @@ describe('the edge', () => {
     expect((services().console as unknown as Record<string, unknown>).extra_hosts).toBeUndefined();
   });
 
-  it('relays GET to the socket and refuses every other method', () => {
+  it('relays GET to the socket, a project\'s up and down with the console\'s header, and refuses the rest', () => {
     const conf = consoleNginxConfig('octopod.sock');
     expect(conf).toContain('proxy_pass http://unix:/run/octopod/octopod.sock;');
     expect(conf).toContain('limit_except GET { deny all; }');
+    const acts = /location ~ \^\/v1\/projects\/\[\^\/\]\+\/\(up\|down\)\$ \{([^}]*\}[^}]*\}[^}]*)\}/.exec(conf)?.[1] ?? '';
+    expect(acts).toContain('limit_except POST { deny all; }');
+    expect(acts).toContain('if ($http_x_octopod_console != "1") { return 403; }');
+    expect(acts).toContain('proxy_pass http://unix:/run/octopod/octopod.sock;');
     // The generated secrets are for local clients on the socket, never for the console.
     expect(conf).toMatch(/location ~ \^\/v1\/projects\/\[\^\/\]\+\/secrets \{\s*return 403;/);
   });

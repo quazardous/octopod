@@ -28,18 +28,18 @@ function docker(...args: string[]): string {
   return execFileSync('docker', args, { encoding: 'utf8' });
 }
 
-async function get(host: string, path = '/', method = 'GET'): Promise<{ status: number; body: string }> {
+async function get(host: string, path = '/', method = 'GET', headers: Record<string, string> = {}, timeoutMs = 3000): Promise<{ status: number; body: string }> {
   // Node's fetch refuses to set Host; a plain request to the edge with the header does it.
   const { request } = await import('node:http');
   return new Promise((resolve, reject) => {
-    const req = request({ host: '127.0.0.1', port: PORT, path, method, headers: { Host: host }, timeout: 3000 }, (res) => {
+    const req = request({ host: '127.0.0.1', port: PORT, path, method, headers: { Host: host, ...headers }, timeout: timeoutMs }, (res) => {
       let body = '';
       res.on('data', (c) => (body += String(c)));
       res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
     });
     // The option only says the time is up: the request must be ended here, or a route to a
     // service that just went down can keep it open for ever.
-    req.on('timeout', () => req.destroy(new Error(`no answer from ${host} within 3 s`)));
+    req.on('timeout', () => req.destroy(new Error(`no answer from ${host} within ${timeoutMs / 1000} s`)));
     req.on('error', reject);
     req.end();
   });
@@ -176,14 +176,27 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
     expect(JSON.parse((await get('octopod.localhost', '/v1/edge')).body)).toEqual(expect.objectContaining({ running: true, console: `http://octopod.localhost:${PORT}` }));
   });
 
-  it('refuses anything but reading through the console', async () => {
-    // Up to the API's socket, this would take the project down: the relay stops it first.
+  it('refuses through the console anything but reading, and a project\'s up and down from its own page', async () => {
+    // Up to the API's socket, this would take the project down: without the console's
+    // header (what a page of another site sends) the relay stops it first.
     expect((await get('octopod.localhost', '/v1/projects/alpha/down', 'POST')).status).toBe(403);
+    const console = { 'X-Octopod-Console': '1' };
+    expect((await get('octopod.localhost', '/v1/projects/alpha/restart', 'POST', console)).status).toBe(403);
+    expect((await get('octopod.localhost', '/v1/projects/alpha/exec', 'POST', console)).status).toBe(403);
+    expect((await get('octopod.localhost', '/v1/edge/down', 'POST', console)).status).toBe(403);
     // Nor the secrets octopod generated: they are for local clients, on the socket.
     expect((await get('octopod.localhost', '/v1/projects/alpha/secrets')).status).toBe(403);
     expect((await get('octopod.localhost', '/v1/projects/alpha/%73ecrets')).status).toBe(403);
     expect((await octopod.status('alpha')).services).toEqual([expect.objectContaining({ state: 'running' })]);
   });
+
+  it('brings a project down and up from the console', async () => {
+    const console = { 'X-Octopod-Console': '1' };
+    expect((await get('octopod.localhost', '/v1/projects/alpha/down', 'POST', console, 60_000)).status).toBe(200);
+    expect((await octopod.status('alpha')).services).toEqual([]);
+    expect((await get('octopod.localhost', '/v1/projects/alpha/up', 'POST', console, 120_000)).status).toBe(200);
+    expect((await eventually('alpha.localhost', 200)).status).toBe(200);
+  }, 200_000);
 
   it('keeps the console and the dashboard from the projects\' containers', async () => {
     await eventually('octopod.localhost', 200);

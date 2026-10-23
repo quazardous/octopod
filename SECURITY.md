@@ -42,9 +42,16 @@ directory) and replaces any token a request brings.
 dashboard (`http://traefik.localhost`) — answer only from the host. A Traefik
 `ipAllowList` lets through the edge's own network, where the host's requests arrive through
 the published port; a project's container, which reaches the edge over its edge network,
-gets a 403. The console is read-only: a relay (nginx, running as the operator, read-only
-root, no capability) passes GET and HEAD to the API's socket (on Windows, to its
-loopback port, with its token) and refuses every other method, and the page is served with a strict Content Security Policy. Everything it shows
+gets a 403. The console reads, and acts only to bring a project up or down: a relay
+(nginx, running as the operator, read-only root, no capability) passes GET and HEAD to the
+API's socket (on Windows, to its loopback port, with its token), and a project's `up` and
+`down` (never with its volumes) when they carry the `X-Octopod-Console` header. A page of
+another site cannot send that header without a CORS preflight, which the relay never
+answers, so it cannot make the browser start or stop a project. Every other method and path
+is refused — no `exec`, no `run`, nothing that reaches into a container — and the page is
+served with a strict Content Security Policy. A process of the host can still send the
+header itself: on a machine shared with other users, they can start and stop the projects
+as they can already read the console. Everything it shows
 comes from the projects (names, log lines) and is rendered as text, never as markup.
 
 **The Docker socket** is mounted read-only into Traefik, which needs it to discover

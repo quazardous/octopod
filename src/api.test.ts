@@ -15,9 +15,9 @@ let server: Server;
 /** Docker that has nothing running: enough for everything but up/down. */
 const idleDocker: Docker = { run: async () => '' };
 
-function raw(method: string, path: string, body?: unknown): Promise<{ status: number; headers: Record<string, unknown>; text: string }> {
+function raw(method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<{ status: number; headers: Record<string, unknown>; text: string }> {
   return new Promise((resolve, reject) => {
-    const req = request({ socketPath: socket, method, path, headers: { 'content-type': 'application/json' } }, (res) => {
+    const req = request({ socketPath: socket, method, path, headers: { 'content-type': 'application/json', ...headers } }, (res) => {
       let text = '';
       res.on('data', (c) => (text += String(c)));
       res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: res.headers, text }));
@@ -202,6 +202,13 @@ describe('the API on TCP', () => {
     const answer = await get('/v1/version', token);
     expect(answer.status).toBe(200);
     expect(JSON.parse(answer.text)).toMatchObject({ contract: 1 });
+  });
+
+  it('never removes volumes for the console', async () => {
+    await call('POST', '/v1/projects', { root: join(base, 'demo') });
+    const res = await raw('POST', '/v1/projects/demo/down', { volumes: true }, { 'x-octopod-console': '1' });
+    expect(res.status).toBe(403);
+    expect(JSON.parse(res.text).error).toContain('octopod down --volumes');
   });
 
   it('serves the tako of the tray as the icon of the console', async () => {

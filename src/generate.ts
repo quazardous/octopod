@@ -14,7 +14,7 @@ export const TRAEFIK_IMAGE = 'traefik:v3.6.1';
  */
 export const EDGE_LABEL = 'octopod.edge';
 
-/** Serves the console: a relay from the edge to the API's unix socket, GET only. */
+/** Serves the console: a relay from the edge to the API's unix socket. */
 export const CONSOLE_IMAGE = 'nginx:1.28-alpine';
 /** Where the console is: a name under no project's (a project named `octopod` is refused). */
 export const CONSOLE_HOST = 'octopod.localhost';
@@ -86,8 +86,15 @@ export function localOnlyConfig(subnets: string[]): Record<string, unknown> {
 }
 
 /**
- * The console relay: GET and HEAD to the API, anything else refused — the console reads, it
- * does not act. When the API is not running, a page that says how to start it.
+ * The header the console sends with a POST, and the relay requires: a page of another site
+ * cannot send it without asking first (a CORS preflight), which the relay never answers.
+ */
+export const CONSOLE_HEADER = 'X-Octopod-Console';
+
+/**
+ * The console relay: GET and HEAD to the API; and a project's up and down, the only acts
+ * the console has, carrying {@link CONSOLE_HEADER}. Anything else refused. When the API is
+ * not running, a page that says how to start it.
  *
  * The API is the socket named `api` in the mounted folder, or, on TCP (Windows), the host's
  * loopback port with the token the API asks for: the relay adds it, and replaces any a
@@ -121,6 +128,15 @@ http {
     # The generated secrets are for local clients, on the socket; the console never needs them.
     location ~ ^/v1/projects/[^/]+/secrets {
       return 403;
+    }
+    # A project's up and down, from the console's own page: the header proves it (a cross-site
+    # form or fetch cannot add it). An up may build images: it may take minutes.
+    location ~ ^/v1/projects/[^/]+/(up|down)$ {
+      limit_except POST { deny all; }
+      if ($http_${CONSOLE_HEADER.toLowerCase().replace(/-/g, '_')} != "1") { return 403; }
+      ${upstream}
+      proxy_read_timeout 900s;
+      error_page 502 504 = @down;
     }
     location / {
       limit_except GET { deny all; }

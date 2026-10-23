@@ -102,6 +102,13 @@ input[type="search"]:focus { outline: 1px solid var(--accent); outline-offset: -
 button { cursor: pointer; }
 button:hover { border-color: var(--accent); }
 button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+button:disabled { cursor: progress; color: var(--muted); }
+button:disabled:hover { border-color: var(--line); }
+/* Up and down: small, in the state's colours. */
+.act { font-size: 12px; padding: 2px 10px; }
+.act.up:hover { border-color: var(--ok); color: var(--ok); }
+.act.down:hover { border-color: var(--bad); color: var(--bad); }
+.act.armed, .act.armed:hover { background: var(--bad); border-color: var(--bad); color: #fff; }
 
 /* Tonal chips: the state's colour on a tint of it. */
 .pill {
@@ -153,8 +160,8 @@ details.group > .gallery { margin-bottom: 8px; }
 .tile.bad::before { background: var(--bad); }
 .tile:hover { box-shadow: var(--shadow-up); transform: translateY(-2px); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
 .tile:focus-within { border-color: var(--accent); }
-.tile-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.tile-name { font-weight: 600; font-size: 14px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile-head { display: flex; align-items: center; gap: 8px; }
+.tile-name { min-width: 0; font-weight: 600; font-size: 14px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tile-name:hover { text-decoration: none; color: var(--accent); }
 .tile-facts { margin: 0; font-size: 12px; }
 .tile-alert { margin-left: 6px; }

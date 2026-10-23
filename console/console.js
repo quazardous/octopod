@@ -1,6 +1,6 @@
 // octopod's console: reads the API it is served by. A gallery of the projects; each opens
 // on a page of its own (#/p/<project>[/<instance>]) with its services, routes, warnings and
-// logs. Read-only. Everything the API returns is shown as
+// logs. It acts only to bring a project up or down. Everything the API returns is shown as
 // text, never as markup: names and log lines come from the projects.
 'use strict';
 
@@ -27,7 +27,17 @@ const state = {
   view: null,
   /** The page whose logs were opened on arrival. */
   logsPage: null,
+  /** A project being brought up or down, by `<project>#<instance>`: 'up' or 'down'. */
+  busy: new Map(),
+  /** Why the last up or down of a project failed, by the same key, until the next one. */
+  actFailed: new Map(),
+  /** The project whose Down was clicked once, by the same key: a second click stops it. */
+  arming: null,
+  armTimer: 0,
 };
+
+/** How long a first click on Down waits for the second. */
+const CONFIRM_MS = 4000;
 
 /** The page the address names: `#/p/<project>[/<instance>]`, or the gallery. */
 function route() {
@@ -68,6 +78,28 @@ async function api(path) {
   return body;
 }
 
+/**
+ * A POST, with the header the console relay requires: a page of another site cannot add it
+ * without a preflight, which the relay never answers.
+ */
+async function post(path, payload) {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { accept: 'application/json', 'content-type': 'application/json', 'x-octopod-console': '1' },
+    body: JSON.stringify(payload),
+    cache: 'no-store',
+  });
+  const text = await res.text();
+  let body;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    throw new Error(res.ok ? 'the API answered something that is not JSON' : `the API answered ${res.status}`);
+  }
+  if (!res.ok) throw new Error(body && body.error ? body.error : `the API answered ${res.status}`);
+  return body;
+}
+
 const projectPath = (name, instance, action = '') =>
   `/v1/projects/${encodeURIComponent(name)}${action ? `/${action}` : ''}${instance > 1 ? `?instance=${instance}` : ''}`;
 
@@ -94,6 +126,60 @@ async function load() {
   );
   return { edge, projects: statuses };
 }
+
+// ─── Acting ──────────────────────────────────────────────────────────────────
+
+/** `octopod up` or `octopod down` of a project's instance; an up may build, and take minutes. */
+async function act(project, instance, what) {
+  const key = `${project}#${instance}`;
+  if (state.busy.has(key)) return;
+  state.busy.set(key, what);
+  state.actFailed.delete(key);
+  if (state.last) render(state.last);
+  try {
+    await post(`/v1/projects/${encodeURIComponent(project)}/${what}`, instance > 1 ? { instance } : {});
+  } catch (e) {
+    state.actFailed.set(key, `${what} failed: ${e.message}`);
+  }
+  state.busy.delete(key);
+  refresh();
+}
+
+/**
+ * Down asks first: a first click turns it into a confirmation, a second within a few seconds
+ * stops the project; otherwise it goes back.
+ */
+function armDown(key) {
+  clearTimeout(state.armTimer);
+  state.arming = key;
+  state.armTimer = setTimeout(() => {
+    state.arming = null;
+    if (state.last) render(state.last);
+  }, CONFIRM_MS);
+  if (state.last) render(state.last);
+}
+
+/** The button that brings a project up or down, or says it is on the way. */
+function actButton(project, instance, what) {
+  const key = `${project}#${instance}`;
+  const busy = state.busy.get(key);
+  if (busy) return el('button', { type: 'button', class: 'act', disabled: true }, busy === 'up' ? 'Starting…' : 'Stopping…');
+  if (what === 'up') return el('button', { type: 'button', class: 'act up', title: 'octopod up: start it, or apply what changed', onclick: () => act(project, instance, 'up') }, 'Up');
+  if (state.arming === key) {
+    const go = () => {
+      clearTimeout(state.armTimer);
+      state.arming = null;
+      act(project, instance, 'down');
+    };
+    return el('button', { type: 'button', class: 'act down armed', title: 'Click again to stop it: its containers go, its data stays', onclick: go }, 'Stop?');
+  }
+  return el('button', { type: 'button', class: 'act down', title: 'octopod down: stop it, the data kept', onclick: () => armDown(key) }, 'Down');
+}
+
+const failure = (project, instance) => {
+  const why = state.actFailed.get(`${project}#${instance}`);
+  return why ? el('p', { class: 'problem' }, why) : null;
+};
 
 // ─── Showing ─────────────────────────────────────────────────────────────────
 
@@ -205,7 +291,9 @@ function card(p, base, nested = false) {
       el('div', { class: 'routes' }, routes),
       el('span', { class: 'spacer' }),
       el('button', { type: 'button', onclick: () => openLogs({ project: base, instance, service: '' }) }, 'All logs'),
+      state.busy.has(key) ? actButton(base, instance, 'up') : [actButton(base, instance, 'up'), actButton(base, instance, 'down')],
     ),
+    failure(base, instance),
     nested ? null : el('div', { class: 'root mono muted' }, p.root),
     nested || !(p.compose || []).length ? null : details(`${key}:compose`, `${p.compose.length} compose file${p.compose.length > 1 ? 's' : ''}`, el('ul', {}, p.compose.map((f) => el('li', { class: 'mono' }, f)))),
     p.problem ? el('p', { class: 'problem' }, p.problem) : servicesTable(p, base, instance),
@@ -247,12 +335,21 @@ function tile(p) {
     {
       class: `tile ${tone}`,
       'data-name': p.name,
-      // The whole tile opens the page; its links (routes) keep their own target.
+      // The whole tile opens the page; its links (routes) and its button keep their own.
       onclick: (e) => {
-        if (!e.target.closest('a')) location.hash = href;
+        if (!e.target.closest('a, button')) location.hash = href;
       },
     },
-    el('div', { class: 'tile-head' }, el('a', { href, class: 'tile-name' }, p.name), el('span', { class: `pill ${tone}` }, label)),
+    el(
+      'div',
+      { class: 'tile-head' },
+      el('a', { href, class: 'tile-name' }, p.name),
+      el('span', { class: `pill ${tone}` }, label),
+      el('span', { class: 'spacer' }),
+      // Down when anything runs, up otherwise: the page has both.
+      actButton(p.name, 1, label === 'down' || p.problem ? 'up' : 'down'),
+    ),
+    failure(p.name, 1),
     p.problem ? el('p', { class: 'problem' }, p.problem) : el('p', { class: 'tile-facts muted' }, facts, warnings ? el('span', { class: 'dot warn tile-alert' }) : null),
     el('div', { class: 'tile-routes' }, (p.routes || []).map((r) => el('a', { href: r.url, target: '_blank', rel: 'noreferrer' }, r.url.replace(/^http:\/\//, '')))),
     (p.tags || []).length ? el('div', { class: 'tile-tags' }, p.tags.map((t) => el('span', { class: 'tag' }, `#${t}`))) : null,

@@ -9,6 +9,7 @@ import { chmod, readFile, rm } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { DeclarationError } from './declaration.js';
 import { DockerError } from './docker.js';
+import { CONSOLE_HEADER } from './generate.js';
 import { defaultSocket, Octopod, OctopodError, prepareSocketDir, TOKEN_HEADER, version, type ApiTcp } from './octopod.js';
 
 export { defaultSocket };
@@ -117,6 +118,8 @@ export function handler(octopod: Octopod) {
       }
       if (resource === 'projects' && name && action === 'down' && method === 'POST') {
         const { volumes, instance } = await body(req);
+        // The console stops a project, it never deletes its data.
+        if (volumes === true && req.headers[CONSOLE_HEADER.toLowerCase()] !== undefined) return send(res, 403, { error: 'the console does not remove volumes: octopod down --volumes' });
         return send(res, 200, await octopod.down(name, { volumes: volumes === true, instance: instanceValue(instance) }));
       }
       if (resource === 'projects' && name && action === 'restart' && method === 'POST') {

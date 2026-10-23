@@ -47,9 +47,12 @@ Rules, checked when the project is registered and every time it is brought up:
   edge over their edge network, and get a 403 there:
   - `http://traefik.localhost`: Traefik's dashboard;
   - `http://octopod.localhost`: the console — every project and instance, its services,
-    routes, warnings and logs. Read-only. Served by `octopod serve` (the API), through
-    `octopod-console`, a relay (nginx, running as the operator, read-only, no capability)
-    that passes GET to the API's socket and refuses every other method. When the API is
+    routes, warnings and logs, and a button to bring each up or down. Served by `octopod
+    serve` (the API), through `octopod-console`, a relay (nginx, running as the operator,
+    read-only, no capability) that passes GET to the API's socket, and
+    `POST /v1/projects/:name/up` and `/down` when they carry the header
+    `X-Octopod-Console: 1`, which a page of another site cannot add (it would need a CORS
+    preflight the relay never answers); every other method and path is refused. When the API is
     not running, the console says how to start it. The relay mounts the socket's folder
     without letting Docker create it (`create_host_path: false`): after a reboot Docker
     starts the relay before octopod's service, and a folder it made would be root's; the
@@ -282,7 +285,7 @@ first time, kept after), and answers only a request that carries that token in t
 | GET | `/v1/projects?group=&tag=` | | `Project[]` — every registered project, or those of a group, or carrying a tag |
 | POST | `/v1/projects` | `{ root }` | `Project` (registered from `root/octopod.yaml`) |
 | GET | `/v1/projects/:name` | | `ProjectStatus` |
-| POST | `/v1/projects/:name/up` · `/down` | `{ volumes?: boolean }` for down | `ProjectStatus` |
+| POST | `/v1/projects/:name/up` · `/down` | `{ volumes?: boolean, instance? }` for down, `{ instance? }` for up | `ProjectStatus` — the only POSTs the console's relay lets through, with `X-Octopod-Console: 1`; a down with `volumes: true` and that header is refused (403) |
 | POST | `/v1/projects/:name/restart` | `{ service? }` | `ProjectStatus` |
 | POST | `/v1/projects/:name/exec` | `{ service, argv: string[], timeoutMs? }` | `{ ok, mode, output, truncated }` — argv, never a shell string built by octopod; output bounded; a failure says how it ended (exit code, timeout). `mode: "run"` when the service was not running (stopped, restarting in a loop): the command ran in a one-off container of it (same image, mounts, user, network), kept out of the edge's routes |
 | GET | `/v1/projects/:name/logs?service=&tail=` | | `{ lines: string[] }` |
