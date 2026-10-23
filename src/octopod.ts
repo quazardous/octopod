@@ -1162,8 +1162,16 @@ export class Octopod {
       await this.forgetDataVolumes(name, n);
     }
     const registry = await this.registry();
+    const root = registry[name];
     delete registry[name];
     await this.writeJson('projects.json', registry);
-    await rm(this.path('projects', name), { recursive: true, force: true });
+    // The data in .octopod/data stays, and with it the secrets it was made with: a database
+    // kept there opens with them only — registered again, the project finds them.
+    const dir = this.path('projects', name);
+    const data = root ? await stat(join(root, DATA_DIR)).catch(() => undefined) : undefined;
+    if (!data) return rm(dir, { recursive: true, force: true });
+    for (const entry of await readdir(dir).catch(() => [])) {
+      if (entry !== 'secrets.json') await rm(join(dir, entry), { recursive: true, force: true });
+    }
   }
 }

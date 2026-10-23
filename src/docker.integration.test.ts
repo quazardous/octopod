@@ -486,6 +486,18 @@ describe.skipIf(!dockerAvailable())('a project made of recipes (real docker)', {
     expect(docker('volume', 'ls', '--format', '{{.Name}}').split('\n')).not.toContain('delta_db-data');
     expect((await stat(join(root, '.octopod', 'data', 'db-data', 'PG_VERSION'))).isFile()).toBe(true);
   });
+
+  it('keeps the secrets the kept data was made with, and drops them with the data', async () => {
+    await octopod.register(root);
+    const before = await octopod.secrets('delta');
+    expect(before.length).toBeGreaterThan(0);
+    await octopod.unregister('delta');
+    await octopod.register(root);
+    expect(await octopod.secrets('delta')).toEqual(before);
+    await rm(join(root, '.octopod', 'data'), { recursive: true, force: true });
+    await octopod.unregister('delta');
+    await expect(stat(join(base, 'state', 'projects', 'delta'))).rejects.toThrow();
+  });
 });
 
 describe.skipIf(!dockerAvailable())('the examples (real docker)', { timeout: 600_000 }, () => {

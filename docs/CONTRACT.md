@@ -266,7 +266,10 @@ workspace: .               # the folder a recipe's workspace mounts; the project
   `VOLUME` — data goes in the recipe's `volumes`, kept in `.octopod/data`; system packages
   and extensions, never a project's dependencies; the last `USER` is not root. A Dockerfile
   without `USER` is not flagged: a database image starts as root and drops to its own user.
-- `unregister` removes the images compose built for the project.
+- `unregister` removes the images compose built for the project. The secrets octopod
+  generated for its recipes stay in its state while the project's `.octopod/data` exists:
+  a database kept there opens only with them, and the project registered again (from the
+  same folder or a moved one) finds them. Without that folder they go too.
 
 ## The API
 

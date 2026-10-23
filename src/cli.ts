@@ -23,10 +23,10 @@
  * `--json` prints the API's JSON; otherwise a short human summary.
  */
 import { spawn } from 'node:child_process';
-import { closeSync, openSync, read as readFs } from 'node:fs';
+import { closeSync, existsSync, openSync, read as readFs } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { dockerEnv } from './docker.js';
-import { loadDeclaration } from './declaration.js';
+import { DECLARATION_FILE, loadDeclaration } from './declaration.js';
 import { listen } from './api.js';
 import { setup } from './setup.js';
 import { fingerprint, RESTART_EXIT, selfWatch, supervised } from './fingerprint.js';
@@ -263,6 +263,10 @@ async function main(argv: string[]): Promise<void> {
       // octopod recipes [dir]: the recipes a project in that folder (or any) can name.
       // --check: each built recipe's Dockerfile against octopod's rules; exit 1 on a problem.
       const dir = positional(rest)[0];
+      // A recipes folder, or a recipe's, is not a project's: its recipes would go unseen, silently.
+      if (dir && !existsSync(join(resolve(dir), DECLARATION_FILE))) {
+        console.error(`${dir} is not a project's folder (no ${DECLARATION_FILE}): only the built-in recipes and those of OCTOPOD_RECIPES are seen`);
+      }
       if (rest.includes('--check')) {
         const checked = await octopod.checkRecipes(dir ? resolve(dir) : undefined);
         if (checked.recipes.some((r) => r.problems.length > 0)) process.exitCode = 1;

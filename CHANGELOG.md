@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `unregister` no longer drops the secrets generated for a project's recipes while its data stays in `.octopod/data`: registered again (a moved folder, for one), the project's database opens with the password it was made with, instead of answering *Access denied*. Without the data folder the secrets go, as before.
+- `octopod recipes <dir>` says when the folder is not a project's (no `octopod.yaml`): only the built-in recipes and those of `OCTOPOD_RECIPES` are listed or checked then, not the folder's.
+
 ## [0.5.0] - 2026-10-23
 
 After upgrading, run `octopod edge up` once: the console's relay gets its new configuration. Each browser then enrolls once in the console, with `octopod console code`.
