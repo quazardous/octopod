@@ -12,11 +12,12 @@ import { enabledWith, GNOME_SOURCE, GNOME_UUID, installGnomeExtension, type Runn
 
 type Look = { up: boolean; dockerDown: boolean; line: string; title: string };
 const load = async <T>(file: string): Promise<T> => (await import(pathToFileURL(join(GNOME_SOURCE, file)).href)) as T;
-const { trayLook, projectLabel, projectState, actionNotice } = await load<{
+const { trayLook, projectLabel, projectState, actionNotice, codeNotice } = await load<{
   trayLook: (edge: unknown, why: string, projects: unknown[], version: unknown, hint?: string) => Look;
   projectLabel: (p: unknown) => string;
   projectState: (s: unknown) => string;
   actionNotice: (what: string, code: number, stderr: string) => { ok: boolean; text: string };
+  codeNotice: (output: string) => { code: string; text: string } | null;
 }>('look.js');
 const { COMMANDS, START_SERVICE, octopodArgv, describe: describeCommand } = await load<{
   COMMANDS: Record<string, (p?: string) => string[]>;
@@ -62,6 +63,8 @@ describe('the GNOME extension, outside the shell', () => {
     }
     const balloon = ps(`Get-ActionBalloon 'octopod up demo' 1 "\`noctopod: project demo is not registered"`) as unknown as { text: string };
     expect(actionNotice('octopod up demo', 1, '\noctopod: project demo is not registered').text).toBe(balloon.text);
+    const code = ps(`Get-CodeBalloon '{ "code": "AB2C-DE3F", "expires": 1 }'`) as unknown as { code: string; text: string };
+    expect(code).toEqual(codeNotice('{ "code": "AB2C-DE3F", "expires": 1 }'));
   });
 
   it('marks a project with a problem, and words its state', () => {
@@ -71,6 +74,8 @@ describe('the GNOME extension, outside the shell', () => {
     expect(projectState({ services: [] })).toBe('down');
     expect(actionNotice('octopod edge up', 0, '')).toEqual({ ok: true, text: 'octopod edge up: done.' });
     expect(actionNotice('octopod edge up', 3, '')).toEqual({ ok: false, text: 'octopod edge up failed: exit code 3' });
+    expect(codeNotice('{"code":"AB2C-DE3F","expires":1}')).toEqual({ code: 'AB2C-DE3F', text: "Console code AB2C-DE3F, copied: paste it in the console's login. Valid 10 minutes, once." });
+    expect(codeNotice('not json')).toBeNull();
   });
 
   it('runs argv, octopod itself first', () => {
@@ -79,6 +84,7 @@ describe('the GNOME extension, outside the shell', () => {
     expect(COMMANDS.down('demo')).toEqual(['down', 'demo']);
     expect(COMMANDS.edgeUp()).toEqual(['edge', 'up']);
     expect(COMMANDS.edgeDown()).toEqual(['edge', 'down']);
+    expect(COMMANDS.consoleCode()).toEqual(['console', 'code', '--json']);
     expect(START_SERVICE).toEqual(['systemctl', '--user', 'start', 'octopod']);
     expect(describeCommand(['up', 'demo'])).toBe('octopod up demo');
   });

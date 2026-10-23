@@ -20,7 +20,7 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import {defaultSocketPath, getJson} from './octopodClient.js';
-import {actionNotice, projectLabel, projectState, trayLook} from './look.js';
+import {actionNotice, codeNotice, projectLabel, projectState, trayLook} from './look.js';
 import {COMMANDS, START_SERVICE, describe, octopodArgv} from './actions.js';
 
 // The edge's state for the icon, often and cheaply; the projects when the menu opens, and
@@ -123,7 +123,10 @@ class OctopodIndicator extends PanelMenu.Button {
             return;
         }
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        if (this._edge && this._edge.console) this._link('octopod console', this._edge.console);
+        if (this._edge && this._edge.console) {
+            this._link('octopod console', this._edge.console);
+            this._consoleCode();
+        }
         if (this._edge && this._edge.dashboard) this._link('Traefik dashboard', this._edge.dashboard);
 
         if (this._projects.length > 0) {
@@ -179,30 +182,57 @@ class OctopodIndicator extends PanelMenu.Button {
     /** Run argv in the background; a notice says done, or its first error line; then read again. */
     _action(label, argv, what, menu = this.menu) {
         const item = new PopupMenu.PopupMenuItem(label);
-        item.connect('activate', () => {
-            let proc;
-            try {
-                const launcher = new Gio.SubprocessLauncher({flags: Gio.SubprocessFlags.STDOUT_SILENCE | Gio.SubprocessFlags.STDERR_PIPE});
-                // The PATH octopod was set up with: the shell's often lacks docker's or ~/.local/bin.
-                if (this._config.path) launcher.setenv('PATH', this._config.path, true);
-                proc = launcher.spawnv(argv);
-            } catch (e) {
-                Main.notify('octopod', actionNotice(what, 127, e.message).text);
-                return;
-            }
-            proc.communicate_utf8_async(null, this._cancellable, (p, res) => {
-                let stderr = '';
-                try {
-                    [, , stderr] = p.communicate_utf8_finish(res);
-                } catch {
-                    if (this._cancellable.is_cancelled()) return;
-                }
-                if (this._cancellable.is_cancelled()) return;
-                Main.notify('octopod', actionNotice(what, p.get_exit_status(), stderr).text);
+        item.connect('activate', () =>
+            this._run(argv, what, (code, _stdout, stderr) => {
+                Main.notify('octopod', actionNotice(what, code, stderr).text);
                 this._refresh(true, true);
-            });
-        });
+            }),
+        );
         menu.addMenuItem(item);
+    }
+
+    /** A code that enrolls a browser in the console, copied to the clipboard: the login takes it pasted. */
+    _consoleCode() {
+        const args = COMMANDS.consoleCode();
+        const what = describe(args.slice(0, 2));
+        const item = new PopupMenu.PopupMenuItem('Console code');
+        item.connect('activate', () =>
+            this._run(octopodArgv(this._config.argv, args), what, (code, stdout, stderr) => {
+                const notice = code === 0 ? codeNotice(stdout) : null;
+                if (!notice) {
+                    Main.notify('octopod', actionNotice(what, code || 1, stderr).text);
+                    return;
+                }
+                St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD, notice.code);
+                Main.notify('octopod', notice.text);
+            }),
+        );
+        this.menu.addMenuItem(item);
+    }
+
+    /** Run argv in the background, then `done(exitCode, stdout, stderr)`, unless the extension went away. */
+    _run(argv, what, done) {
+        let proc;
+        try {
+            const launcher = new Gio.SubprocessLauncher({flags: Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE});
+            // The PATH octopod was set up with: the shell's often lacks docker's or ~/.local/bin.
+            if (this._config.path) launcher.setenv('PATH', this._config.path, true);
+            proc = launcher.spawnv(argv);
+        } catch (e) {
+            Main.notify('octopod', actionNotice(what, 127, e.message).text);
+            return;
+        }
+        proc.communicate_utf8_async(null, this._cancellable, (p, res) => {
+            let stdout = '';
+            let stderr = '';
+            try {
+                [, stdout, stderr] = p.communicate_utf8_finish(res);
+            } catch {
+                if (this._cancellable.is_cancelled()) return;
+            }
+            if (this._cancellable.is_cancelled()) return;
+            done(p.get_exit_status(), stdout || '', stderr || '');
+        });
     }
 
     destroy() {

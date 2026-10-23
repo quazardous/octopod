@@ -9,6 +9,7 @@ export const COMMANDS = {
     down: (project) => ['down', project],
     edgeUp: () => ['edge', 'up'],
     edgeDown: () => ['edge', 'down'],
+    consoleCode: () => ['console', 'code', '--json'],
 };
 
 /** The API is octopod's systemd user service: the indicator starts it, it does not watch it. */

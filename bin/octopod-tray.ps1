@@ -139,8 +139,9 @@ function Add-Item($items, [string]$text, [scriptblock]$onClick, $tag = $null) {
 
 # Actions the tray started, each with what it is called in its balloon.
 $script:actions = New-Object System.Collections.ArrayList
-function Start-Action([string]$what, [string[]]$arguments) {
-    $script:actions.Add(@{ what = $what; command = (Start-Octopod $arguments) }) | Out-Null
+# -copyCode: a console code, copied to the clipboard once it comes.
+function Start-Action([string]$what, [string[]]$arguments, [switch]$copyCode) {
+    $script:actions.Add(@{ what = $what; command = (Start-Octopod $arguments); copyCode = [bool]$copyCode }) | Out-Null
     $ni.ShowBalloonTip(3000, 'octopod', "${what}...", [System.Windows.Forms.ToolTipIcon]::None)
 }
 
@@ -173,6 +174,7 @@ function Build-Menu {
         if (Test-Path $desktop) { Add-Item $menu.Items 'Start Docker Desktop' { Start-Process -FilePath $this.Tag } $desktop | Out-Null }
     } elseif ($script:look -and $script:look.up) {
         (Add-Item $menu.Items 'octopod console' { Open-Url $this.Tag } ([string]$script:edge.console)).Image = $consolePicture
+        Add-Item $menu.Items 'Console code' { Start-Action 'octopod console code' @('console', 'code', '--json') -copyCode } | Out-Null
         (Add-Item $menu.Items 'Traefik dashboard' { Open-Url $this.Tag } ([string]$script:edge.dashboard)).Image = $traefikPicture
         Add-Item $menu.Items 'Stop the edge' { Start-Action 'octopod edge down' @('edge', 'down') } | Out-Null
     } elseif ($script:look) {
@@ -286,6 +288,15 @@ function Receive-Actions {
         $r = Receive-Command $a.command
         if (-not $r) { continue }
         $script:actions.Remove($a)
+        if ($a.copyCode) {
+            $c = if ($r.code -eq 0) { Get-CodeBalloon $r.out } else { $null }
+            if ($c) {
+                [System.Windows.Forms.Clipboard]::SetText($c.code)
+                $ni.ShowBalloonTip(15000, 'octopod', $c.text, [System.Windows.Forms.ToolTipIcon]::Info)
+                continue
+            }
+            $r.code = if ($r.code -eq 0) { 1 } else { $r.code }
+        }
         $b = Get-ActionBalloon $a.what $r.code $r.err
         $icon = if ($b.ok) { [System.Windows.Forms.ToolTipIcon]::Info } else { [System.Windows.Forms.ToolTipIcon]::Warning }
         $ni.ShowBalloonTip(8000, 'octopod', $b.text, $icon)

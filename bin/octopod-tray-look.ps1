@@ -39,6 +39,14 @@ function Get-ProjectLabel($project) {
     return [string]$project.name
 }
 
+# The balloon of a console code (`octopod console code --json`'s output): the code, copied,
+# and where it goes; $null when the output is not one.
+function Get-CodeBalloon([string]$output) {
+    try { $code = ($output | ConvertFrom-Json).code } catch { return $null }
+    if (-not ($code -is [string])) { return $null }
+    return @{ code = $code; text = "Console code $code, copied: paste it in the console's login. Valid 10 minutes, once." }
+}
+
 # The balloon after an action the tray ran (`octopod up demo`...): the command, then
 # its first error line, or that it is done.
 function Get-ActionBalloon([string]$what, [int]$exitCode, [string]$stderr) {

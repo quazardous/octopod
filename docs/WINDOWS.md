@@ -83,6 +83,8 @@ stopped or Docker Desktop is off. Its menu (right or left click):
   folder;
 - *octopod console* and *Traefik dashboard*, *Start/Stop the edge*, *Start Docker Desktop*
   when Docker is off;
+- *Console code* — a code that enrolls a browser in the console, copied to the clipboard:
+  paste it in the console's login;
 - *Start with Windows* — a value in `HKCU\…\Run`, which *Settings › Apps › Startup* shows and
   can turn off;
 - *Quit* — the edge keeps running: it is Docker's, and comes back with Docker Desktop.
@@ -91,7 +93,8 @@ The tray also runs octopod's API, which the console reads: Windows has no unix s
 there `octopod serve` listens on `127.0.0.1` with a token (see
 [SECURITY.md](../SECURITY.md)). The tray starts it, and starts it again if it ends. Without
 the tray, run `octopod serve` in a terminal for the console. The first time, the console
-asks for a code: run `octopod console code` in a terminal and paste it there.
+asks for a code: *Console code* in the tray's menu copies one, or run `octopod console code`
+in a terminal; paste it there.
 
 ## Docker Desktop settings worth a look
 

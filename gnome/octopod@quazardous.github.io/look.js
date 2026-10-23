@@ -41,6 +41,21 @@ export function projectState(status) {
     return `${running}/${services.length} running${warnings ? `, ${warnings} warning${warnings > 1 ? 's' : ''}` : ''}`;
 }
 
+/**
+ * The notice of a console code (`octopod console code --json`'s output): the code, copied,
+ * and where it goes; null when the output is not one.
+ */
+export function codeNotice(output) {
+    let code;
+    try {
+        code = JSON.parse(output).code;
+    } catch {
+        return null;
+    }
+    if (typeof code !== 'string') return null;
+    return {code, text: `Console code ${code}, copied: paste it in the console's login. Valid 10 minutes, once.`};
+}
+
 /** The notice after an action the indicator ran (`octopod up demo`...): done, or its first error line. */
 export function actionNotice(what, exitCode, stderr) {
     if (exitCode === 0) return {ok: true, text: `${what}: done.`};

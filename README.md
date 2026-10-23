@@ -183,8 +183,8 @@ from your machine, never from a project's container. The console reads the API, 
 `octopod setup` runs as the `octopod` systemd user service.
 
 The console shows nothing to a browser you have not enrolled: the first time, it opens on
-a login page. Run `octopod console code` and paste the code it prints there, valid 10
-minutes and once; the browser stays enrolled for 30 days, or until *Sign out*.
+a login page. Run `octopod console code` — or *Console code* in the tray's or the GNOME
+extension's menu, which copies it — and paste the code there, valid 10 minutes and once; the browser stays enrolled for 30 days, or until *Sign out*.
 `octopod console revoke` signs every browser out.
 
 ## How it works
