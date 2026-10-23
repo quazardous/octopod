@@ -108,6 +108,9 @@ button:disabled:hover { border-color: var(--line); }
 .act { font-size: 12px; padding: 2px 10px; }
 .act.up:hover { border-color: var(--ok); color: var(--ok); }
 .act.down:hover { border-color: var(--bad); color: var(--bad); }
+/* hidden hides, whatever display a rule gives the element. */
+[hidden] { display: none !important; }
+
 /* The login: one card in the middle of the page. */
 .login { display: grid; place-items: center; min-height: calc(100vh - 120px); padding: 16px; }
 .login-card {
