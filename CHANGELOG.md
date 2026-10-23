@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-23
+
 ### Added
 
 - `python-app` takes `drivers: [mysql]`: the image gets a compiler and the MariaDB client's headers, so `uv sync` builds mysqlclient (Django's MariaDB/MySQL driver, which has no Linux wheel). Nothing is added without it.
@@ -148,7 +150,8 @@ The first preview: tested on Linux with Docker.
 - Traefik's dashboard and the console answer only from the host: a project's containers, which reach the edge over their edge network, get a 403.
 - `octopod` and `traefik` can no longer be project names: they are the edge's own hosts.
 
-[Unreleased]: https://github.com/quazardous/octopod/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/quazardous/octopod/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/quazardous/octopod/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/quazardous/octopod/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/quazardous/octopod/compare/v0.3.3...v0.4.0
 [0.3.3]: https://github.com/quazardous/octopod/compare/v0.3.2...v0.3.3
