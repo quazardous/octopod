@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-23
+
+After upgrading, run `octopod edge up` once: the console's relay gets its new configuration. Each browser then enrolls once in the console, with `octopod console code`.
+
 ### Added
 
 - The console brings a project up or down: a button on each tile, and both on a project's page, for every instance. Down asks for a second click. Its relay lets through these two requests only, from the console's own page (the `X-Octopod-Console` header, which another site cannot send); the console never removes volumes. Run `octopod edge up` once after upgrading, for the relay's new configuration.
@@ -135,7 +139,8 @@ The first preview: tested on Linux with Docker.
 - Traefik's dashboard and the console answer only from the host: a project's containers, which reach the edge over their edge network, get a 403.
 - `octopod` and `traefik` can no longer be project names: they are the edge's own hosts.
 
-[Unreleased]: https://github.com/quazardous/octopod/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/quazardous/octopod/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/quazardous/octopod/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/quazardous/octopod/compare/v0.3.3...v0.4.0
 [0.3.3]: https://github.com/quazardous/octopod/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/quazardous/octopod/compare/v0.3.1...v0.3.2

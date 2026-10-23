@@ -202,7 +202,7 @@ The lessons behind these choices are in [docs/PATTERNS.md](./docs/PATTERNS.md).
 
 ## Status
 
-0.4 is a preview. It is tested on Linux with Docker, and runs on Windows with Docker
+0.5 is a preview. It is tested on Linux with Docker, and runs on Windows with Docker
 Desktop; macOS and rootless Docker are not tested yet. Until 1.0, the contract may change
 between minor versions; every change is in the [changelog](./CHANGELOG.md), and a breaking one says what
 to do. The plan is in [docs/ROADMAP.md](./docs/ROADMAP.md).
