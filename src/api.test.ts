@@ -159,6 +159,39 @@ describe.skipIf(process.platform === 'win32')('the API', () => {
     expect((await raw('GET', '/package.json')).status).toBe(404);
     expect((await raw('GET', '/../src/api.ts')).status).toBe(404);
   });
+
+  it('shows the console nothing but its page and its login until the browser enrolls with a code', async () => {
+    const via = { 'x-octopod-via': 'console' };
+    expect((await raw('GET', '/', undefined, via)).status).toBe(200);
+    const locked = await raw('GET', '/v1/projects', undefined, via);
+    expect(locked.status).toBe(401);
+    expect(JSON.parse(locked.text)).toEqual({ error: expect.stringContaining('not enrolled'), enroll: true });
+    // The codes are the operator's, on the socket: never through the console.
+    expect((await raw('POST', '/v1/console/code', {}, via)).status).toBe(401);
+    expect((await raw('POST', '/v1/console/enroll', { code: 'AAAA-AAAA' }, via)).status).toBe(403);
+
+    const { code } = (await call('POST', '/v1/console/code')).json as { code: string };
+    const enrolled = await raw('POST', '/v1/console/enroll', { code }, via);
+    expect(enrolled.status).toBe(200);
+    const cookie = String(enrolled.headers['set-cookie']).split(';')[0];
+    expect(cookie).toMatch(/^octopod_console=.{20,}/);
+    const signed = { ...via, cookie };
+    expect((await raw('GET', '/v1/projects', undefined, signed)).status).toBe(200);
+    expect((await raw('POST', '/v1/console/code', {}, signed)).status).toBe(404);
+    expect((await raw('DELETE', '/v1/console/sessions', undefined, signed)).status).toBe(404);
+
+    expect((await call('DELETE', '/v1/console/sessions')).json).toEqual({ closed: 1 });
+    expect((await raw('GET', '/v1/projects', undefined, signed)).status).toBe(401);
+    // The socket's own clients never enroll.
+    expect((await call('GET', '/v1/projects')).status).toBe(200);
+  });
+
+  it('never removes volumes for the console', async () => {
+    await call('POST', '/v1/projects', { root: join(base, 'demo') });
+    const res = await raw('POST', '/v1/projects/demo/down', { volumes: true }, { 'x-octopod-console': '1' });
+    expect(res.status).toBe(403);
+    expect(JSON.parse(res.text).error).toContain('octopod down --volumes');
+  });
 });
 
 // Windows has no unix sockets: the API is on loopback, behind a token. Tested everywhere.
@@ -202,39 +235,6 @@ describe('the API on TCP', () => {
     const answer = await get('/v1/version', token);
     expect(answer.status).toBe(200);
     expect(JSON.parse(answer.text)).toMatchObject({ contract: 1 });
-  });
-
-  it('shows the console nothing but its page and its login until the browser enrolls with a code', async () => {
-    const via = { 'x-octopod-via': 'console' };
-    expect((await raw('GET', '/', undefined, via)).status).toBe(200);
-    const locked = await raw('GET', '/v1/projects', undefined, via);
-    expect(locked.status).toBe(401);
-    expect(JSON.parse(locked.text)).toEqual({ error: expect.stringContaining('not enrolled'), enroll: true });
-    // The codes are the operator's, on the socket: never through the console.
-    expect((await raw('POST', '/v1/console/code', {}, via)).status).toBe(401);
-    expect((await raw('POST', '/v1/console/enroll', { code: 'AAAA-AAAA' }, via)).status).toBe(403);
-
-    const { code } = (await call('POST', '/v1/console/code')).json as { code: string };
-    const enrolled = await raw('POST', '/v1/console/enroll', { code }, via);
-    expect(enrolled.status).toBe(200);
-    const cookie = String(enrolled.headers['set-cookie']).split(';')[0];
-    expect(cookie).toMatch(/^octopod_console=.{20,}/);
-    const signed = { ...via, cookie };
-    expect((await raw('GET', '/v1/projects', undefined, signed)).status).toBe(200);
-    expect((await raw('POST', '/v1/console/code', {}, signed)).status).toBe(404);
-    expect((await raw('DELETE', '/v1/console/sessions', undefined, signed)).status).toBe(404);
-
-    expect((await call('DELETE', '/v1/console/sessions')).json).toEqual({ closed: 1 });
-    expect((await raw('GET', '/v1/projects', undefined, signed)).status).toBe(401);
-    // The socket's own clients never enroll.
-    expect((await call('GET', '/v1/projects')).status).toBe(200);
-  });
-
-  it('never removes volumes for the console', async () => {
-    await call('POST', '/v1/projects', { root: join(base, 'demo') });
-    const res = await raw('POST', '/v1/projects/demo/down', { volumes: true }, { 'x-octopod-console': '1' });
-    expect(res.status).toBe(403);
-    expect(JSON.parse(res.text).error).toContain('octopod down --volumes');
   });
 
   it('serves the tako of the tray as the icon of the console', async () => {

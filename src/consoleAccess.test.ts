@@ -38,7 +38,8 @@ describe("the console's enrollment", () => {
     const text = await readFile(file, 'utf8');
     expect(text).not.toContain(session!);
     expect(text).not.toContain(waiting.replace('-', ''));
-    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    // Windows has no such modes: its user profile keeps the state directory.
+    if (process.platform !== 'win32') expect((await stat(file)).mode & 0o777).toBe(0o600);
   });
 
   it('lets a code wait ten minutes, and a session last thirty days', async () => {
