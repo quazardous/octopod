@@ -105,3 +105,9 @@ networks a project declares.
 This network links those projects to each other, outside the isolation octopod gives each
 one: that is the point, and the price.
 
+Only the services that join it are linked: the rest of each project stays out of the
+other's reach. Reaching one way only (a project's hub calling another's API, and nothing
+of the first open to the second) is the same network, joined by those two services alone.
+The API's side can still open a connection to the hub over it; that holds as long as the
+hub listens on nothing the API should reach: a network is no firewall.
+

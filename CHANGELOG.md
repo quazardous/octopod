@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `python-app` takes `drivers: [mysql]`: the image gets a compiler and the MariaDB client's headers, so `uv sync` builds mysqlclient (Django's MariaDB/MySQL driver, which has no Linux wheel). Nothing is added without it.
+
 ### Fixed
 
 - `unregister` no longer drops the secrets generated for a project's recipes while its data stays in `.octopod/data`: registered again (a moved folder, for one), the project's database opens with the password it was made with, instead of answering *Access denied*. Without the data folder the secrets go, as before.

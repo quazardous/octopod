@@ -11,6 +11,11 @@ unpinned: true
 build: true
 params:
   python: { type: enum, values: ["3.13", "3.12", "3.11"], default: "3.13" }
+  # What a driver without a Linux wheel needs to compile in uv sync: mysql for mysqlclient
+  # (Django's MariaDB/MySQL driver). System packages only; the driver stays the project's.
+  drivers: { type: set, values: [mysql], default: [] }
+buildArgs:
+  DRIVERS: "{{params.drivers}}"
 # Before supervisord, a word in the logs when the dependencies are not installed yet: the
 # programs will most likely fail to start, and the way out is to install them.
 command:

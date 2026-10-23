@@ -301,6 +301,15 @@ describe('the built-in recipes', () => {
     expect(api.depends_on).toEqual({ cache: { condition: 'service_healthy' } });
   });
 
+  it("builds python-app with a driver's build needs only when the project names it", async () => {
+    const book = await loadRecipes([BUILTIN_RECIPES]);
+    const drivers = (params: Record<string, unknown>) =>
+      (renderServices({ project: 'shop', book, services: { app: { recipe: 'python-app', params } }, workspace: '/p', owner: '1:1' }).compose.services.app.build as { args: Record<string, string> }).args.DRIVERS;
+    expect(drivers({})).toBe('');
+    expect(drivers({ drivers: ['mysql'] })).toBe('mysql');
+    expect(() => drivers({ drivers: ['oracle'] })).toThrow(/takes values among mysql/);
+  });
+
   it('renders php-cli as a tool: in a profile up never activates, never restarted, its cache kept', async () => {
     const book = await loadRecipes([BUILTIN_RECIPES]);
     const out = renderServices({ project: 'shop', book, services: { app: { recipe: 'php-app' }, cli: { recipe: 'php-cli', params: { php: '8.3' } } }, workspace: '/p', owner: '1:1' });

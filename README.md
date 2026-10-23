@@ -133,6 +133,10 @@ services:
       seed:   { command: php bin/console app:seed, autostart: false }   # octopod program start app/seed
 ```
 
+A Django app on MariaDB names the driver it compiles (mysqlclient has no Linux wheel):
+`app: { recipe: python-app, drivers: [mysql] }` adds a compiler and the MariaDB client's
+headers to the image, and `octopod shell -- uv sync` builds it.
+
 The project's tools run on demand, never kept up:
 
 ```yaml
@@ -143,7 +147,9 @@ The project's tools run on demand, never kept up:
 mounts their folder instead (`supervisor_d: docker/supervisor`), and `octopod program
 reload app` applies a change to them.
 
-See [`examples/`](./examples) for both kinds.
+See [`examples/`](./examples) for both kinds. Projects are isolated from each other; one
+that must reach another's service joins a network of both, in their compose files: see
+[docs/PATTERNS.md](./docs/PATTERNS.md#a-service-shared-between-projects).
 
 ## Commands
 

@@ -883,7 +883,7 @@ describe.skipIf(!dockerAvailable())('a Python project made of recipes (real dock
     await writeFile(join(root, 'pyproject.toml'), '[project]\nname = "pyapp"\nversion = "0.1.0"\nrequires-python = ">=3.11"\ndependencies = []\n');
     await writeFile(
       join(root, 'octopod.yaml'),
-      'services:\n  app:\n    recipe: python-app\n    programs:\n      web: { command: python -m http.server 8000 }\n  cache: { recipe: valkey }\n',
+      'services:\n  app:\n    recipe: python-app\n    drivers: [mysql]\n    programs:\n      web: { command: python -m http.server 8000 }\n  cache: { recipe: valkey }\n',
     );
     octopod = new Octopod({ stateDir: join(base, 'state'), instance: INSTANCE, ports: [PORT] });
     await octopod.register(root);
@@ -907,5 +907,8 @@ describe.skipIf(!dockerAvailable())('a Python project made of recipes (real dock
     const sync = await octopod.exec('pyapp', 'app', ['uv', 'sync'], { timeoutMs: 120_000 });
     expect(sync.ok).toBe(true);
     expect((await stat(join(root, '.venv'))).uid).toBe(process.getuid?.());
+    // drivers: [mysql] — what mysqlclient's build looks for, there.
+    const mysql = await octopod.exec('pyapp', 'app', ['sh', '-c', 'pkg-config --exists libmariadb && command -v gcc']);
+    expect(mysql.ok).toBe(true);
   });
 });

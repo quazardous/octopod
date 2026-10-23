@@ -9,11 +9,18 @@ ARG UID=1000
 ARG GID=1000
 ARG USER_NAME=app
 ARG WORKSPACE=/app
+ARG DRIVERS=""
 
 COPY --from=uv /uv /uvx /usr/local/bin/
-# supervisord runs the programs; git is what uv needs for a git dependency.
-RUN apt-get update \
- && apt-get install -y --no-install-recommends supervisor git \
+# supervisord runs the programs; git is what uv needs for a git dependency. A driver's
+# build needs (a compiler, its client's headers) only when the project names it.
+RUN set -e; packages="supervisor git"; \
+ for driver in $DRIVERS; do case "$driver" in \
+   mysql) packages="$packages gcc libc6-dev pkg-config libmariadb-dev" ;; \
+   *) echo "unknown driver: $driver" >&2; exit 1 ;; \
+ esac; done; \
+ apt-get update \
+ && apt-get install -y --no-install-recommends $packages \
  && rm -rf /var/lib/apt/lists/*
 
 # The image has no user of its own: one named after the project, at the operator's uid/gid.
