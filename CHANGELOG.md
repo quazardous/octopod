@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-24
+
+After upgrading, every address is under `octopod.localhost` (see **Breaking** below): run `octopod edge up`, then `octopod up` in each project, and update what an app keeps of its own address (`ALLOWED_HOSTS`, CSRF origins, OIDC redirect URIs). `octopod up` once also rebuilds an `oidc` provider (its open admin, its groups) and adds Redis Commander beside a project's redis.
+
 ### Changed
 
 - docs/OIDC.md says how an app goes from octopod's provider to the real one in production with no code change: three settings (issuer, client id, secret), endpoints by discovery, the claims the real provider sends — Entra, Google, Keycloak, Authentik and Okta side by side, with what to register before the first deployment.
@@ -217,7 +221,8 @@ The first preview: tested on Linux with Docker.
 - Traefik's dashboard and the console answer only from the host: a project's containers, which reach the edge over their edge network, get a 403.
 - `octopod` and `traefik` can no longer be project names: they are the edge's own hosts.
 
-[Unreleased]: https://github.com/quazardous/octopod/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/quazardous/octopod/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/quazardous/octopod/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/quazardous/octopod/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/quazardous/octopod/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/quazardous/octopod/compare/v0.5.0...v0.5.1
