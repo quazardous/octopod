@@ -137,6 +137,16 @@ services:
       seed:   { command: php bin/console app:seed, autostart: false }   # octopod program start app/seed
 ```
 
+Projects of one group can share a server instead of running one each, every project with its
+own database and user on it (and one mailpit, one phpMyAdmin, one OIDC provider):
+
+```yaml
+group: shop
+services:
+  app: { recipe: php-app }
+  db:  { recipe: mariadb, shared: true }   # the group's server; DATABASE_URL is this project's database
+```
+
 An app that signs in with OpenID Connect gets a local provider, octopod's own: any path is
 an issuer, and its login page takes a user name and the claims to put in the tokens
 (`groups`, `email`), so each role is tried without accounts to manage:

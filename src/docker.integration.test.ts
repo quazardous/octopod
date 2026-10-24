@@ -982,3 +982,58 @@ describe.skipIf(!dockerAvailable())('the OIDC provider, seen from the browser an
     expect((await stat(join(root, '.octopod', 'data', 'id-keys', 'signing-key.pem'))).uid).toBe(process.getuid?.());
   });
 });
+
+describe.skipIf(!dockerAvailable())("a group's shared database (real docker)", { timeout: 900_000 }, () => {
+  let base: string;
+  let octopod: Octopod;
+  const project = async (name: string) => {
+    const root = join(base, name);
+    await mkdir(join(root, 'node_modules'), { recursive: true });
+    await writeFile(join(root, 'package.json'), JSON.stringify({ name, scripts: { dev: 'node -e "require(\'node:http\').createServer((q, r) => r.end(\'ok\')).listen(3000)"' } }));
+    await writeFile(join(root, 'octopod.yaml'), `project: ${name}\ngroup: gtest\nservices:\n  app: { recipe: node-app }\n  db: { recipe: mariadb, shared: true }\n`);
+    await octopod.register(root);
+  };
+  const secret = async (name: string) => (await octopod.secrets(name)).find((s) => s.service === 'db' && s.name === 'password')!.value;
+  const asTenant = (user: string, password: string, db: string) =>
+    octopod.exec('gtest-shared', 'db', ['sh', '-c', `MYSQL_PWD='${password}' mariadb -u${user} -e 'SELECT 42' ${db}`], { timeoutMs: 30_000 });
+
+  beforeAll(async () => {
+    base = await mkdtemp(join(tmpdir(), 'octopod-group-'));
+    octopod = new Octopod({ stateDir: join(base, 'state'), instance: INSTANCE, ports: [PORT] });
+    await project('ga');
+    await project('gb');
+  }, 900_000);
+
+  afterAll(async () => {
+    for (const name of ['ga', 'gb', 'gtest-shared']) await octopod.unregister(name).catch(() => undefined);
+    await octopod.edgeDown();
+    await rm(base, { recursive: true, force: true });
+  }, 900_000);
+
+  it('runs one server for the group, a database and a user for each project, walled off', async () => {
+    await octopod.up('ga');
+    await octopod.up('gb');
+    expect(await octopod.names()).toContain('gtest-shared');
+    const [a, b] = [await secret('ga'), await secret('gb')];
+    expect(a).not.toBe(b);
+    const own = await asTenant('ga', a, 'ga');
+    expect(own.ok, own.output).toBe(true);
+    expect(own.output).toContain('42');
+    const other = await asTenant('ga', a, 'gb');
+    expect(other.ok).toBe(false);
+    expect(other.output).toMatch(/denied/i);
+    // The app reaches the group's server by its name, with its own URL.
+    const reach = await octopod.exec('ga', 'app', ['node', '-e', "const u = new URL(process.env.DATABASE_URL); require('node:net').connect(3306, u.hostname).on('connect', function () { console.log(u.username, u.pathname); this.end(); })"]);
+    expect(reach.output.trim()).toBe('ga /ga');
+    // Its data is the group's, in octopod's state, owned by the operator.
+    expect((await stat(join(base, 'state', 'groups', 'gtest', '.octopod', 'data', 'db-data'))).uid).toBe(process.getuid?.());
+  });
+
+  it('keeps the server while a project of the group runs, and stops it with the last one', async () => {
+    const running = async () => (await octopod.status('gtest-shared')).services.some((s) => s.state === 'running');
+    await octopod.down('ga');
+    expect(await running()).toBe(true);
+    await octopod.down('gb');
+    expect(await running()).toBe(false);
+  });
+});

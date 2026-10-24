@@ -79,7 +79,8 @@ Rules, checked when the project is registered and every time it is brought up:
 - **Data**: each of the project's own named volumes (not external, local driver, no
   options of its own) is bound to `<root>/.octopod/data/<volume>`, created by octopod as
   the operator, with `<root>/.octopod/.gitignore` (`*`) so git leaves it alone. This is the
-  only thing octopod writes into a project. When a volume of the same name already exists
+  only thing octopod writes into a project (a group's shared services keep theirs in
+  octopod's state). When a volume of the same name already exists
   in Docker's storage, `up` refuses and says how to move its data: binding over it would
   hide it.
 - **Down**: the edge is disconnected, then `docker compose … down`. `volumes: true`
@@ -209,6 +210,22 @@ workspace: .               # the folder a recipe's workspace mounts; the project
   routed service's address at the edge (`http://id.demo.localhost`, with `:<port>` when
   the edge is not on 80), empty for a service not routed: the same URL from the host's
   browser and from the project's containers.
+- **A group's shared services.** `shared: true` on a service of a project that has a
+  `group:` (`db: { recipe: mariadb, shared: true }`) leaves it to the group: one server for
+  all the group's projects instead of one each. octopod runs the group's shared services as
+  a project of their own, `<group>-shared`, made in its state directory
+  (`<state>/groups/<group>/`, data included: it belongs to no one project), brought up
+  before the first project that uses them and down after the last one. Every project of the
+  group asks for a shared service alike (the same recipe and params), or `up` says which
+  differ. The services that require it join the network `octopod-<group>-shared` and reach
+  it by its name; nothing else of the projects shares a network.
+  - A recipe says how it is shared in `tenant:`: the params each project gets
+    (`{{tenant}}` is the project's name) and the secret it gets its own value of; its
+    `command` makes the tenancy in the running service, alike each time, with the name in
+    `$TENANT` and the secret on its standard input. `mariadb` and `postgres` give each
+    project its own database and user, granted on that database alone: the app's
+    `DATABASE_URL` is the same shape as unshared. A recipe without `tenant:` (`mailpit`,
+    `phpmyadmin`, `oidc`) is shared as it is.
 - **The `oidc` recipe** runs octopod's own OpenID Connect provider (`src/oidc`): any first
   path segment is an issuer (`<issuer_base>/admi`), named after the address the request
   came to; its login page takes a user name and the claims to sign. Any client id, any

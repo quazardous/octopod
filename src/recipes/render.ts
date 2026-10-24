@@ -28,6 +28,8 @@ export interface ServiceRequest {
   workdir?: string;
   /** Not routed, though the recipe would be: a worker that serves nothing over HTTP. */
   route?: false;
+  /** Run once for the project's group, not by the project: see `RenderOptions.shared`. */
+  shared?: true;
 }
 
 export type ParamValue = string | number | boolean;
@@ -49,6 +51,12 @@ export interface RenderOptions {
   hostOs?: HostOs;
   /** The port the edge is published on, in a routed service's `{{url}}`: 80 by default. */
   edgePort?: number;
+  /**
+   * The group's shared services (`shared: true`): run by the compose project `project`, on
+   * the network `network`, which the services requiring them join. This project is their
+   * tenant `tenant`: the recipe's `tenant` params and its own secret.
+   */
+  shared?: { project: string; network: string; tenant: string };
 }
 
 export type HostOs = 'linux' | 'windows' | 'macos';
@@ -107,16 +115,34 @@ export interface RenderedService {
   home?: string;
   /** The services it waits for at start: those that provide what it requires. */
   waits?: { service: string; healthy: boolean }[];
+  /** Run by the group, not by the project. */
+  shared?: true;
+}
+
+/** A project's tenant in a shared service: the command that makes it, its name, its secret. */
+export interface Tenancy {
+  service: string;
+  tenant: string;
+  command: string[];
+  /** Given on the command's standard input. */
+  secret?: string;
 }
 
 export interface Rendered {
-  compose: { services: Record<string, Record<string, unknown>>; volumes?: Record<string, null> };
+  compose: { services: Record<string, Record<string, unknown>>; volumes?: Record<string, null>; networks?: Record<string, unknown> };
   /** Files beside the compose file, by path relative to the project: build contexts. */
   files: Record<string, string>;
   services: RenderedService[];
   /** Every secret, old and new, by service — to be kept by the caller. */
   secrets: Record<string, Record<string, string>>;
+  /** The group's services this project uses (`shared: true`), as it asks for them. */
+  shared: Record<string, { recipe: string; params: Record<string, unknown> }>;
+  /** Its tenancies in them, to make before it starts. */
+  tenancies: Tenancy[];
 }
+
+/** The group's network, in a project's compose: joined by the services that require a shared one. */
+export const SHARED_NETWORK = 'octopod_shared';
 
 export class RenderError extends Error {}
 
@@ -226,8 +252,17 @@ function scopes(r: Resolved, options: RenderOptions) {
   const route = r.entry.recipe.route;
   const routed = route !== undefined && r.request.route !== false;
   const port = options.edgePort && options.edgePort !== 80 ? `:${options.edgePort}` : '';
-  const url = routed ? `http://${route === true ? '' : `${route.subdomain}.`}${options.project}.localhost${port}` : '';
-  return { service: r.name, recipe: r.entry.id, params: r.params, secrets: r.secrets, url };
+  // A shared service is served under the group's project, not this one.
+  const project = r.request.shared && options.shared ? options.shared.project : options.project;
+  const url = routed ? `http://${route === true ? '' : `${route.subdomain}.`}${project}.localhost${port}` : '';
+  return { service: r.name, recipe: r.entry.id, params: tenantParams(r, options), secrets: r.secrets, url };
+}
+
+/** A shared service seen by this project: its params with the recipe's tenant ones (its own database, its own user). */
+function tenantParams(r: Resolved, options: RenderOptions): Record<string, ParamValue> {
+  const tenant = r.entry.recipe.tenant;
+  if (!r.request.shared || !options.shared || !tenant) return r.params;
+  return { ...r.params, ...renderMap(tenant.params, { tenant: options.shared.tenant }, `${r.name}.tenant.params`) };
 }
 
 export function renderServices(options: RenderOptions): Rendered {
@@ -282,11 +317,31 @@ export function renderServices(options: RenderOptions): Rendered {
   const described: RenderedService[] = [];
   const [uid, gid] = (options.owner ?? '1000:1000').split(':');
 
+  const shared: Rendered['shared'] = {};
+  const tenancies: Tenancy[] = [];
+  let joinsShared = false;
   for (const r of resolved) {
     const recipe: Recipe = r.entry.recipe;
+    if (r.request.shared) {
+      if (!options.shared) throw new RenderError(`service '${r.name}': shared needs the project's group`);
+      // The group runs it; the project only says what it asks for, and makes its tenancy.
+      shared[r.name] = { recipe: r.entry.id, params: r.request.params ?? {} };
+      if (recipe.tenant?.command) {
+        const scope = { service: r.name, tenant: options.shared.tenant, params: tenantParams(r, options) };
+        tenancies.push({
+          service: r.name,
+          tenant: options.shared.tenant,
+          command: recipe.tenant.command.map((c, i) => render(c, scope, `${r.name}.tenant.command[${i}]`)),
+          ...(recipe.tenant.secret ? { secret: r.secrets[recipe.tenant.secret] } : {}),
+        });
+      }
+      described.push({ name: r.name, recipe: r.entry.id, digest: r.entry.digest, image: render(recipe.image, { params: r.params }, `${r.name}.image`), build: recipe.build, params: r.params, secrets: Object.keys(r.secrets), volumes: [], ephemeral: [], shared: true });
+      continue;
+    }
     const host = hostScope(options.hostOs ?? hostOsOf());
     const env = present(renderMap(recipe.env, { ...scopes(r, options), host }, `${r.name}.env`));
     const waits: { service: string; healthy: boolean }[] = [];
+    let reachesShared = false;
     for (const requirement of recipe.requires) {
       const providers = resolved.filter((o) => o.name !== r.name && o.entry.recipe.provides.includes(requirement.capability));
       if (providers.length === 0) {
@@ -297,6 +352,11 @@ export function renderServices(options: RenderOptions): Rendered {
       const provider = providers[0];
       const exported = renderMap(provider.entry.recipe.exports, scopes(provider, options), `${provider.name}.exports`);
       Object.assign(env, present(renderMap(requirement.env, { ...scopes(r, options), provider: exported, host }, `${r.name}.requires.${requirement.capability}`)));
+      // The group's: reached over the group's network, started by the group, not waited on here.
+      if (provider.request.shared) {
+        reachesShared = true;
+        continue;
+      }
       // What it requires is there: it starts once its provider is ready — healthy when the
       // provider can say so, started otherwise — not before, to fail on a refused connection.
       if (!waits.some((w) => w.service === provider.name)) waits.push({ service: provider.name, healthy: Boolean(provider.entry.recipe.health) });
@@ -377,6 +437,10 @@ export function renderServices(options: RenderOptions): Rendered {
       service.depends_on = Object.fromEntries(waits.map((w) => [w.service, { condition: w.healthy ? 'service_healthy' : 'service_started' }]));
     }
     if (recipe.port) service.expose = [String(recipe.port)];
+    if (reachesShared && options.shared) {
+      service.networks = ['default', SHARED_NETWORK];
+      joinsShared = true;
+    }
     if (recipe.tool) service.profiles = [TOOL_PROFILE];
     else if (recipe.profiles.length > 0) service.profiles = recipe.profiles;
     if (recipe.limits.memory) service.mem_limit = recipe.limits.memory;
@@ -410,7 +474,8 @@ export function renderServices(options: RenderOptions): Rendered {
 
   const compose: Rendered['compose'] = { services };
   if (Object.keys(volumes).length > 0) compose.volumes = volumes;
-  return { compose, files, services: described, secrets: Object.fromEntries(resolved.map((r) => [r.name, r.secrets])) };
+  if (joinsShared && options.shared) compose.networks = { [SHARED_NETWORK]: { name: options.shared.network, external: true } };
+  return { compose, files, services: described, secrets: Object.fromEntries(resolved.map((r) => [r.name, r.secrets])), shared, tenancies };
 }
 
 /** One screen, for an approval: what each service is, what it keeps, what it mounts. */

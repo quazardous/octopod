@@ -301,6 +301,31 @@ describe('the built-in recipes', () => {
     expect(api.depends_on).toEqual({ cache: { condition: 'service_healthy' } });
   });
 
+  it("leaves a group's shared database to the group, and gives the project its own tenancy in it", async () => {
+    const book = await loadRecipes([BUILTIN_RECIPES]);
+    const out = renderServices({
+      project: 'shop',
+      book,
+      services: { app: { recipe: 'node-app' }, db: { recipe: 'mariadb', shared: true }, mail: { recipe: 'mailpit', shared: true } },
+      workspace: '/p',
+      owner: '1:1',
+      secretFactory: () => 's3cret',
+      shared: { project: 'unei-shared', network: 'octopod-unei-shared', tenant: 'shop' },
+    });
+    expect(Object.keys(out.compose.services)).toEqual(['app']);
+    const app = out.compose.services.app as Record<string, unknown>;
+    expect((app.environment as Record<string, string>).DATABASE_URL).toBe('mysql://shop:s3cret@db:3306/shop');
+    expect((app.environment as Record<string, string>).MAILER_DSN).toBe('smtp://mail:1025');
+    expect(app.networks).toEqual(['default', 'octopod_shared']);
+    expect(app.depends_on).toBeUndefined();
+    expect(out.compose.networks).toEqual({ octopod_shared: { name: 'octopod-unei-shared', external: true } });
+    expect(out.shared).toEqual({ db: { recipe: 'mariadb', params: {} }, mail: { recipe: 'mailpit', params: {} } });
+    expect(out.tenancies).toEqual([expect.objectContaining({ service: 'db', tenant: 'shop', secret: 's3cret' })]);
+    // The secret goes on the command's input, never in it.
+    expect(out.tenancies[0]!.command.join(' ')).not.toContain('s3cret');
+    expect(() => renderServices({ project: 'shop', book, services: { db: { recipe: 'mariadb', shared: true } }, workspace: '/p' })).toThrow(/shared needs the project's group/);
+  });
+
   it('wires the OIDC provider: its address at the edge, the same for the browser and the app', async () => {
     const book = await loadRecipes([BUILTIN_RECIPES]);
     const env = (edgePort?: number) =>

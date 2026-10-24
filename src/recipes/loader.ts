@@ -93,6 +93,15 @@ export async function loadRecipe(dir: string, id: string): Promise<RecipeEntry> 
       throw new RecipeError(`${file}: param '${key}': its default names a value it does not list`);
     }
   }
+  if (recipe.tenant) {
+    for (const key of Object.keys(recipe.tenant.params)) {
+      const spec = recipe.params[key];
+      if (!spec || spec.type === 'secret') throw new RecipeError(`${file}: tenant param '${key}' is not a param of the recipe`);
+    }
+    if (recipe.tenant.secret && recipe.params[recipe.tenant.secret]?.type !== 'secret') {
+      throw new RecipeError(`${file}: tenant secret '${recipe.tenant.secret}' is not a secret param of the recipe`);
+    }
+  }
   for (const volume of recipe.volumes) {
     if (volume.when && recipe.params[volume.when]?.type !== 'bool') {
       throw new RecipeError(`${file}: volume '${volume.name}': "when" must name a bool param, not '${volume.when}'`);

@@ -134,6 +134,20 @@ export const RecipeSchema = z
       })
       .strict()
       .default({}),
+    /**
+     * How a group's projects share one service (`shared: true`): each project is a tenant,
+     * with these params (`{{tenant}}`, its name) and its own value of the `secret`. `command`
+     * makes the tenant in the running service, again and again alike: its name in `$TENANT`,
+     * the secret on its standard input, never on a command line.
+     */
+    tenant: z
+      .object({
+        params: z.record(Ident, z.string().max(200)).default({}),
+        secret: Ident.optional(),
+        command: z.array(z.string().max(4_000)).min(1).max(64).optional(),
+      })
+      .strict()
+      .optional(),
     /** Named commands for the running service: `octopod run <service> <action>`. */
     actions: z.record(Ident, ActionSchema).default({}),
     /**

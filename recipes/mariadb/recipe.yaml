@@ -35,6 +35,24 @@ health:
   intervalMs: 2000
   retries: 30
 limits: { memory: 1g, cpus: "1", pids: 512 }
+# Shared by a group (`shared: true` on the service): each project of the group is a tenant,
+# with its own database and its own user, both named after it, and its own password, read
+# on the standard input. Made again on each up, alike: an existing tenant keeps its data.
+tenant:
+  params: { db: "{{tenant}}", user: "{{tenant}}" }
+  secret: password
+  command:
+    - sh
+    - -c
+    - |
+      IFS= read -r pw
+      export MYSQL_PWD="$MARIADB_ROOT_PASSWORD"
+      exec mariadb -uroot <<SQL
+      CREATE DATABASE IF NOT EXISTS \`$TENANT\`;
+      CREATE USER IF NOT EXISTS '$TENANT'@'%' IDENTIFIED BY '$pw';
+      ALTER USER '$TENANT'@'%' IDENTIFIED BY '$pw';
+      GRANT ALL PRIVILEGES ON \`$TENANT\`.* TO '$TENANT'@'%';
+      SQL
 # `octopod run <service> <action>`: the credentials are read in the container, from its
 # environment; the password goes through MYSQL_PWD, never a command line.
 actions:

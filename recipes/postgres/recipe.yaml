@@ -28,6 +28,25 @@ health:
   intervalMs: 2000
   retries: 30
 limits: { memory: 512m, cpus: "1", pids: 256 }
+# Shared by a group (`shared: true` on the service): each project of the group is a tenant,
+# with its own role and its own database, both named after it, and its own password, read
+# on the standard input. Made again on each up, alike: an existing tenant keeps its data.
+tenant:
+  params: { db: "{{tenant}}", user: "{{tenant}}" }
+  secret: password
+  command:
+    - sh
+    - -c
+    - |
+      IFS= read -r TENANT_PASSWORD; export TENANT_PASSWORD
+      exec psql -v ON_ERROR_STOP=1 -q -U "$POSTGRES_USER" -d postgres <<'SQL'
+      \getenv t TENANT
+      \getenv pw TENANT_PASSWORD
+      SELECT format('CREATE ROLE %I LOGIN', :'t') WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = :'t') \gexec
+      SELECT format('ALTER ROLE %I PASSWORD %L', :'t', :'pw') \gexec
+      SELECT format('CREATE DATABASE %I OWNER %I', :'t', :'t') WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = :'t') \gexec
+      SELECT format('REVOKE CONNECT ON DATABASE %I FROM PUBLIC', :'t') \gexec
+      SQL
 # `octopod run <service> <action>`: over the container's local socket, which the image
 # trusts; the names are read from its environment.
 actions:
