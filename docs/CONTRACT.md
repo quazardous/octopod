@@ -280,10 +280,11 @@ workspace: .               # the folder a recipe's workspace mounts; the project
   path segment is an issuer (`<issuer_base>/admi`), named after the address the request
   came to; its login page takes a user name and the claims to sign. Any client id, any
   client secret: a development provider. It keeps users (claims, a password as a scrypt
-  hash), managed at `/admin` and its API (`/admin/api/users`, `GET /admin/api/session` →
-  `{ open }`), which ask for nothing unless `admin-login: true`, then for the service's
-  `admin-token` secret (`octopod secrets`); `octopod oidc users|user|remove [project]` manages
-  them from the command line, the project's provider or its group's; params `password-grant`
+  hash) and groups (claims given to their members; a user's groups signed in `groups`, or
+  the `groups-claim` param), managed at `/admin` and its API (`/admin/api/users`,
+  `/admin/api/groups`, `GET /admin/api/session` → `{ open, token? }`), which ask for nothing unless `admin-login: true`, then for the service's
+  `admin-token` secret (`octopod secrets`); `octopod oidc users|user|remove|groups|group [project]`
+  manages them from the command line, the project's provider or its group's; params `password-grant`
   (a CI signs in with no browser) and `open-login: false` (only the admin's users). Its signing key is kept in `.octopod/data/<service>-keys`.
 - **The host, in an env.** A recipe's `env` (and a requirement's) may read `{{host.os}}`
   (`linux`, `windows`, `macos`) and `{{host.poll}}` — `true` where a change made on the host

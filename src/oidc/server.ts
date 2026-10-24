@@ -12,6 +12,7 @@
  *   OIDC_ADMIN_DIR       a built admin app served at /admin/ (the qdadm one); the built-in page otherwise
  *   OIDC_OPEN_LOGIN      0 to sign in only as a user of the store; any user, any claims otherwise
  *   OIDC_PASSWORD_GRANT  1 to trade a user's name and password for tokens, with no browser
+ *   OIDC_GROUPS_CLAIM    the claim a user's groups are signed in (groups)
  */
 import { timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -20,7 +21,7 @@ import { extname, join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { newKeyPem, Provider, type AuthRequest } from './provider.js';
 import { adminPage } from './admin.js';
-import { passwordMatches, shown, userOf, Users, type User } from './users.js';
+import { groupOf, passwordMatches, shown, userOf, Users, type User } from './users.js';
 
 const ISSUER = /^\/([a-z0-9][a-z0-9-]{0,62})(\/.*)?$/;
 /** First segments that are the provider's own, not issuers. */
@@ -56,6 +57,9 @@ function basicClientId(header: string | undefined): string | undefined {
   return decodeURIComponent(Buffer.from(value, 'base64').toString().split(':')[0] ?? '');
 }
 
+/** A user's groups beside its name on the login page: which role it is, at a glance. */
+const inGroups = (u: User): string => (u.groups?.length ? ` <small>${escape(u.groups.join(', '))}</small>` : '');
+
 function loginPage(issuer: string, query: Record<string, string>, users: User[], open: boolean, error = ''): string {
   const hidden = REQUEST_FIELDS.filter((f) => query[f]).map((f) => `<input type="hidden" name="${f}" value="${escape(query[f]!)}">`).join('');
   // The store's users: one click for a user without a password, its password otherwise.
@@ -63,8 +67,8 @@ function loginPage(issuer: string, query: Record<string, string>, users: User[],
     ? `<h2>Users</h2>${users
         .map((u) =>
           u.password
-            ? `<form method="post" class="user">${hidden}<input type="hidden" name="as" value="${escape(u.sub)}"><b>${escape(u.sub)}</b> <input type="password" name="password" placeholder="password" aria-label="${escape(u.sub)}'s password" required> <button>Sign in</button></form>`
-            : `<form method="post" class="user">${hidden}<input type="hidden" name="as" value="${escape(u.sub)}"><button>Sign in as ${escape(u.sub)}</button> <small>${escape(JSON.stringify(u.claims))}</small></form>`,
+            ? `<form method="post" class="user">${hidden}<input type="hidden" name="as" value="${escape(u.sub)}"><b>${escape(u.sub)}</b>${inGroups(u)} <input type="password" name="password" placeholder="password" aria-label="${escape(u.sub)}'s password" required> <button>Sign in</button></form>`
+            : `<form method="post" class="user">${hidden}<input type="hidden" name="as" value="${escape(u.sub)}"><button>Sign in as ${escape(u.sub)}</button>${inGroups(u)}</form>`,
         )
         .join('')}`
     : '';
@@ -158,6 +162,7 @@ async function admin(req: IncomingMessage, res: ServerResponse, path: string, op
     options.users.put(next);
     return send(res, 201, shown(next));
   }
+  if (path.startsWith('/admin/api/groups')) return groupsApi(req, res, path, options);
   const one = /^\/admin\/api\/users\/([^/]+)$/.exec(path);
   if (!one) return send(res, 404, { error: 'not_found', error_description: `no ${req.method} ${path}` });
   const sub = decodeURIComponent(one[1]!);
@@ -177,6 +182,51 @@ async function admin(req: IncomingMessage, res: ServerResponse, path: string, op
     return send(res, user ? 200 : 201, shown(next));
   }
   return send(res, 405, { error: 'method_not_allowed', error_description: `${req.method} on a user: GET, PUT or DELETE` });
+}
+
+/** The groups: their claims, their members; a group away leaves its members' groups. */
+async function groupsApi(req: IncomingMessage, res: ServerResponse, path: string, options: HandlerOptions): Promise<void> {
+  const users = options.users;
+  const shownGroup = (name: string) => ({ ...users.group(name)!, members: users.members(name) });
+  const parsed = async (): Promise<Record<string, unknown> | undefined> => {
+    try {
+      return JSON.parse((await body(req)) || '{}') as Record<string, unknown>;
+    } catch {
+      return undefined;
+    }
+  };
+  if (path === '/admin/api/groups' && req.method === 'GET') {
+    const groups = users.groups().map((g) => shownGroup(g.name));
+    return send(res, 200, { groups, total: groups.length });
+  }
+  const save = async (name: string, previous?: { name: string }, status = 200) => {
+    const input = await parsed();
+    if (!input) return send(res, 400, { error: 'invalid_request', error_description: 'the body must be JSON' });
+    const next = groupOf(name, input, previous ? users.group(previous.name) : undefined);
+    if ('error' in next) return send(res, 400, { error: 'invalid_request', error_description: next.error });
+    users.putGroup(next);
+    if (Array.isArray(input.members) && input.members.every((m) => typeof m === 'string')) users.setMembers(name, input.members as string[]);
+    return send(res, status, shownGroup(name));
+  };
+  if (path === '/admin/api/groups' && req.method === 'POST') {
+    // A create, as a PUT to its own path: what a list's "create" sends.
+    const input = await parsed();
+    const name = typeof input?.name === 'string' ? input.name : '';
+    if (users.group(name)) return send(res, 409, { error: 'conflict', error_description: `group ${name} exists` });
+    const next = groupOf(name, input);
+    if ('error' in next) return send(res, 400, { error: 'invalid_request', error_description: next.error });
+    users.putGroup(next);
+    if (Array.isArray(input?.members)) users.setMembers(name, (input.members as unknown[]).filter((m): m is string => typeof m === 'string'));
+    return send(res, 201, shownGroup(name));
+  }
+  const one = /^\/admin\/api\/groups\/([^/]+)$/.exec(path);
+  if (!one) return send(res, 404, { error: 'not_found', error_description: `no ${req.method} ${path}` });
+  const name = decodeURIComponent(one[1]!);
+  const group = users.group(name);
+  if (req.method === 'GET') return group ? send(res, 200, shownGroup(name)) : send(res, 404, { error: 'not_found', error_description: `no group ${name}` });
+  if (req.method === 'DELETE') return users.deleteGroup(name) ? send(res, 200, { deleted: name }) : send(res, 404, { error: 'not_found', error_description: `no group ${name}` });
+  if (req.method === 'PUT') return save(name, group, group ? 200 : 201);
+  return send(res, 405, { error: 'method_not_allowed', error_description: `${req.method} on a group: GET, PUT or DELETE` });
 }
 
 export function handler(provider: Provider, options: HandlerOptions) {
@@ -210,7 +260,7 @@ export function handler(provider: Provider, options: HandlerOptions) {
           // A user of the store: its claims, and its password when it has one.
           const user = users.find((u) => u.sub === fields.as);
           if (!user || (user.password && !passwordMatches(user.password, fields.password ?? ''))) return page('Wrong user or password.');
-          return send(res, 302, '', { location: provider.issueCode(request as AuthRequest, { sub: user.sub, claims: user.claims }) });
+          return send(res, 302, '', { location: provider.issueCode(request as AuthRequest, { sub: user.sub, claims: options.users.claimsOf(user) }) });
         }
         if (!options.openLogin) return page('Sign in as one of the users.');
         let claims: unknown;
@@ -258,7 +308,9 @@ export function loadKey(dir: string): string {
 }
 
 export function start(port = Number(process.env.PORT ?? 8080), dir = process.env.OIDC_DATA ?? '/data'): Server {
-  const users = new Users(join(dir, 'users.json'));
+  const users = new Users(join(dir, 'users.json'), process.env.OIDC_GROUPS_CLAIM || 'groups');
+  // An older provider's users: the groups they typed as a claim become their memberships.
+  users.migrate();
   const provider = new Provider(loadKey(dir), { users, passwordGrant: ['1', 'true'].includes(process.env.OIDC_PASSWORD_GRANT ?? '') });
   const adminToken = process.env.OIDC_ADMIN_TOKEN || undefined;
   const adminDir = process.env.OIDC_ADMIN_DIR && statSync(join(process.env.OIDC_ADMIN_DIR, 'index.html'), { throwIfNoEntry: false }) ? process.env.OIDC_ADMIN_DIR : undefined;

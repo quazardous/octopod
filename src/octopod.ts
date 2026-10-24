@@ -1317,6 +1317,15 @@ export class Octopod {
    * or not.
    */
   async oidcUsers(name: string, method: 'GET' | 'PUT' | 'DELETE', sub?: string, body?: unknown, instance = 1): Promise<unknown> {
+    return this.oidcAdmin(name, method, `users${sub === undefined ? '' : `/${encodeURIComponent(sub)}`}`, body, instance);
+  }
+
+  /** The groups of the project's OIDC provider, as `oidcUsers` its users. */
+  async oidcGroups(name: string, method: 'GET' | 'PUT' | 'DELETE', group?: string, body?: unknown, instance = 1): Promise<unknown> {
+    return this.oidcAdmin(name, method, `groups${group === undefined ? '' : `/${encodeURIComponent(group)}`}`, body, instance);
+  }
+
+  private async oidcAdmin(name: string, method: 'GET' | 'PUT' | 'DELETE', resource: string, body?: unknown, instance = 1): Promise<unknown> {
     const status = await this.status(name, instance);
     const own = status.services.find((s) => s.recipe === 'oidc');
     const shared = own ? undefined : status.shared?.find((s) => s.recipe === 'oidc');
@@ -1326,7 +1335,7 @@ export class Octopod {
     const route = (shared ? (await this.status(project)).routes : status.routes).find((r) => r.service === service);
     if (!route) throw new OctopodError(`${project}/${service} has no route: is it up?`);
     const token = (await this.secrets(project, shared ? undefined : instance)).find((s) => s.service === service && s.name === 'admin-token')?.value;
-    const url = new URL(`/admin/api/users${sub === undefined ? '' : `/${encodeURIComponent(sub)}`}`, route.url);
+    const url = new URL(`/admin/api/${resource}`, route.url);
     // To the edge on loopback, the host named: a *.localhost name need not resolve on the host.
     return new Promise((resolve, reject) => {
       const payload = body === undefined ? undefined : JSON.stringify(body);

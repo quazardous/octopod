@@ -27,8 +27,12 @@ recipe says `open-login: false`, takes any user name and the claims to sign:
 
 ## Users and the admin
 
-`http://id.<project>.octopod.localhost/admin/` is the provider's admin, a qdadm app: its users, their
-claims, a password or none, the issuers they may use. It opens straight on them: a
+`http://id.<project>.octopod.localhost/admin/` is the provider's admin, a qdadm app: its users
+(their groups, their attributes — `email`, `name`… and any other —, a password or none, the
+issuers they may use) and its groups (what each is for, its members, the claims it gives
+them, `roles: [admin]`). A user signs its groups' claims, then its own attributes (they
+win), then the names of its groups in `groups` — `groups-claim: roles` on the service for an
+app that reads another claim. The login page shows each user with its groups. It opens straight on them: a
 development provider behind the edge, which answers your machine and the project alone.
 The same users are on its JSON API, `/admin/api/users`, which asks for nothing either.
 `admin-login: true` on the service makes both ask for the service's admin token
@@ -38,8 +42,10 @@ From the command line, for a person or an agent, the project's provider — its 
 group's:
 
 ```sh
-octopod oidc users                         # the users, their claims
-octopod oidc user ada --claims '{"groups":["staff"]}' --password p4ss   # made or changed
+octopod oidc users                         # the users, their groups and attributes
+octopod oidc user ada --group staff --attr email=ada@example.test --password p4ss   # made or changed
+octopod oidc groups                        # the groups, their members
+octopod oidc group add staff --claims '{"roles":["admin"]}'   # or remove
 octopod oidc user ada --no-password        # one-click sign-in again; --issuers a,b limits it
 octopod oidc remove ada
 ```
@@ -50,7 +56,7 @@ With `password-grant: true` on the recipe, a test trades a user's name and passw
 tokens:
 
 ```sh
-octopod oidc user shop ci --claims '{"groups":["staff"]}' --password ci-pass   # or a PUT on /admin/api/users/ci
+octopod oidc user shop ci --group staff --password ci-pass   # or a PUT on /admin/api/users/ci
 curl -d 'grant_type=password&client_id=ci&username=ci&password=ci-pass' http://id.shop.octopod.localhost/staff/token
 ```
 

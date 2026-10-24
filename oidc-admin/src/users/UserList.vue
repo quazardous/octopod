@@ -5,7 +5,7 @@ import Column from 'primevue/column'
 
 const list = useListPage({ entity: 'users' })
 
-list.setSearch({ placeholder: 'Search users...', fields: ['sub', 'claims'] })
+list.setSearch({ placeholder: 'Search users...', fields: ['sub', 'email', 'name'] })
 list.addCreateAction('Add a user')
 list.addEditAction()
 list.addDeleteAction({ labelField: 'sub' })
@@ -15,9 +15,10 @@ list.addDeleteAction({ labelField: 'sub' })
   <ListPage v-bind="list.props.value" v-on="list.events">
     <template #columns>
       <Column field="sub" header="User" sortable />
-      <Column field="claims" header="Claims">
-        <template #body="{ data }"><code>{{ JSON.stringify(JSON.parse(data.claims)) }}</code></template>
+      <Column field="groups" header="Groups">
+        <template #body="{ data }">{{ data.groups.join(', ') || '—' }}</template>
       </Column>
+      <Column field="email" header="email" />
       <Column field="has_password" header="Password" style="width: 110px">
         <template #body="{ data }">{{ data.has_password ? 'yes' : 'none' }}</template>
       </Column>

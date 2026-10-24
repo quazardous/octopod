@@ -1166,6 +1166,19 @@ describe.skipIf(!dockerAvailable())('the OIDC provider, seen from the browser an
     await octopod.oidcUsers('idp', 'DELETE', 'agent');
     await expect(octopod.oidcUsers('idp', 'GET', 'agent')).rejects.toThrow(/no user agent/);
   });
+
+  it('signs a user\'s groups and its groups\' claims, kept through octopod oidc', async () => {
+    await octopod.oidcGroups('idp', 'PUT', 'staff', { claims: { roles: ['admin'] } });
+    await octopod.oidcUsers('idp', 'PUT', 'grace', { claims: { email: 'grace@example.test' }, groups: ['staff'], password: 'gr4ce' });
+    const { groups } = (await octopod.oidcGroups('idp', 'GET')) as { groups: { name: string; members: string[] }[] };
+    expect(groups).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'staff', members: ['grace'] })]));
+    const grant = await octopod.exec('idp', 'app', [
+      'node',
+      '-e',
+      "fetch(`${process.env.OIDC_ISSUER_BASE}/admi/token`, { method: 'POST', body: new URLSearchParams({ grant_type: 'password', client_id: 'ci', username: 'grace', password: 'gr4ce' }) }).then((r) => r.json()).then((t) => { const c = JSON.parse(Buffer.from(t.id_token.split('.')[1], 'base64url')); console.log([c.groups, c.roles, c.email].join('|')) })",
+    ]);
+    expect(grant.output.trim()).toBe('staff|admin|grace@example.test');
+  });
 });
 
 describe.skipIf(!dockerAvailable())("a group's shared database (real docker)", { timeout: 900_000 }, () => {

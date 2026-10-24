@@ -151,7 +151,7 @@ export class Provider {
       // A user without a password signs in on the page only: the grant needs one.
       if (!user?.password || !passwordMatches(user.password, form.password ?? '')) return failure(400, 'invalid_grant', 'wrong user name or password');
       const scope = form.scope ?? 'openid';
-      return { status: 200, body: this.tokens(issuer, clientId, { sub: user.sub, claims: user.claims }, scope, Math.floor(this.now() / 1000)) };
+      return { status: 200, body: this.tokens(issuer, clientId, { sub: user.sub, claims: this.options.users!.claimsOf(user) }, scope, Math.floor(this.now() / 1000)) };
     }
     if (form.grant_type !== 'authorization_code') return failure(400, 'unsupported_grant_type', 'authorization_code, client_credentials, or password when it is on');
     const entry = form.code ? this.codes.get(form.code) : undefined;

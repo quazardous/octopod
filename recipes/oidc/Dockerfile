@@ -1700,7 +1700,125 @@ class AdminTokenAuth extends LocalStorageSessionAuthAdapter {
 
 export const authAdapter = new AdminTokenAuth()
 OIDC_ADMIN_5
-COPY <<'OIDC_ADMIN_6' /admin/src/Home.vue
+COPY <<'OIDC_ADMIN_6' /admin/src/groups/GroupForm.vue
+<script setup lang="ts">
+import { useEntityItemFormPage } from '@quazardous/qdadm'
+import { FormPage, FormField, FormInput } from '@quazardous/qdadm/components'
+
+const form = useEntityItemFormPage({ entity: 'groups' })
+form.generateFields()
+
+form.addSaveAction({ andClose: true })
+form.addDeleteAction()
+</script>
+
+<template>
+  <FormPage v-bind="form.props.value" v-on="form.events">
+    <template #fields>
+      <FormField v-for="field in form.fields.value" :key="field.name" :name="field.name" :label="field.label">
+        <FormInput :field="field" v-model="form.data.value[field.name]" />
+      </FormField>
+    </template>
+  </FormPage>
+</template>
+OIDC_ADMIN_6
+COPY <<'OIDC_ADMIN_7' /admin/src/groups/GroupList.vue
+<script setup lang="ts">
+import { useListPage } from '@quazardous/qdadm'
+import { ListPage } from '@quazardous/qdadm/components'
+import Column from 'primevue/column'
+
+const list = useListPage({ entity: 'groups' })
+
+list.setSearch({ placeholder: 'Search groups...', fields: ['name', 'description', 'members'] })
+list.addCreateAction('Add a group')
+list.addEditAction()
+list.addDeleteAction({ labelField: 'name' })
+</script>
+
+<template>
+  <ListPage v-bind="list.props.value" v-on="list.events">
+    <template #columns>
+      <Column field="name" header="Group" sortable />
+      <Column field="description" header="What it is for" />
+      <Column field="members" header="Members">
+        <template #body="{ data }">{{ data.members || 'nobody' }}</template>
+      </Column>
+      <Column field="claims" header="Claims">
+        <template #body="{ data }"><code>{{ JSON.stringify(JSON.parse(data.claims)) }}</code></template>
+      </Column>
+    </template>
+  </ListPage>
+</template>
+OIDC_ADMIN_7
+COPY <<'OIDC_ADMIN_8' /admin/src/groups/GroupsModule.ts
+import { Module, EntityManager, ApiStorage } from '@quazardous/qdadm'
+import { http } from '../http'
+
+/** A group as the API gives it. */
+interface ApiGroup {
+  name: string
+  description?: string
+  claims?: Record<string, unknown>
+  members: string[]
+}
+
+/** A group as the forms edit it: its claims as JSON text, its members in a line. */
+interface FormGroup {
+  id: string
+  name: string
+  description: string
+  claims: string
+  members: string
+}
+
+export class GroupsModule extends Module {
+  static moduleName = 'groups'
+
+  async connect(ctx: any) {
+    ctx.entity('groups', new EntityManager({
+      name: 'groups',
+      labelField: 'name',
+      fields: {
+        name: { type: 'text', label: 'Group', required: true, default: '' },
+        description: { type: 'text', label: 'What it is for', default: '' },
+        claims: { type: 'textarea', label: 'Claims it gives its members (JSON, e.g. {"roles": ["admin"]})', default: '{}' },
+        members: { type: 'text', label: 'Members (comma-separated user names)', default: '' },
+      },
+      storage: new ApiStorage({
+        endpoint: '/admin/api/groups',
+        client: http,
+        responseItemsKey: 'groups',
+        normalize: (g: any): any => {
+          const group = g as ApiGroup
+          return {
+            id: group.name,
+            name: group.name,
+            description: group.description ?? '',
+            claims: JSON.stringify(group.claims ?? {}, null, 2),
+            members: group.members.join(', '),
+          } satisfies FormGroup
+        },
+        denormalize: (f: any): any => {
+          const form = f as Partial<FormGroup>
+          return {
+            name: form.name,
+            description: form.description || null,
+            claims: JSON.parse(form.claims || '{}'),
+            members: (form.members ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+          }
+        },
+      }),
+    }))
+
+    ctx.crud('groups', {
+      list: () => import('./GroupList.vue'),
+      form: () => import('./GroupForm.vue'),
+    }, { nav: { section: 'Provider', icon: 'pi pi-sitemap' } })
+  }
+}
+OIDC_ADMIN_8
+COPY <<'OIDC_ADMIN_9' /admin/src/Home.vue
 <script setup lang="ts">
 import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
@@ -1711,8 +1829,8 @@ onMounted(() => router.replace('/users'))
 </script>
 
 <template><div /></template>
-OIDC_ADMIN_6
-COPY <<'OIDC_ADMIN_7' /admin/src/http.ts
+OIDC_ADMIN_9
+COPY <<'OIDC_ADMIN_10' /admin/src/http.ts
 import type { HttpClient } from '@quazardous/qdadm'
 import { authAdapter } from './auth'
 
@@ -1736,8 +1854,8 @@ export const http: HttpClient = {
   delete: (url) => call('DELETE', url),
   request: ({ method, url, data }) => call(method, url, data),
 }
-OIDC_ADMIN_7
-COPY <<'OIDC_ADMIN_8' /admin/src/Login.vue
+OIDC_ADMIN_10
+COPY <<'OIDC_ADMIN_11' /admin/src/Login.vue
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { LoginPage } from '@quazardous/qdadm/components'
@@ -1764,8 +1882,8 @@ onMounted(async () => {
 <style scoped>
 .hint { margin-top: 1rem; text-align: center; font-size: 0.875rem; color: var(--p-surface-500, rgb(100 116 139)); }
 </style>
-OIDC_ADMIN_8
-COPY <<'OIDC_ADMIN_9' /admin/src/main.ts
+OIDC_ADMIN_11
+COPY <<'OIDC_ADMIN_12' /admin/src/main.ts
 import { Kernel } from '@quazardous/qdadm'
 import { AppLayout } from '@quazardous/qdadm/components'
 import { createLocalStorageRolesProvider } from '@quazardous/qdadm/security'
@@ -1777,11 +1895,12 @@ import 'primeicons/primeicons.css'
 import App from './App.vue'
 import { authAdapter } from './auth'
 import { UsersModule } from './users/UsersModule'
+import { GroupsModule } from './groups/GroupsModule'
 
 const kernel = new Kernel({
   root: App,
   hashMode: true,
-  moduleDefs: [UsersModule],
+  moduleDefs: [UsersModule, GroupsModule],
   pages: { layout: AppLayout, login: () => import('./Login.vue') },
   authAdapter,
   entityAuthAdapter: () => authAdapter.getUser(),
@@ -1799,30 +1918,74 @@ const kernel = new Kernel({
 
 // An open admin skips its login: asked before the app starts.
 authAdapter.openIfAllowed().finally(() => kernel.createApp().mount('#app'))
-OIDC_ADMIN_9
-COPY <<'OIDC_ADMIN_10' /admin/src/users/UserForm.vue
+OIDC_ADMIN_12
+COPY <<'OIDC_ADMIN_13' /admin/src/users/UserForm.vue
 <script setup lang="ts">
+import { onMounted, ref } from 'vue'
 import { useEntityItemFormPage } from '@quazardous/qdadm'
 import { FormPage, FormField, FormInput } from '@quazardous/qdadm/components'
+import AutoComplete from 'primevue/autocomplete'
+import InputText from 'primevue/inputtext'
+import Button from 'primevue/button'
+import { http } from '../http'
+import type { Attribute } from './UsersModule'
 
 const form = useEntityItemFormPage({ entity: 'users' })
 form.generateFields()
 
 form.addSaveAction({ andClose: true })
 form.addDeleteAction()
+
+// The groups that exist, to pick from; a name typed and entered makes a new one.
+const known = ref<string[]>([])
+const suggestions = ref<string[]>([])
+onMounted(async () => {
+  known.value = ((await http.get<{ groups: { name: string }[] }>('/admin/api/groups')).data.groups ?? []).map((g) => g.name)
+})
+const suggest = (e: { query: string }) => {
+  const q = e.query.trim().toLowerCase()
+  suggestions.value = [...known.value.filter((g) => g.toLowerCase().includes(q)), ...(q && !known.value.some((g) => g.toLowerCase() === q) ? [e.query.trim()] : [])]
+}
+
+const rows = () => form.data.value.attributes as Attribute[]
+const addRow = () => (form.data.value.attributes = [...rows(), { name: '', value: '' }])
+const removeRow = (i: number) => (form.data.value.attributes = rows().filter((_, j) => j !== i))
 </script>
 
 <template>
   <FormPage v-bind="form.props.value" v-on="form.events">
     <template #fields>
       <FormField v-for="field in form.fields.value" :key="field.name" :name="field.name" :label="field.label">
-        <FormInput :field="field" v-model="form.data.value[field.name]" />
+        <AutoComplete
+          v-if="field.name === 'groups'"
+          v-model="form.data.value.groups"
+          multiple
+          dropdown
+          :suggestions="suggestions"
+          placeholder="Pick a group, or type a new one and press Enter"
+          fluid
+          @complete="suggest"
+        />
+        <div v-else-if="field.name === 'attributes'" class="attributes">
+          <div v-for="(row, i) in rows()" :key="i" class="attribute">
+            <InputText v-model="row.name" placeholder="name (department)" />
+            <InputText v-model="row.value" placeholder="value (text, or JSON: 3, true, [&quot;a&quot;])" />
+            <Button icon="pi pi-times" text severity="secondary" aria-label="Remove" @click="removeRow(i)" />
+          </div>
+          <Button label="Add an attribute" icon="pi pi-plus" text @click="addRow" />
+        </div>
+        <FormInput v-else :field="field" v-model="form.data.value[field.name]" />
       </FormField>
     </template>
   </FormPage>
 </template>
-OIDC_ADMIN_10
-COPY <<'OIDC_ADMIN_11' /admin/src/users/UserList.vue
+
+<style scoped>
+.attributes { display: flex; flex-direction: column; gap: 0.5rem; }
+.attribute { display: grid; grid-template-columns: 1fr 2fr auto; gap: 0.5rem; }
+</style>
+OIDC_ADMIN_13
+COPY <<'OIDC_ADMIN_14' /admin/src/users/UserList.vue
 <script setup lang="ts">
 import { useListPage } from '@quazardous/qdadm'
 import { ListPage } from '@quazardous/qdadm/components'
@@ -1830,7 +1993,7 @@ import Column from 'primevue/column'
 
 const list = useListPage({ entity: 'users' })
 
-list.setSearch({ placeholder: 'Search users...', fields: ['sub', 'claims'] })
+list.setSearch({ placeholder: 'Search users...', fields: ['sub', 'email', 'name'] })
 list.addCreateAction('Add a user')
 list.addEditAction()
 list.addDeleteAction({ labelField: 'sub' })
@@ -1840,9 +2003,10 @@ list.addDeleteAction({ labelField: 'sub' })
   <ListPage v-bind="list.props.value" v-on="list.events">
     <template #columns>
       <Column field="sub" header="User" sortable />
-      <Column field="claims" header="Claims">
-        <template #body="{ data }"><code>{{ JSON.stringify(JSON.parse(data.claims)) }}</code></template>
+      <Column field="groups" header="Groups">
+        <template #body="{ data }">{{ data.groups.join(', ') || '—' }}</template>
       </Column>
+      <Column field="email" header="email" />
       <Column field="has_password" header="Password" style="width: 110px">
         <template #body="{ data }">{{ data.has_password ? 'yes' : 'none' }}</template>
       </Column>
@@ -1852,8 +2016,8 @@ list.addDeleteAction({ labelField: 'sub' })
     </template>
   </ListPage>
 </template>
-OIDC_ADMIN_11
-COPY <<'OIDC_ADMIN_12' /admin/src/users/UsersModule.ts
+OIDC_ADMIN_14
+COPY <<'OIDC_ADMIN_15' /admin/src/users/UsersModule.ts
 import { Module, EntityManager, ApiStorage } from '@quazardous/qdadm'
 import { http } from '../http'
 
@@ -1861,19 +2025,45 @@ import { http } from '../http'
 interface ApiUser {
   sub: string
   claims: Record<string, unknown>
+  groups: string[]
   password: boolean
   issuers?: string[]
 }
 
-/** A user as the forms edit it: the claims as JSON text, the issuers as a list in a line. */
+/** The OIDC attributes an app reads most: a field each. */
+export const STANDARD = ['email', 'name', 'given_name', 'family_name', 'preferred_username'] as const
+
+/** An attribute of no field of its own: a name and its value (JSON when it parses: 3, true, ["a"]). */
+export interface Attribute {
+  name: string
+  value: string
+}
+
+/** A user as the forms edit it: its groups a list, its attributes fields and rows, no JSON. */
 interface FormUser {
   id: string
   sub: string
-  claims: string
+  groups: string[]
+  email: string
+  email_verified: boolean
+  name: string
+  given_name: string
+  family_name: string
+  preferred_username: string
+  attributes: Attribute[]
   has_password: boolean
   password: string
   remove_password: boolean
   issuers: string
+}
+
+const shownValue = (v: unknown): string => (typeof v === 'string' ? v : JSON.stringify(v))
+const parsedValue = (v: string): unknown => {
+  try {
+    return JSON.parse(v)
+  } catch {
+    return v
+  }
 }
 
 export class UsersModule extends Module {
@@ -1885,7 +2075,14 @@ export class UsersModule extends Module {
       labelField: 'sub',
       fields: {
         sub: { type: 'text', label: 'User', required: true, default: '' },
-        claims: { type: 'textarea', label: 'Claims (JSON)', default: '{\n  "email": "",\n  "groups": []\n}' },
+        groups: { type: 'text', label: 'Groups', default: [] },
+        email: { type: 'email', label: 'email', default: '' },
+        email_verified: { type: 'boolean', label: 'email_verified', default: false },
+        name: { type: 'text', label: 'name', default: '' },
+        given_name: { type: 'text', label: 'given_name', default: '' },
+        family_name: { type: 'text', label: 'family_name', default: '' },
+        preferred_username: { type: 'text', label: 'preferred_username', default: '' },
+        attributes: { type: 'text', label: 'Other attributes', default: [] },
         has_password: { type: 'boolean', label: 'Has a password', default: false, readOnly: true },
         password: { type: 'password', label: 'New password (empty: unchanged)', default: '' },
         remove_password: { type: 'boolean', label: 'Remove its password (one-click sign-in)', default: false },
@@ -1897,10 +2094,22 @@ export class UsersModule extends Module {
         responseItemsKey: 'users',
         normalize: (u: any): any => {
           const user = u as ApiUser
+          const claims = user.claims ?? {}
+          const own = (k: string) => (typeof claims[k] === 'string' ? (claims[k] as string) : '')
           return {
             id: user.sub,
             sub: user.sub,
-            claims: JSON.stringify(user.claims ?? {}, null, 2),
+            groups: user.groups ?? [],
+            email: own('email'),
+            email_verified: claims.email_verified === true,
+            name: own('name'),
+            given_name: own('given_name'),
+            family_name: own('family_name'),
+            preferred_username: own('preferred_username'),
+            attributes: Object.entries(claims)
+              .filter(([k, v]) => !(STANDARD as readonly string[]).includes(k) || typeof v !== 'string')
+              .filter(([k]) => k !== 'email_verified')
+              .map(([name, value]) => ({ name, value: shownValue(value) })),
             has_password: user.password,
             password: '',
             remove_password: false,
@@ -1910,9 +2119,14 @@ export class UsersModule extends Module {
         denormalize: (f: any): any => {
           const form = f as Partial<FormUser>
           const issuers = (form.issuers ?? '').split(',').map((s) => s.trim()).filter(Boolean)
+          const claims: Record<string, unknown> = {}
+          for (const k of STANDARD) if (form[k]) claims[k] = form[k]
+          if (form.email_verified) claims.email_verified = true
+          for (const a of form.attributes ?? []) if (a.name.trim()) claims[a.name.trim()] = parsedValue(a.value)
           return {
             sub: form.sub,
-            claims: JSON.parse(form.claims || '{}'),
+            claims,
+            groups: form.groups ?? [],
             issuers: issuers.length > 0 ? issuers : null,
             ...(form.remove_password ? { password: null } : form.password ? { password: form.password } : {}),
           }
@@ -1926,7 +2140,7 @@ export class UsersModule extends Module {
     }, { nav: { section: 'Provider', icon: 'pi pi-users' } })
   }
 }
-OIDC_ADMIN_12
+OIDC_ADMIN_15
 RUN npm ci --no-audit --no-fund --legacy-peer-deps && npx vite build
 
 FROM ${BASE_IMAGE}
@@ -1940,13 +2154,16 @@ COPY <<'OIDC_PACKAGE' /opt/oidc/package.json
 OIDC_PACKAGE
 COPY <<'OIDC_USERS' /opt/oidc/users.js
 /**
- * The provider's users: who may sign in, with which claims, and with which password (kept
- * as a scrypt hash, never as given). Kept in one JSON file of the provider's data, written
- * whole and atomically: a development provider has a handful of users, not a directory.
+ * The provider's users and groups: who may sign in, with which attributes, in which groups,
+ * and with which password (kept as a scrypt hash, never as given). A user's claims are its
+ * groups' claims, then its own attributes, then the names of its groups. Kept in one JSON file
+ * of the provider's data, written whole and atomically: a development provider has a handful
+ * of users, not a directory.
  */
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 const SUB = /^[A-Za-z0-9._@+-]{1,128}$/;
+const GROUP = /^[A-Za-z0-9._@+-][A-Za-z0-9._@+ -]{0,63}$/;
 const ISSUER = /^[a-z0-9][a-z0-9-]{0,62}$/;
 export function hashPassword(password) {
     const salt = randomBytes(16);
@@ -1973,24 +2190,48 @@ export function userOf(sub, body, previous) {
     if (input.issuers !== undefined && input.issuers !== null && (!Array.isArray(input.issuers) || !input.issuers.every((i) => typeof i === 'string' && ISSUER.test(i)))) {
         return { error: 'issuers must be a list of issuer names, or null for all of them' };
     }
+    if (input.groups !== undefined && input.groups !== null && (!Array.isArray(input.groups) || !input.groups.every((g) => typeof g === 'string' && GROUP.test(g)))) {
+        return { error: 'groups must be a list of group names (letters, digits, . _ @ + - and spaces, at most 64), or null for none' };
+    }
     const claims = input.claims ?? previous?.claims ?? {};
+    const groups = input.groups === null ? undefined : (input.groups ?? previous?.groups);
     const password = input.password === null ? undefined : typeof input.password === 'string' ? hashPassword(input.password) : previous?.password;
     const issuers = input.issuers === null ? undefined : (input.issuers ?? previous?.issuers);
-    return { sub, claims, ...(password ? { password } : {}), ...(issuers ? { issuers } : {}) };
+    return { sub, claims, ...(groups && groups.length > 0 ? { groups: [...new Set(groups)] } : {}), ...(password ? { password } : {}), ...(issuers ? { issuers } : {}) };
 }
-export const shown = (u) => ({ sub: u.sub, claims: u.claims, password: Boolean(u.password), ...(u.issuers ? { issuers: u.issuers } : {}) });
+/** A group as the admin API gives it, checked; an error to say otherwise. */
+export function groupOf(name, body, previous) {
+    if (!GROUP.test(name))
+        return { error: 'a group name is 1 to 64 letters, digits, . _ @ + - and spaces' };
+    const input = (body ?? {});
+    if (input.description !== undefined && input.description !== null && (typeof input.description !== 'string' || input.description.length > 400))
+        return { error: 'description must be text, at most 400' };
+    if (input.claims !== undefined && input.claims !== null && (typeof input.claims !== 'object' || Array.isArray(input.claims)))
+        return { error: 'claims must be a JSON object' };
+    const description = input.description === null ? undefined : (input.description ?? previous?.description);
+    const claims = input.claims === null ? undefined : (input.claims ?? previous?.claims);
+    return { name, ...(description ? { description } : {}), ...(claims && Object.keys(claims).length > 0 ? { claims } : {}) };
+}
+export const shown = (u) => ({ sub: u.sub, claims: u.claims, groups: u.groups ?? [], password: Boolean(u.password), ...(u.issuers ? { issuers: u.issuers } : {}) });
 export class Users {
     file;
-    constructor(file) {
+    groupsClaim;
+    /** `groupsClaim`: the claim the names of a user's groups are signed in (`groups`, `roles`…). */
+    constructor(file, groupsClaim = 'groups') {
         this.file = file;
+        this.groupsClaim = groupsClaim;
     }
-    all() {
+    read() {
         try {
-            return JSON.parse(readFileSync(this.file, 'utf8')).users ?? [];
+            const raw = JSON.parse(readFileSync(this.file, 'utf8'));
+            return { users: raw.users ?? [], groups: raw.groups ?? [] };
         }
         catch {
-            return [];
+            return { users: [], groups: [] };
         }
+    }
+    all() {
+        return this.read().users;
     }
     get(sub) {
         return this.all().find((u) => u.sub === sub);
@@ -1999,20 +2240,99 @@ export class Users {
     of(issuer) {
         return this.all().filter((u) => !u.issuers || u.issuers.includes(issuer));
     }
+    /** A user, its groups made when they do not exist yet: a group typed on a user is a group. */
     put(user) {
-        this.write([...this.all().filter((u) => u.sub !== user.sub), user].sort((a, b) => a.sub.localeCompare(b.sub)));
+        const store = this.read();
+        for (const name of user.groups ?? [])
+            if (!store.groups.some((g) => g.name === name))
+                store.groups.push({ name });
+        this.write({ users: [...store.users.filter((u) => u.sub !== user.sub), user], groups: store.groups });
     }
     delete(sub) {
-        const all = this.all();
-        if (!all.some((u) => u.sub === sub))
+        const store = this.read();
+        if (!store.users.some((u) => u.sub === sub))
             return false;
-        this.write(all.filter((u) => u.sub !== sub));
+        this.write({ ...store, users: store.users.filter((u) => u.sub !== sub) });
         return true;
     }
-    write(users) {
-        writeFileSync(`${this.file}.tmp`, JSON.stringify({ users }, null, 2) + '\n', { mode: 0o600 });
+    groups() {
+        return this.read().groups;
+    }
+    group(name) {
+        return this.groups().find((g) => g.name === name);
+    }
+    /** Who is in a group. */
+    members(name) {
+        return this.all().filter((u) => u.groups?.includes(name)).map((u) => u.sub);
+    }
+    putGroup(group) {
+        const store = this.read();
+        this.write({ ...store, groups: [...store.groups.filter((g) => g.name !== group.name), group] });
+    }
+    /** A group away, and out of its members' groups. */
+    deleteGroup(name) {
+        const store = this.read();
+        if (!store.groups.some((g) => g.name === name))
+            return false;
+        const users = store.users.map((u) => (u.groups?.includes(name) ? withGroups(u, u.groups.filter((g) => g !== name)) : u));
+        this.write({ users, groups: store.groups.filter((g) => g.name !== name) });
+        return true;
+    }
+    /** A group's members set: those named in, the others out. */
+    setMembers(name, subs) {
+        const store = this.read();
+        const users = store.users.map((u) => {
+            const inIt = u.groups?.includes(name) ?? false;
+            const wanted = subs.includes(u.sub);
+            if (inIt === wanted)
+                return u;
+            return withGroups(u, wanted ? [...(u.groups ?? []), name] : (u.groups ?? []).filter((g) => g !== name));
+        });
+        this.write({ ...store, users });
+    }
+    /**
+     * What a user signs: its groups' claims, then its own attributes (they win), then the
+     * names of its groups in the groups claim.
+     */
+    claimsOf(user) {
+        const groups = this.groups();
+        const fromGroups = Object.assign({}, ...(user.groups ?? []).map((n) => groups.find((g) => g.name === n)?.claims ?? {}));
+        return { ...fromGroups, ...user.claims, ...(user.groups && user.groups.length > 0 ? { [this.groupsClaim]: user.groups } : {}) };
+    }
+    /**
+     * The store of an older provider, where a user's groups were a claim it typed: they become
+     * its memberships, and the groups exist. Run at the start, once and again harmlessly.
+     */
+    migrate() {
+        const store = this.read();
+        let changed = false;
+        const users = store.users.map((u) => {
+            const typed = u.claims?.groups;
+            if (u.groups || !Array.isArray(typed) || !typed.every((g) => typeof g === 'string' && GROUP.test(g)))
+                return u;
+            changed = true;
+            const { groups: _typed, ...claims } = u.claims;
+            return { ...u, claims, groups: typed };
+        });
+        const groups = [...store.groups];
+        for (const name of users.flatMap((u) => u.groups ?? [])) {
+            if (!groups.some((g) => g.name === name)) {
+                groups.push({ name });
+                changed = true;
+            }
+        }
+        if (changed)
+            this.write({ users, groups });
+    }
+    write(store) {
+        const sorted = { users: [...store.users].sort((a, b) => a.sub.localeCompare(b.sub)), groups: [...store.groups].sort((a, b) => a.name.localeCompare(b.name)) };
+        writeFileSync(`${this.file}.tmp`, JSON.stringify(sorted, null, 2) + '\n', { mode: 0o600 });
         renameSync(`${this.file}.tmp`, this.file);
     }
+}
+function withGroups(user, groups) {
+    const { groups: _old, ...rest } = user;
+    return groups.length > 0 ? { ...rest, groups } : rest;
 }
 OIDC_USERS
 COPY <<'OIDC_ADMIN' /opt/oidc/admin.js
@@ -2218,7 +2538,7 @@ export class Provider {
             if (!user?.password || !passwordMatches(user.password, form.password ?? ''))
                 return failure(400, 'invalid_grant', 'wrong user name or password');
             const scope = form.scope ?? 'openid';
-            return { status: 200, body: this.tokens(issuer, clientId, { sub: user.sub, claims: user.claims }, scope, Math.floor(this.now() / 1000)) };
+            return { status: 200, body: this.tokens(issuer, clientId, { sub: user.sub, claims: this.options.users.claimsOf(user) }, scope, Math.floor(this.now() / 1000)) };
         }
         if (form.grant_type !== 'authorization_code')
             return failure(400, 'unsupported_grant_type', 'authorization_code, client_credentials, or password when it is on');
@@ -2291,6 +2611,7 @@ COPY <<'OIDC_SERVER' /opt/oidc/server.js
  *   OIDC_ADMIN_DIR       a built admin app served at /admin/ (the qdadm one); the built-in page otherwise
  *   OIDC_OPEN_LOGIN      0 to sign in only as a user of the store; any user, any claims otherwise
  *   OIDC_PASSWORD_GRANT  1 to trade a user's name and password for tokens, with no browser
+ *   OIDC_GROUPS_CLAIM    the claim a user's groups are signed in (groups)
  */
 import { timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
@@ -2299,7 +2620,7 @@ import { extname, join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { newKeyPem, Provider } from './provider.js';
 import { adminPage } from './admin.js';
-import { passwordMatches, shown, userOf, Users } from './users.js';
+import { groupOf, passwordMatches, shown, userOf, Users } from './users.js';
 const ISSUER = /^\/([a-z0-9][a-z0-9-]{0,62})(\/.*)?$/;
 /** First segments that are the provider's own, not issuers. */
 const RESERVED = ['admin', 'health'];
@@ -2330,14 +2651,16 @@ function basicClientId(header) {
         return undefined;
     return decodeURIComponent(Buffer.from(value, 'base64').toString().split(':')[0] ?? '');
 }
+/** A user's groups beside its name on the login page: which role it is, at a glance. */
+const inGroups = (u) => (u.groups?.length ? ` <small>${escape(u.groups.join(', '))}</small>` : '');
 function loginPage(issuer, query, users, open, error = '') {
     const hidden = REQUEST_FIELDS.filter((f) => query[f]).map((f) => `<input type="hidden" name="${f}" value="${escape(query[f])}">`).join('');
     // The store's users: one click for a user without a password, its password otherwise.
     const known = users.length
         ? `<h2>Users</h2>${users
             .map((u) => u.password
-            ? `<form method="post" class="user">${hidden}<input type="hidden" name="as" value="${escape(u.sub)}"><b>${escape(u.sub)}</b> <input type="password" name="password" placeholder="password" aria-label="${escape(u.sub)}'s password" required> <button>Sign in</button></form>`
-            : `<form method="post" class="user">${hidden}<input type="hidden" name="as" value="${escape(u.sub)}"><button>Sign in as ${escape(u.sub)}</button> <small>${escape(JSON.stringify(u.claims))}</small></form>`)
+            ? `<form method="post" class="user">${hidden}<input type="hidden" name="as" value="${escape(u.sub)}"><b>${escape(u.sub)}</b>${inGroups(u)} <input type="password" name="password" placeholder="password" aria-label="${escape(u.sub)}'s password" required> <button>Sign in</button></form>`
+            : `<form method="post" class="user">${hidden}<input type="hidden" name="as" value="${escape(u.sub)}"><button>Sign in as ${escape(u.sub)}</button>${inGroups(u)}</form>`)
             .join('')}`
         : '';
     if (!open) {
@@ -2422,6 +2745,8 @@ async function admin(req, res, path, options) {
         options.users.put(next);
         return send(res, 201, shown(next));
     }
+    if (path.startsWith('/admin/api/groups'))
+        return groupsApi(req, res, path, options);
     const one = /^\/admin\/api\/users\/([^/]+)$/.exec(path);
     if (!one)
         return send(res, 404, { error: 'not_found', error_description: `no ${req.method} ${path}` });
@@ -2446,6 +2771,61 @@ async function admin(req, res, path, options) {
         return send(res, user ? 200 : 201, shown(next));
     }
     return send(res, 405, { error: 'method_not_allowed', error_description: `${req.method} on a user: GET, PUT or DELETE` });
+}
+/** The groups: their claims, their members; a group away leaves its members' groups. */
+async function groupsApi(req, res, path, options) {
+    const users = options.users;
+    const shownGroup = (name) => ({ ...users.group(name), members: users.members(name) });
+    const parsed = async () => {
+        try {
+            return JSON.parse((await body(req)) || '{}');
+        }
+        catch {
+            return undefined;
+        }
+    };
+    if (path === '/admin/api/groups' && req.method === 'GET') {
+        const groups = users.groups().map((g) => shownGroup(g.name));
+        return send(res, 200, { groups, total: groups.length });
+    }
+    const save = async (name, previous, status = 200) => {
+        const input = await parsed();
+        if (!input)
+            return send(res, 400, { error: 'invalid_request', error_description: 'the body must be JSON' });
+        const next = groupOf(name, input, previous ? users.group(previous.name) : undefined);
+        if ('error' in next)
+            return send(res, 400, { error: 'invalid_request', error_description: next.error });
+        users.putGroup(next);
+        if (Array.isArray(input.members) && input.members.every((m) => typeof m === 'string'))
+            users.setMembers(name, input.members);
+        return send(res, status, shownGroup(name));
+    };
+    if (path === '/admin/api/groups' && req.method === 'POST') {
+        // A create, as a PUT to its own path: what a list's "create" sends.
+        const input = await parsed();
+        const name = typeof input?.name === 'string' ? input.name : '';
+        if (users.group(name))
+            return send(res, 409, { error: 'conflict', error_description: `group ${name} exists` });
+        const next = groupOf(name, input);
+        if ('error' in next)
+            return send(res, 400, { error: 'invalid_request', error_description: next.error });
+        users.putGroup(next);
+        if (Array.isArray(input?.members))
+            users.setMembers(name, input.members.filter((m) => typeof m === 'string'));
+        return send(res, 201, shownGroup(name));
+    }
+    const one = /^\/admin\/api\/groups\/([^/]+)$/.exec(path);
+    if (!one)
+        return send(res, 404, { error: 'not_found', error_description: `no ${req.method} ${path}` });
+    const name = decodeURIComponent(one[1]);
+    const group = users.group(name);
+    if (req.method === 'GET')
+        return group ? send(res, 200, shownGroup(name)) : send(res, 404, { error: 'not_found', error_description: `no group ${name}` });
+    if (req.method === 'DELETE')
+        return users.deleteGroup(name) ? send(res, 200, { deleted: name }) : send(res, 404, { error: 'not_found', error_description: `no group ${name}` });
+    if (req.method === 'PUT')
+        return save(name, group, group ? 200 : 201);
+    return send(res, 405, { error: 'method_not_allowed', error_description: `${req.method} on a group: GET, PUT or DELETE` });
 }
 export function handler(provider, options) {
     return async (req, res) => {
@@ -2485,7 +2865,7 @@ export function handler(provider, options) {
                     const user = users.find((u) => u.sub === fields.as);
                     if (!user || (user.password && !passwordMatches(user.password, fields.password ?? '')))
                         return page('Wrong user or password.');
-                    return send(res, 302, '', { location: provider.issueCode(request, { sub: user.sub, claims: user.claims }) });
+                    return send(res, 302, '', { location: provider.issueCode(request, { sub: user.sub, claims: options.users.claimsOf(user) }) });
                 }
                 if (!options.openLogin)
                     return page('Sign in as one of the users.');
@@ -2538,7 +2918,9 @@ export function loadKey(dir) {
     }
 }
 export function start(port = Number(process.env.PORT ?? 8080), dir = process.env.OIDC_DATA ?? '/data') {
-    const users = new Users(join(dir, 'users.json'));
+    const users = new Users(join(dir, 'users.json'), process.env.OIDC_GROUPS_CLAIM || 'groups');
+    // An older provider's users: the groups they typed as a claim become their memberships.
+    users.migrate();
     const provider = new Provider(loadKey(dir), { users, passwordGrant: ['1', 'true'].includes(process.env.OIDC_PASSWORD_GRANT ?? '') });
     const adminToken = process.env.OIDC_ADMIN_TOKEN || undefined;
     const adminDir = process.env.OIDC_ADMIN_DIR && statSync(join(process.env.OIDC_ADMIN_DIR, 'index.html'), { throwIfNoEntry: false }) ? process.env.OIDC_ADMIN_DIR : undefined;

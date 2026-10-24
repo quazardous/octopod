@@ -9,11 +9,12 @@ import 'primeicons/primeicons.css'
 import App from './App.vue'
 import { authAdapter } from './auth'
 import { UsersModule } from './users/UsersModule'
+import { GroupsModule } from './groups/GroupsModule'
 
 const kernel = new Kernel({
   root: App,
   hashMode: true,
-  moduleDefs: [UsersModule],
+  moduleDefs: [UsersModule, GroupsModule],
   pages: { layout: AppLayout, login: () => import('./Login.vue') },
   authAdapter,
   entityAuthAdapter: () => authAdapter.getUser(),

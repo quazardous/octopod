@@ -1,12 +1,13 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createHash, createPublicKey, verify } from 'node:crypto';
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { get, type Server } from 'node:http';
 import { CODE_MS, newKeyPem, Provider } from './provider.js';
 import { loadKey, start } from './server.js';
+import { Users } from './users.js';
 
 const pem = newKeyPem();
 const b64url = (s: Buffer | string) => Buffer.from(s).toString('base64url');
@@ -149,8 +150,8 @@ describe('the OIDC server', () => {
     expect((await admin('PUT', '/users/bad name', {})).status).toBe(400);
     const { users } = (await (await admin('GET', '/users')).json()) as { users: Record<string, unknown>[] };
     expect(users).toEqual([
-      { sub: 'ada', claims: { groups: ['admi-dev'] }, password: true },
-      { sub: 'bob', claims: { groups: ['admi-viewer'] }, password: false, issuers: ['google'] },
+      { sub: 'ada', claims: { groups: ['admi-dev'] }, groups: [], password: true },
+      { sub: 'bob', claims: { groups: ['admi-viewer'] }, groups: [], password: false, issuers: ['google'] },
     ]);
     expect(await readFile(join(dir, 'users.json'), 'utf8')).not.toContain('pa55');
     expect((await fetch(`${base}/admin`)).status).toBe(200);
@@ -184,6 +185,37 @@ describe('the OIDC server', () => {
     expect(((await (await admin('GET', '/users')).json()) as { total: number }).total).toBe(3);
     expect((await admin('DELETE', '/users/bob')).status).toBe(200);
     expect((await admin('GET', '/users/bob')).status).toBe(404);
+  });
+
+  it('keeps groups: their claims go to their members, their names in the groups claim, a user\'s own attributes win', async () => {
+    expect((await admin('PUT', '/groups/staff', { description: 'the team', claims: { roles: ['admin'], email: 'team@example.test' } })).status).toBe(201);
+    expect((await admin('PUT', '/users/dan', { claims: { email: 'dan@example.test' }, groups: ['staff', 'beta'], password: 'd4n' })).status).toBe(201);
+    // A group typed on a user exists from then on.
+    const { groups } = (await (await admin('GET', '/groups')).json()) as { groups: { name: string; members: string[] }[] };
+    expect(groups.map((g) => [g.name, g.members])).toEqual(expect.arrayContaining([['beta', ['dan']], ['staff', ['dan']]]));
+    const ok = await fetch(`${base}/admi/token`, { method: 'POST', body: new URLSearchParams({ grant_type: 'password', client_id: 'ci', username: 'dan', password: 'd4n' }) });
+    expect(claimsOf(((await ok.json()) as Record<string, string>).id_token!)).toEqual(expect.objectContaining({ groups: ['staff', 'beta'], roles: ['admin'], email: 'dan@example.test' }));
+    // Members set from the group's side; a group away leaves its members' groups.
+    expect((await admin('PUT', '/groups/beta', { members: ['ada'] })).status).toBe(200);
+    expect(((await (await admin('GET', '/users/dan')).json()) as { groups: string[] }).groups).toEqual(['staff']);
+    expect((await admin('DELETE', '/groups/staff')).status).toBe(200);
+    expect(((await (await admin('GET', '/users/dan')).json()) as { groups: string[] }).groups).toEqual([]);
+    expect((await admin('PUT', '/groups/bad%2Fname', {})).status).toBe(400);
+  });
+});
+
+describe('the OIDC users of an older provider', () => {
+  it('turns the groups a user typed as a claim into its memberships, the groups made', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'octopod-oidc-old-'));
+    const file = join(dir, 'users.json');
+    await writeFile(file, JSON.stringify({ users: [{ sub: 'ada', claims: { groups: ['dev'], email: 'ada@example.test' } }] }));
+    const users = new Users(file, 'roles');
+    users.migrate();
+    expect(users.get('ada')).toEqual({ sub: 'ada', claims: { email: 'ada@example.test' }, groups: ['dev'] });
+    expect(users.groups()).toEqual([{ name: 'dev' }]);
+    // Signed in the claim the provider was told: an app that reads roles.
+    expect(users.claimsOf(users.get('ada')!)).toEqual({ email: 'ada@example.test', roles: ['dev'] });
+    await rm(dir, { recursive: true, force: true });
   });
 });
 
