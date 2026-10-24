@@ -4,6 +4,7 @@
  * `.octopod/recipes/`. A recipe is a subfolder: `<id>/recipe.yaml`, and its `Dockerfile`
  * when it builds. The closest folder wins a name, and the one it hides is reported.
  */
+import { said } from '../meta.js';
 import { createHash } from 'node:crypto';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { delimiter, join } from 'node:path';
@@ -65,7 +66,7 @@ export async function loadRecipe(dir: string, id: string): Promise<RecipeEntry> 
   }
   const parsed = RecipeSchema.safeParse(raw);
   if (!parsed.success) {
-    throw new RecipeError(`${file}: ${parsed.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join('; ')}`);
+    throw new RecipeError(`${file}: ${parsed.error.issues.map(said).join('; ')}`);
   }
   const recipe = parsed.data;
   // What a project can put in the image or the build: params only, bounded ones in the image.

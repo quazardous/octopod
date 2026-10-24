@@ -13,6 +13,7 @@
     "dist",
     "!dist/**/*.test.*",
     "recipes",
+    "schema",
     "assets/*.ico",
     "assets/*.svg",
     "assets/*.png",
@@ -33,7 +34,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "check:leaks": "scripts/check-leaks.sh",
-    "oidc:recipe": "node scripts/oidc-dockerfile.mjs"
+    "oidc:recipe": "node scripts/oidc-dockerfile.mjs",
+    "schemas": "tsx scripts/schemas.ts"
   },
   "devDependencies": {
     "@types/node": "^22.20.4",

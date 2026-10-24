@@ -1,0 +1,210 @@
+{
+  "$id": "https://raw.githubusercontent.com/quazardous/octopod/main/schema/octopod.schema.json",
+  "title": "octopod.yaml: a project's declaration",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "project": {
+      "type": "string",
+      "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"
+    },
+    "compose": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200
+      }
+    },
+    "env_file": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "expose": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]*$"
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "host": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "service"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "services": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "recipe": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "programs": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "command": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1000,
+                  "pattern": "^[^\\r\\n]*$"
+                },
+                "autostart": {
+                  "default": true,
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "command"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "supervisor_d": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 400
+          },
+          "actions": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "command": {
+                  "minItems": 1,
+                  "maxItems": 64,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 4000
+                  }
+                },
+                "summary": {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                "input": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "tty": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "confirm": {
+                  "type": "string",
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "command"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "home": {
+            "anyOf": [
+              {
+                "type": "boolean",
+                "const": true
+              },
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 400
+              }
+            ]
+          },
+          "route": {
+            "type": "boolean",
+            "const": false
+          },
+          "workdir": {
+            "type": "string",
+            "pattern": "^\\/[A-Za-z0-9._-][A-Za-z0-9._/-]*$"
+          }
+        },
+        "required": [
+          "recipe"
+        ],
+        "additionalProperties": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 200
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "maxItems": 128,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 64
+              }
+            }
+          ]
+        }
+      }
+    },
+    "recipes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 400
+      }
+    },
+    "workspace": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 400
+    },
+    "group": {
+      "type": "string",
+      "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"
+    },
+    "tags": {
+      "maxItems": 16,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"
+      }
+    }
+  },
+  "additionalProperties": false
+}

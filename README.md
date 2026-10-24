@@ -90,6 +90,10 @@ expose:
     port: 8080           # optional: found in the compose file or the image otherwise
 ```
 
+An editor completes and checks it with its JSON Schema, from a first line
+`# yaml-language-server: $schema=https://raw.githubusercontent.com/quazardous/octopod/main/schema/octopod.schema.json`
+(`schema/recipe.schema.json` for a recipe; both are in the npm package too).
+
 Or no compose file at all, only recipes:
 
 ```yaml

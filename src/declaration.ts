@@ -7,6 +7,7 @@ import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { parse } from 'yaml';
 import { z } from 'zod';
 import { ActionSchema, type ActionSpec } from './recipes/recipe.js';
+import { said } from './meta.js';
 import { fullHost, instanceName, LABEL_RE, RESERVED_PROJECTS, slugify } from './names.js';
 
 export const DECLARATION_FILE = 'octopod.yaml';
@@ -29,7 +30,7 @@ export interface ProgramSpec {
   autostart: boolean;
 }
 
-const Schema = z
+export const DeclarationSchema = z
   .object({
     project: z.string().regex(LABEL_RE, 'must be a DNS label: a-z, 0-9 and -, at most 63').optional(),
     compose: z.array(z.string().min(1).max(200)).min(1).optional(),
@@ -105,9 +106,9 @@ export async function loadDeclaration(root: string): Promise<Declaration> {
   } catch (e) {
     throw new DeclarationError(`${file}: ${(e as Error).message}`);
   }
-  const parsed = Schema.safeParse(raw);
+  const parsed = DeclarationSchema.safeParse(raw);
   if (!parsed.success) {
-    throw new DeclarationError(`${file}: ${parsed.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join('; ')}`);
+    throw new DeclarationError(`${file}: ${parsed.error.issues.map(said).join('; ')}`);
   }
   const project = parsed.data.project ?? slugify(basename(root));
   if (RESERVED_PROJECTS.includes(project)) {

@@ -366,6 +366,13 @@ for 3 s, and is started again onto the new code; run by hand, it only says to re
 as the `octopod` systemd user service; on Windows the tray runs it). `OCTOPOD_STATE_DIR`, `OCTOPOD_INSTANCE` and `OCTOPOD_PORTS` select
 another instance (tests, a second edge).
 
+## Schemas
+
+`schema/octopod.schema.json` and `schema/recipe.schema.json` (in the repository and the npm
+package) are JSON Schemas of `octopod.yaml` and `recipe.yaml`, generated from the schemas
+octopod checks them with: for an editor. Both files are strict: a key octopod does not know
+is refused, and the refusal says a newer octopod may know it, with this one's version.
+
 ## What clients rely on
 
 A client — a tool built on octopod — checks `octopod version --json` (or `GET /v1/version`)
