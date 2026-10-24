@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { bindSources, choosePort, composePorts, consoleNginxConfig, dataVolumes, duplicationBlockers, edgeCompose, imagePorts, LOCAL_ONLY, localOnlyConfig, projectOverride, traefikConfig, projectAllowConfig } from './generate.js';
 import { withInstance } from './declaration.js';
 import { instanceName } from './names.js';
-import { fullHost, slugify } from './names.js';
+import { fullHost, projectDomain, slugify } from './names.js';
 import type { Declaration } from './declaration.js';
 
 const DEMO: Declaration = {
@@ -10,18 +10,28 @@ const DEMO: Declaration = {
   root: '/p/demo',
   compose: ['/p/demo/docker-compose.yml'],
   expose: [
-    { service: 'web', port: 3000, host: 'demo.localhost' },
-    { service: 'web', port: 9229, host: 'debug.demo.localhost' },
-    { service: 'api', port: 8080, host: 'api.demo.localhost' },
+    { service: 'web', port: 3000, host: 'demo.octopod.localhost' },
+    { service: 'web', port: 9229, host: 'debug.demo.octopod.localhost' },
+    { service: 'api', port: 8080, host: 'api.demo.octopod.localhost' },
   ],
 };
 
 describe('names', () => {
   it('keeps every host inside its project', () => {
-    expect(fullHost('demo', undefined)).toBe('demo.localhost');
-    expect(fullHost('demo', 'api.v2')).toBe('api.v2.demo.localhost');
+    expect(fullHost('demo', undefined)).toBe('demo.octopod.localhost');
+    expect(fullHost('demo', 'api.v2')).toBe('api.v2.demo.octopod.localhost');
     expect(() => fullHost('demo', '../other')).toThrow(/not a DNS label/);
     expect(() => fullHost('demo', 'a b')).toThrow(/not a DNS label/);
+  });
+
+  it('puts a project under the edge, a grouped one under its group, the shared services above them', () => {
+    expect(fullHost('shop', undefined)).toBe('shop.octopod.localhost');
+    expect(fullHost('shop', 'redis')).toBe('redis.shop.octopod.localhost');
+    expect(fullHost('unei', 'pma', 'admi')).toBe('pma.unei.group-admi.octopod.localhost');
+    expect(projectDomain('admi-shared', 'admi')).toBe('group-admi.octopod.localhost');
+    expect(fullHost('admi-shared', 'pma', 'admi')).toBe('pma.group-admi.octopod.localhost');
+    // The machine's pool: the shared services of the projects without a group.
+    expect(fullHost('default-shared', 'mail', 'default')).toBe('mail.octopod.localhost');
   });
 
   it('turns a folder name into a DNS label', () => {
@@ -56,9 +66,9 @@ describe('the edge', () => {
     expect(services().traefik.volumes).toContain('/s/dynamic:/etc/traefik/dynamic:ro');
   });
 
-  it('serves the console at octopod.localhost and the dashboard at traefik.localhost, to the host only', () => {
+  it('serves the console at octopod.localhost and the dashboard at traefik.octopod.localhost, to the host only', () => {
     const { traefik, console: relay } = services();
-    expect(traefik.labels['traefik.http.routers.octopod-dashboard.rule']).toBe('Host(`traefik.localhost`)');
+    expect(traefik.labels['traefik.http.routers.octopod-dashboard.rule']).toBe('Host(`traefik.octopod.localhost`)');
     expect(traefik.labels['traefik.http.routers.octopod-dashboard.middlewares']).toBe(LOCAL_ONLY);
     expect(relay.labels['traefik.http.routers.octopod-console.rule']).toBe('Host(`octopod.localhost`)');
     expect(relay.labels['traefik.http.routers.octopod-console.middlewares']).toBe(LOCAL_ONLY);
@@ -130,22 +140,22 @@ describe('a project override', () => {
     const web = override.services.web.labels;
     expect(web['octopod.edge']).toBe('octopod');
     expect(web['traefik.docker.network']).toBe('octopod-demo-edge');
-    expect(web['traefik.http.routers.demo-demo.rule']).toBe('Host(`demo.localhost`)');
+    expect(web['traefik.http.routers.demo-demo.rule']).toBe('Host(`demo.octopod.localhost`)');
     // Its routes answer the host and its own containers, not another project's.
     expect(web['traefik.http.routers.demo-demo.middlewares']).toBe('octopod-from-demo@file');
     expect(projectAllowConfig('demo', ['10.1.0.0/20'])).toEqual({ http: { middlewares: { 'octopod-from-demo': { ipAllowList: { sourceRange: ['127.0.0.1/32', '10.1.0.0/20'] } } } } });
     expect(web['traefik.http.services.demo-demo.loadbalancer.server.port']).toBe('3000');
-    expect(web['traefik.http.routers.demo-debug-demo.rule']).toBe('Host(`debug.demo.localhost`)');
+    expect(web['traefik.http.routers.demo-debug-demo.rule']).toBe('Host(`debug.demo.octopod.localhost`)');
     expect(web['traefik.http.services.demo-debug-demo.loadbalancer.server.port']).toBe('9229');
     expect(override.networks.octopod_edge).toEqual({ name: 'octopod-demo-edge', internal: true });
   });
 
   it('exposes one service under several hosts: a router and a Traefik service per host, none overwriting another', () => {
-    const multi = { ...DEMO, expose: [{ service: 'web', host: 'demo.localhost', port: 80 }, { service: 'web', host: 'api.demo.localhost', port: 80 }, { service: 'web', host: 'apiv2.demo.localhost', port: 80 }] };
+    const multi = { ...DEMO, expose: [{ service: 'web', host: 'demo.octopod.localhost', port: 80 }, { service: 'web', host: 'api.demo.octopod.localhost', port: 80 }, { service: 'web', host: 'apiv2.demo.octopod.localhost', port: 80 }] };
     const labels = (projectOverride('octopod', multi, { web: {} }) as { services: { web: { labels: Record<string, string> } } }).services.web.labels;
-    expect(labels['traefik.http.routers.demo-demo.rule']).toBe('Host(`demo.localhost`)');
-    expect(labels['traefik.http.routers.demo-api-demo.rule']).toBe('Host(`api.demo.localhost`)');
-    expect(labels['traefik.http.routers.demo-apiv2-demo.rule']).toBe('Host(`apiv2.demo.localhost`)');
+    expect(labels['traefik.http.routers.demo-demo.rule']).toBe('Host(`demo.octopod.localhost`)');
+    expect(labels['traefik.http.routers.demo-api-demo.rule']).toBe('Host(`api.demo.octopod.localhost`)');
+    expect(labels['traefik.http.routers.demo-apiv2-demo.rule']).toBe('Host(`apiv2.demo.octopod.localhost`)');
     expect(labels['traefik.http.routers.demo-api-demo.service']).toBe('demo-api-demo');
   });
 
@@ -205,8 +215,8 @@ describe('ports', () => {
   });
 
   it('puts the resolved port in the labels', () => {
-    const noPort = { ...DEMO, expose: [{ service: 'web', host: 'demo.localhost' }] };
-    const labels = ((projectOverride('octopod', noPort, { web: {} }, {}, { 'demo.localhost': 3000 }) as { services: Record<string, { labels: Record<string, string> }> }).services.web.labels);
+    const noPort = { ...DEMO, expose: [{ service: 'web', host: 'demo.octopod.localhost' }] };
+    const labels = ((projectOverride('octopod', noPort, { web: {} }, {}, { 'demo.octopod.localhost': 3000 }) as { services: Record<string, { labels: Record<string, string> }> }).services.web.labels);
     expect(labels['traefik.http.services.demo-demo.loadbalancer.server.port']).toBe('3000');
   });
 });
@@ -229,7 +239,7 @@ describe('instances', () => {
   it('moves every host of instance N under its own name', () => {
     const copy = withInstance(DEMO, 2);
     expect(copy.project).toBe('demo-2');
-    expect(copy.expose.map((e) => e.host)).toEqual(['demo-2.localhost', 'debug.demo-2.localhost', 'api.demo-2.localhost']);
+    expect(copy.expose.map((e) => e.host)).toEqual(['demo-2.octopod.localhost', 'debug.demo-2.octopod.localhost', 'api.demo-2.octopod.localhost']);
     expect(withInstance(DEMO, 1)).toBe(DEMO);
   });
 

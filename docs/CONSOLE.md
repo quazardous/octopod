@@ -20,7 +20,7 @@ says (`link: /__debug__/` on the service).
 
 It brings a project, or a group's projects, up or down; Down asks for a second click. The rest (`restart`, `exec`,
 `run`, removing volumes) stays on the command line. It links to Traefik's dashboard at
-`http://traefik.localhost`.
+`http://traefik.octopod.localhost`.
 
 ## Who may see it
 

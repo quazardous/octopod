@@ -40,7 +40,7 @@ project do not collide.
 - **HTTP on `*.localhost` is enough.** It resolves to loopback without DNS setup, and
   browsers treat it as a secure context. Local HTTPS costs a local CA in every browser
   and certificates to renew, for traffic that never leaves the machine. Measured on
-  `http://<name>.<project>.localhost` in Chrome 153 and Firefox 156: `isSecureContext`,
+  `http://<name>.<project>.octopod.localhost` in Chrome 153 and Firefox 156: `isSecureContext`,
   `crypto.subtle`, a `Secure; SameSite=None` cookie (set by the server and sent back, or
   set from JavaScript), a service worker and the clipboard API all work. Safari is not
   measured. What still needs HTTPS is anything that is not this browser on this machine: an
@@ -66,7 +66,7 @@ project do not collide.
 - **One Traefik for the machine**, bound to `127.0.0.1` only, on port 80 when it is free
   and a fixed fallback otherwise — projects stop competing for it.
 - **Docker socket read-only**; dashboard reachable only through a router on
-  `traefik.localhost`, never on an open API port.
+  `traefik.octopod.localhost`, never on an open API port.
 - **One exact label for everything octopod manages** (`octopod.edge=<instance>`), so the shared
   Traefik never adopts a container it was not given — including every project still
   running its own Traefik.
@@ -75,8 +75,8 @@ project do not collide.
 - **One edge network per project**, with Traefik connected to each: Traefik reaches
   every project, projects do not reach each other. A single shared network would let
   any project's containers talk to any other's.
-- **Hosts are scoped to their project**: a project named `demo` can serve `demo.localhost`
-  and `*.demo.localhost`, nothing else — one project cannot take another's name.
+- **Hosts are scoped to their project**: a project named `demo` can serve `demo.octopod.localhost`
+  and `*.demo.octopod.localhost`, nothing else — one project cannot take another's name.
 
 ## A service shared between projects
 

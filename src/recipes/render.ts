@@ -6,6 +6,7 @@
  * octopod routes and binds the data, and a client with stricter needs (bushwhack) adds
  * its own compose file on top.
  */
+import { projectDomain } from '../names.js';
 import { serverName } from '../sharing.js';
 import { createHash, randomBytes } from 'node:crypto';
 import { isAbsolute } from 'node:path';
@@ -54,12 +55,14 @@ export interface RenderOptions {
   hostOs?: HostOs;
   /** The port the edge is published on, in a routed service's `{{url}}`: 80 by default. */
   edgePort?: number;
+  /** The project's domain, its hosts under it: `<project>.octopod.localhost` by default (names.ts). */
+  domain?: string;
   /**
    * The group's shared services (`shared: true`): run by the compose project `project`, on
    * the network `network`, which the services requiring them join. This project is their
    * tenant `tenant`: the recipe's `tenant` params and its own secret.
    */
-  shared?: { project: string; network: string; tenant: string };
+  shared?: { project: string; network: string; tenant: string; domain?: string };
 }
 
 export type HostOs = 'linux' | 'windows' | 'macos';
@@ -265,9 +268,9 @@ function scopes(r: Resolved, options: RenderOptions) {
   const route = r.entry.recipe.route;
   const routed = route !== undefined && r.request.route !== false;
   const port = options.edgePort && options.edgePort !== 80 ? `:${options.edgePort}` : '';
-  // A shared service is served under the group's project, not this one.
-  const project = r.request.shared && options.shared ? options.shared.project : options.project;
-  const url = routed ? `http://${route === true ? '' : `${route.subdomain}.`}${project}.localhost${port}` : '';
+  // A shared service is served under the group's domain, not this project's.
+  const domain = r.request.shared && options.shared ? (options.shared.domain ?? projectDomain(options.shared.project)) : (options.domain ?? projectDomain(options.project));
+  const url = routed ? `http://${route === true ? '' : `${route.subdomain}.`}${domain}${port}` : '';
   return { service: r.name, recipe: r.entry.id, params: tenantParams(r, options), secrets: r.secrets, url };
 }
 
@@ -544,7 +547,7 @@ export function renderServices(options: RenderOptions): Rendered {
 }
 
 /** One screen, for an approval: what each service is, what it keeps, what it mounts. */
-export function formatPlan(project: string, services: RenderedService[], workspace: string): string {
+export function formatPlan(project: string, services: RenderedService[], workspace: string, domain = projectDomain(project)): string {
   const lines = [`project ${project}`];
   for (const s of services) {
     lines.push(`+ ${s.name}  ${s.recipe}@${s.digest}`);
@@ -561,7 +564,7 @@ export function formatPlan(project: string, services: RenderedService[], workspa
     if (s.actions) lines.push(`    actions ${Object.keys(s.actions).join(', ')} (octopod run ${s.name} <action>)`);
     if (s.tool) lines.push(`    tool    never started by up: octopod shell ${project} ${s.name} -- <command…>`);
     if (s.waits) lines.push(`    waits   for ${s.waits.map((w) => `${w.service} (${w.healthy ? 'healthy' : 'started'})`).join(', ')}`);
-    if (s.route !== undefined) lines.push(`    served  ${s.route ? `${s.route}.` : ''}${project}.localhost, port ${s.port ?? 'from the image'}`);
+    if (s.route !== undefined) lines.push(`    served  ${s.route ? `${s.route}.` : ''}${domain}, port ${s.port ?? 'from the image'}`);
   }
   return lines.join('\n');
 }

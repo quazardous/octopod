@@ -1,12 +1,12 @@
 # A PHP web app: PHP-FPM and nginx in one container, run by supervisord, the project
-# mounted at /app and its docroot served at http://<project>.localhost; the project's own
+# mounted at /app and its docroot served at http://<project>.octopod.localhost; the project's own
 # workers (programs: in octopod.yaml) run beside them. The PHP version,
 # the extensions and the docroot are parameters; composer is in the image. The project's
 # dependencies are the project's: installed in the running app (composer install), never
 # in the image. A project that needs more — or a PHP older than 8.1, whose images sit on a
 # Debian out of support — copies this recipe into .octopod/recipes/ and adapts it.
 title: PHP web app
-summary: PHP-FPM and nginx run by supervisord, serving the project's docroot (public/) at http://<project>.localhost; composer in the image.
+summary: PHP-FPM and nginx run by supervisord, serving the project's docroot (public/) at http://<project>.octopod.localhost; composer in the image.
 icon: icon.svg
 image: "php:{{params.php}}-fpm"
 unpinned: true

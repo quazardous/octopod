@@ -19,7 +19,7 @@ expose:
   - service: web           # a service of the compose project
     port: 3000             # optional: the port it listens on, inside its container
   - service: api
-    host: api              # served at api.demo.localhost; default: demo.localhost
+    host: api              # served at api.demo.octopod.localhost; default: demo.octopod.localhost
 ```
 
 **The port** is found when not declared, and never blocks `up`: the service's `expose` or
@@ -32,8 +32,15 @@ choose or guess — `port:` settles it.
 Rules, checked when the project is registered and every time it is brought up:
 
 - `project` is a DNS label (`[a-z0-9-]`, at most 63, not starting or ending with `-`).
-- `host` is empty (the project's own name) or a sequence of labels **under** it: a
-  project can never serve a name outside `<project>.localhost` and `*.<project>.localhost`.
+- `host` is empty (the project's own domain) or a sequence of labels **under** it: a
+  project can never serve a name outside its domain and the names under it. Its domain is
+  `<project>.octopod.localhost`, or `<project>.group-<group>.octopod.localhost` in a group; a
+  group's shared services are at `group-<group>.octopod.localhost`, the machine pool's (group
+  `default`) at `octopod.localhost`, which is also the console's (Traefik's dashboard is
+  `traefik.octopod.localhost`).
+- A project without a group may not take a name of that top level: `octopod`, `traefik`,
+  `api`, `console`, `group-…`, nor a built-in recipe's route (`pma`, `mail`, `id`, `mongo`,
+  `redis`). A group's name is at most 57 characters (`group-<group>` is a label).
 - Every `service` exists in the compose configuration; every host is used once.
 
 ## What octopod does
@@ -45,7 +52,7 @@ Rules, checked when the project is registered and every time it is brought up:
   second instance — never sees this one's containers, nor this one its.
 - **The edge's own pages**, reachable from the host only — a project's containers reach the
   edge over their edge network, and get a 403 there:
-  - `http://traefik.localhost`: Traefik's dashboard;
+  - `http://traefik.octopod.localhost`: Traefik's dashboard;
   - `http://octopod.localhost`: the console — every project and instance, its services,
     routes, warnings and logs, and a button to bring each up or down. Served by `octopod
     serve` (the API), through `octopod-console`, a relay (nginx, running as the operator,
@@ -70,7 +77,7 @@ Rules, checked when the project is registered and every time it is brought up:
      **`internal`**: Traefik reaches the service over it, and it is no way out to the
      internet for a project that declared none;
   2. the edge is connected to that network, under each of the project's hosts as an alias
-     (`demo.localhost`, `api.demo.localhost`): inside the project's exposed services,
+     (`demo.octopod.localhost`, `api.demo.octopod.localhost`): inside the project's exposed services,
      Docker's DNS answers them with the edge, so a container reaches its project's hosts
      at the URLs a browser on the host uses (an OIDC issuer, an app calling its own API).
      The edge listens inside on the port it is published on, so `:8480` works on both
@@ -119,7 +126,7 @@ octopod.edge=<instance>        # octopod, unless OCTOPOD_INSTANCE says otherwise
 octopod.project=<project>
 traefik.enable=true
 traefik.docker.network=octopod-<project>-edge
-traefik.http.routers.<project>-<service>.rule=Host(`<host>.localhost`)
+traefik.http.routers.<project>-<service>.rule=Host(`<host>.octopod.localhost`)
 traefik.http.routers.<project>-<service>.entrypoints=web
 traefik.http.routers.<project>-<service>.middlewares=octopod-from-<project>@file
 traefik.http.routers.<project>-<service>.service=<project>-<service>
@@ -148,7 +155,7 @@ keeps: the edge's label, the project's edge network, the routing labels of `expo
 the binding of named volumes to `.octopod/data`. A project adds to them rather than
 removing them: its own Traefik labels (a router of its own, pointing at a service octopod
 generated, named `<project>-<host label>`), its own networks. Labels written by hand are not
-held to the rule that a project serves only names under `<project>.localhost`: that rule
+held to the rule that a project serves only names under `<project>.octopod.localhost`: that rule
 is `expose`'s.
 
 A service may be exposed under several hosts: one `expose` entry per host, each with its
@@ -232,7 +239,7 @@ workspace: .               # the folder a recipe's workspace mounts; the project
   start with `## `, a name and its value split by a tab). `link:` on a service in
   `octopod.yaml` says otherwise: a path on its route (`/__debug__/`), or an http(s) URL.
 - **A service's address.** `{{url}}` in a recipe's `env`, `exports`, `command` or health is a
-  routed service's address at the edge (`http://id.demo.localhost`, with `:<port>` when
+  routed service's address at the edge (`http://id.demo.octopod.localhost`, with `:<port>` when
   the edge is not on 80), empty for a service not routed: the same URL from the host's
   browser and from the project's containers.
 - **A group's shared services.** A service the group runs instead of the project: one

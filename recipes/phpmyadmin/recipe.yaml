@@ -1,8 +1,8 @@
-# phpMyAdmin at http://pma.<project>.localhost, logged in to the project's MariaDB — the
+# phpMyAdmin at http://pma.<project>.octopod.localhost, logged in to the project's MariaDB — the
 # service that provides `mysql` — with its user: a development admin, answering only on the
 # machine, like every route of the edge.
 title: phpMyAdmin
-summary: Web admin of the project's MariaDB at http://pma.<project>.localhost, logged in with its user.
+summary: Web admin of the project's MariaDB at http://pma.<project>.octopod.localhost, logged in with its user.
 icon: icon.svg
 image: phpmyadmin:5.2
 unpinned: true

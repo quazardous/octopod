@@ -65,7 +65,7 @@ describe.skipIf(process.platform === 'win32')('the API', () => {
   it('registers a project from its declaration and lists it with its routes', async () => {
     const created = await call('POST', '/v1/projects', { root: join(base, 'demo') });
     expect(created.status).toBe(201);
-    expect(created.json).toEqual({ name: 'demo', root: join(base, 'demo'), compose: [join(base, 'demo', 'docker-compose.yml')], routes: [{ service: 'web', url: 'http://api.demo.localhost:18499' }] });
+    expect(created.json).toEqual({ name: 'demo', root: join(base, 'demo'), compose: [join(base, 'demo', 'docker-compose.yml')], routes: [{ service: 'web', url: 'http://api.demo.octopod.localhost:18499' }] });
     expect((await call('GET', '/v1/projects')).json).toEqual([created.json]);
   });
 
@@ -186,6 +186,9 @@ describe.skipIf(process.platform === 'win32')('the API', () => {
     expect(cookie).toMatch(/^octopod_console=.{20,}/);
     const signed = { ...via, cookie };
     expect((await raw('GET', '/v1/projects', undefined, signed)).status).toBe(200);
+    // A cookie of the same name a project planted for the whole domain neither locks the console nor opens it.
+    expect((await raw('GET', '/v1/projects', undefined, { ...via, cookie: `octopod_console=planted; ${cookie}` })).status).toBe(200);
+    expect((await raw('GET', '/v1/projects', undefined, { ...via, cookie: 'octopod_console=planted' })).status).toBe(401);
     expect((await raw('POST', '/v1/console/code', {}, signed)).status).toBe(404);
     expect((await raw('DELETE', '/v1/console/sessions', undefined, signed)).status).toBe(404);
 

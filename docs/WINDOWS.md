@@ -132,12 +132,12 @@ does not, so Node, `Invoke-WebRequest` and most other programs say the host is u
 Give them the edge's address and the name in a header:
 
 ```powershell
-curl.exe http://whoami.localhost/                                      # fine
-Invoke-WebRequest http://127.0.0.1/ -Headers @{ Host = 'whoami.localhost' }
+curl.exe http://whoami.octopod.localhost/                                      # fine
+Invoke-WebRequest http://127.0.0.1/ -Headers @{ Host = 'whoami.octopod.localhost' }
 ```
 
 or add the names you need to `C:\Windows\System32\drivers\etc\hosts` (as administrator; it
-takes no wildcard): `127.0.0.1 whoami.localhost`.
+takes no wildcard): `127.0.0.1 whoami.octopod.localhost`.
 
 **Line endings.** Git for Windows checks text files out with CRLF (`core.autocrlf=true`, its
 default). Scripts and configuration files that end up in a Linux container break on the

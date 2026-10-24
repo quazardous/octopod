@@ -130,7 +130,7 @@ export const RecipeSchema = z
      * (`redis-commander` for `redis`): `<service>-admin`, wired to it alone.
      */
     admin: Ident.optional(),
-    /** Routed by the edge: at the project's host, or at `<subdomain>.<project>.localhost`. */
+    /** Routed by the edge: at the project's domain, or at `<subdomain>.<its domain>`. */
     route: z.union([z.literal(true), z.object({ subdomain: Ident }).strict()]).optional(),
     profiles: z.array(Ident).default([]),
     /**

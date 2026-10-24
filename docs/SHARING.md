@@ -28,7 +28,8 @@ services:
 A group's shared servers are a project of their own, `<group>-shared`, shown in the console
 inside the group. They come up with the first project that uses them and go down after the
 last one. Their data is kept in octopod's state directory (`<state>/groups/<group>/`): it
-belongs to no one project.
+belongs to no one project. They answer at `<service>.group-<group>.octopod.localhost`
+(`pma.group-shop.octopod.localhost`); the machine's pool, at `<service>.octopod.localhost`.
 
 There is one server per recipe and version: `mariadb-11-4`, `mariadb-10-11`. Projects that
 ask for two versions get two servers, and never meet.

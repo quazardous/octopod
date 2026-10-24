@@ -2,7 +2,7 @@
 # the project mounted at /app. Its dependencies are the project's: installed in the
 # running app (npm install), never in the image.
 title: Node 22 web app
-summary: Runs the project's dev script (npm run dev) with HOST=0.0.0.0 and PORT=3000, served at http://<project>.localhost.
+summary: Runs the project's dev script (npm run dev) with HOST=0.0.0.0 and PORT=3000, served at http://<project>.octopod.localhost.
 icon: icon.svg
 image: node:22-bookworm-slim
 unpinned: true

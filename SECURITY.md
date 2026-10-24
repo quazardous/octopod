@@ -39,7 +39,7 @@ directory) and replaces any token a request brings.
 `traefik.enable=true`, is never exposed by it — nor is another octopod edge's.
 
 **The edge's own pages** — the web console (`http://octopod.localhost`) and Traefik's
-dashboard (`http://traefik.localhost`) — answer only from the host. A Traefik
+dashboard (`http://traefik.octopod.localhost`) — answer only from the host. A Traefik
 `ipAllowList` lets through the edge's own network, where the host's requests arrive through
 the published port; a project's container, which reaches the edge over its edge network,
 gets a 403. The console reads, and acts only to bring a project up or down: a relay
@@ -75,12 +75,12 @@ vulnerability.
 `octopod-<project>-edge`, created `internal`, and only the shared Traefik joins them all.
 A project's containers do not share a network with another project's. They do reach the
 edge, over their edge network, under their project's own hosts (so an app reaches its own
-`api.<project>.localhost` as a browser does). Each project's routes answer only the host and
+`api.<project>.octopod.localhost` as a browser does). Each project's routes answer only the host and
 that project's own containers (`octopod-from-<project>`, an allow-list of their networks):
 a container that sends another project's host to the edge gets a 403. A group's shared
 services also answer the projects of the group that use them; projects that share a
 network in their own compose files (a shared database, say) reach each other through it,
-as they chose. A project serves only `<project>.localhost` and names under it: it cannot
+as they chose. A project serves only `<project>.octopod.localhost` and names under it: it cannot
 take another project's host.
 docker gets only what it needs of octopod's own environment, so a variable of the calling
 shell never flows into a project's compose file unseen.

@@ -25,7 +25,7 @@ describe('loadDeclaration', () => {
       project: 'my-app',
       root,
       compose: [join(root, 'docker-compose.yml')],
-      expose: [{ service: 'web', port: 3000, host: 'my-app.localhost' }],
+      expose: [{ service: 'web', port: 3000, host: 'my-app.octopod.localhost' }],
     });
   });
 
@@ -49,16 +49,19 @@ describe('loadDeclaration', () => {
     await writeFile(join(root, 'octopod.yaml'), 'project: demo\nexpose:\n  - {service: web, port: 1, host: "x y"}\n');
     await expect(loadDeclaration(root)).rejects.toThrow(/not a DNS label/);
     await writeFile(join(root, 'octopod.yaml'), 'project: demo\nexpose:\n  - {service: web, port: 1}\n  - {service: api, port: 2}\n');
-    await expect(loadDeclaration(root)).rejects.toThrow(/demo.localhost is exposed twice/);
+    await expect(loadDeclaration(root)).rejects.toThrow(/demo.octopod.localhost is exposed twice/);
     await writeFile(join(root, 'octopod.yaml'), 'project: demo\nimage: evil\nexpose:\n  - {service: web, port: 1}\n');
     await expect(loadDeclaration(root)).rejects.toThrow(/Unrecognized key/);
   });
 
-  it('refuses the names the edge serves itself: its console and Traefik\'s dashboard', async () => {
-    for (const name of ['octopod', 'traefik']) {
+  it("refuses, at the top of the domain, the edge's names and a group's", async () => {
+    for (const name of ['octopod', 'traefik', 'api', 'console', 'group-shop']) {
       await writeFile(join(root, 'octopod.yaml'), `project: ${name}\nexpose:\n  - {service: web, port: 1}\n`);
-      await expect(loadDeclaration(root)).rejects.toThrow(/edge's own name/);
+      await expect(loadDeclaration(root)).rejects.toThrow(/taken at the top|a group's domain/);
     }
+    // In a group, the name is under the group's domain: nothing to clash with.
+    await writeFile(join(root, 'octopod.yaml'), 'project: api\ngroup: shop\nexpose:\n  - {service: web, port: 1}\n');
+    expect((await loadDeclaration(root)).expose[0]!.host).toBe('api.group-shop.octopod.localhost');
   });
 
   it('takes a group and tags, as DNS labels, tags once each', async () => {
@@ -104,7 +107,7 @@ describe('loadDeclaration', () => {
 
   it('leaves the port to find when none is declared', async () => {
     await writeFile(join(root, 'octopod.yaml'), 'expose:\n  - service: web\n');
-    expect((await loadDeclaration(root)).expose).toEqual([{ service: 'web', host: 'my-app.localhost' }]);
+    expect((await loadDeclaration(root)).expose).toEqual([{ service: 'web', host: 'my-app.octopod.localhost' }]);
   });
 
   it('takes a declared env file inside the project, and nothing outside it', async () => {

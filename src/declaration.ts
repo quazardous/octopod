@@ -8,7 +8,7 @@ import { parse } from 'yaml';
 import { z } from 'zod';
 import { ActionSchema, type ActionSpec } from './recipes/recipe.js';
 import { said } from './meta.js';
-import { fullHost, instanceName, LABEL_RE, RESERVED_PROJECTS, slugify } from './names.js';
+import { fullHost, instanceName, LABEL_RE, projectDomain, reservedName, slugify } from './names.js';
 
 export const DECLARATION_FILE = 'octopod.yaml';
 const DEFAULT_COMPOSE = ['compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml'];
@@ -61,7 +61,8 @@ export const DeclarationSchema = z
      */
     shared: z.union([z.literal(true), z.array(z.string().regex(/^[a-z][a-z0-9-]{0,63}$/, 'a recipe id')).max(32)]).optional(),
     /** To find it among the others: one group (`m2m`), and free tags (`php`, `legacy`). */
-    group: z.string().regex(LABEL_RE, 'must be a DNS label: a-z, 0-9 and -, at most 63').optional(),
+    // At most 57: its domain is the label group-<group>.
+    group: z.string().regex(LABEL_RE, 'must be a DNS label: a-z, 0-9 and -').max(57).optional(),
     tags: z.array(z.string().regex(LABEL_RE, 'must be a DNS label: a-z, 0-9 and -, at most 63')).max(16).optional(),
   })
   .strict();
@@ -120,9 +121,8 @@ export async function loadDeclaration(root: string): Promise<Declaration> {
     throw new DeclarationError(`${file}: ${parsed.error.issues.map(said).join('; ')}`);
   }
   const project = parsed.data.project ?? slugify(basename(root));
-  if (RESERVED_PROJECTS.includes(project)) {
-    throw new DeclarationError(`${file}: "${project}" is the edge's own name (${project}.localhost); give the project another with project:`);
-  }
+  const reserved = reservedName(project, parsed.data.group);
+  if (reserved) throw new DeclarationError(`${file}: ${reserved}`);
 
   let compose: string[];
   if (parsed.data.compose) {
@@ -150,7 +150,7 @@ export async function loadDeclaration(root: string): Promise<Declaration> {
   for (const e of parsed.data.expose) {
     let host: string;
     try {
-      host = fullHost(project, e.host);
+      host = fullHost(project, e.host, parsed.data.group);
     } catch (err) {
       throw new DeclarationError(`${file}: ${(err as Error).message}`);
     }
@@ -213,12 +213,12 @@ export async function loadDeclaration(root: string): Promise<Declaration> {
 export function withInstance(declaration: Declaration, n: number): Declaration {
   const name = instanceName(declaration.project, n);
   if (n === 1) return declaration;
-  const suffix = `${declaration.project}.localhost`;
+  const suffix = projectDomain(declaration.project, declaration.group);
   return {
     ...declaration,
     project: name,
     instance: n,
     base: declaration.project,
-    expose: declaration.expose.map((e) => ({ ...e, host: `${e.host.slice(0, -suffix.length)}${name}.localhost` })),
+    expose: declaration.expose.map((e) => ({ ...e, host: `${e.host.slice(0, -suffix.length)}${projectDomain(name, declaration.group)}` })),
   };
 }

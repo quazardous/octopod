@@ -1,8 +1,8 @@
 # Mailpit catches the mail the project sends: SMTP inside the project as host `<service>`
 # on 1025, its address to whoever requires `smtp` (MAILER_DSN, SMTP_URL); the mails read at
-# http://mail.<project>.localhost. It keeps nothing.
+# http://mail.<project>.octopod.localhost. It keeps nothing.
 title: Mailpit
-summary: Catches the project's outgoing mail (SMTP on <service>:1025) and shows it at http://mail.<project>.localhost.
+summary: Catches the project's outgoing mail (SMTP on <service>:1025) and shows it at http://mail.<project>.octopod.localhost.
 icon: icon.svg
 image: axllent/mailpit:v1
 unpinned: true

@@ -9,7 +9,7 @@ import { chmod, readFile, rm } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { DeclarationError } from './declaration.js';
 import { DockerError } from './docker.js';
-import { sessionCookie, sessionOf } from './consoleAccess.js';
+import { sessionCookie, sessionsOf } from './consoleAccess.js';
 import { CONSOLE_HEADER, VIA_HEADER } from './generate.js';
 import { defaultSocket, Octopod, OctopodError, prepareSocketDir, TOKEN_HEADER, version, type ApiTcp } from './octopod.js';
 
@@ -84,7 +84,7 @@ export function handler(octopod: Octopod) {
 
       // Through the console's relay: an enrolled browser, or nothing but the enrollment.
       const viaConsole = req.headers[VIA_HEADER.toLowerCase()] !== undefined;
-      const session = sessionOf(req.headers.cookie);
+      const sessions = sessionsOf(req.headers.cookie);
       if (viaConsole && resource === 'console' && name === 'enroll' && method === 'POST') {
         const { code } = await body(req);
         const opened = typeof code === 'string' ? await octopod.access.enroll(code) : null;
@@ -92,10 +92,10 @@ export function handler(octopod: Octopod) {
         return send(res, 200, {}, { 'set-cookie': sessionCookie(opened) });
       }
       if (viaConsole && resource === 'console' && name === 'signout' && method === 'POST') {
-        await octopod.access.signOut(session);
+        for (const session of sessions) await octopod.access.signOut(session);
         return send(res, 200, {}, { 'set-cookie': sessionCookie(null) });
       }
-      if (viaConsole && !(await octopod.access.valid(session))) {
+      if (viaConsole && !(await Promise.all(sessions.map((s) => octopod.access.valid(s)))).some(Boolean)) {
         return send(res, 401, { error: 'this browser is not enrolled in the console', enroll: true });
       }
       // A code, or the end of every session: the operator's, on the socket, never the console's.

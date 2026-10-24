@@ -113,7 +113,7 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
     // its name, pointing at the service octopod generated) — the escape hatch of the layering.
     await writeFile(
       join(alpha, 'docker-compose.override.yml'),
-      'services:\n  web:\n    environment:\n      WHOAMI_NAME: from-override\n    labels:\n      traefik.http.routers.alpha-extra.rule: "Host(`extra.localhost`)"\n      traefik.http.routers.alpha-extra.entrypoints: web\n      traefik.http.routers.alpha-extra.service: alpha-alpha\n',
+      'services:\n  web:\n    environment:\n      WHOAMI_NAME: from-override\n    labels:\n      traefik.http.routers.alpha-extra.rule: "Host(`extra.octopod.localhost`)"\n      traefik.http.routers.alpha-extra.entrypoints: web\n      traefik.http.routers.alpha-extra.service: alpha-alpha\n',
     );
     await octopod.register(alpha);
     // No port: whoami's image says EXPOSE 80, and octopod has to find it. Its name comes
@@ -129,7 +129,7 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
     // A container labelled for some other Traefik, on a network the edge does reach — the
     // case the label constraint exists for. (On a network the edge cannot reach, Traefik
     // would drop it anyway, and the test would prove nothing.)
-    docker('run', '-d', '--rm', '--name', NEIGHBOUR, '--network', 'octopodtest-alpha-edge', '--label', 'traefik.enable=true', '--label', 'traefik.http.routers.nb.rule=Host(`neighbour.localhost`)', 'traefik/whoami:v1.10');
+    docker('run', '-d', '--rm', '--name', NEIGHBOUR, '--network', 'octopodtest-alpha-edge', '--label', 'traefik.enable=true', '--label', 'traefik.http.routers.nb.rule=Host(`neighbour.octopod.localhost`)', 'traefik/whoami:v1.10');
   }, 300_000);
 
   afterAll(async () => {
@@ -146,8 +146,8 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
   }, 300_000);
 
   it('serves each project on its own host', async () => {
-    const alpha = await eventually('alpha.localhost', 200);
-    const beta = await eventually('beta.localhost', 200);
+    const alpha = await eventually('alpha.octopod.localhost', 200);
+    const beta = await eventually('beta.octopod.localhost', 200);
     expect(alpha.status).toBe(200);
     expect(beta.status).toBe(200);
     // whoami answers with its container's hostname: two different containers.
@@ -157,26 +157,26 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
   });
 
   it('applies the project\'s own compose override', async () => {
-    expect((await eventually('alpha.localhost', 200)).body).toContain('Name: from-override');
-    expect((await eventually('beta.localhost', 200)).body).not.toContain('from-override');
+    expect((await eventually('alpha.octopod.localhost', 200)).body).toContain('Name: from-override');
+    expect((await eventually('beta.octopod.localhost', 200)).body).not.toContain('from-override');
   });
 
   it('reads a declared env file, and nothing of octopod\'s own environment', async () => {
-    expect((await eventually('beta.localhost', 200)).body).toContain('Name: from-env-file-clean');
+    expect((await eventually('beta.octopod.localhost', 200)).body).toContain('Name: from-env-file-clean');
   });
 
   it('runs a second instance of a project beside the first, and stops it alone', async () => {
     const second = await octopod.up('alpha', 2);
-    expect(second.routes.map((r) => r.url)).toEqual([`http://alpha-2.localhost:${PORT}`]);
+    expect(second.routes.map((r) => r.url)).toEqual([`http://alpha-2.octopod.localhost:${PORT}`]);
     expect((await octopod.status('alpha')).instances).toEqual([2]);
     const host = (body: string): string | undefined => /Hostname: (\S+)/.exec(body)?.[1];
-    const one = await eventually('alpha.localhost', 200);
-    const two = await eventually('alpha-2.localhost', 200);
+    const one = await eventually('alpha.octopod.localhost', 200);
+    const two = await eventually('alpha-2.octopod.localhost', 200);
     expect(two.status).toBe(200);
     expect(host(two.body)).not.toBe(host(one.body));
     await octopod.down('alpha', { instance: 2 });
-    expect((await eventually('alpha-2.localhost', 404)).status).toBe(404);
-    expect((await eventually('alpha.localhost', 200)).status).toBe(200);
+    expect((await eventually('alpha-2.octopod.localhost', 404)).status).toBe(404);
+    expect((await eventually('alpha.octopod.localhost', 200)).status).toBe(200);
     expect((await octopod.status('alpha')).instances).toBeUndefined();
   });
 
@@ -222,7 +222,7 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
     expect((await get('octopod.localhost', '/v1/projects/alpha/down', 'POST', console, 60_000)).status).toBe(200);
     expect((await octopod.status('alpha')).services).toEqual([]);
     expect((await get('octopod.localhost', '/v1/projects/alpha/up', 'POST', console, 120_000)).status).toBe(200);
-    expect((await eventually('alpha.localhost', 200)).status).toBe(200);
+    expect((await eventually('alpha.octopod.localhost', 200)).status).toBe(200);
   }, 200_000);
 
   it('keeps the console and the dashboard from the projects\' containers', async () => {
@@ -234,38 +234,38 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
     const from = (host: string): string =>
       execFileSync('docker', ['run', '--rm', '--network', 'octopodtest-alpha-edge', 'alpine:3.20', 'sh', '-c', `(printf 'GET / HTTP/1.0\\r\\nHost: ${host}\\r\\n\\r\\n'; sleep 3) | nc -w 5 ${INSTANCE}-edge ${PORT} | head -1`], { encoding: 'utf8' });
     expect(from('octopod.localhost')).toMatch(/403/);
-    expect(from('traefik.localhost')).toMatch(/403/);
-    expect(from('alpha.localhost')).toMatch(/200/);
+    expect(from('traefik.octopod.localhost')).toMatch(/403/);
+    expect(from('alpha.octopod.localhost')).toMatch(/200/);
     // From the host, both answer.
-    expect((await eventually('traefik.localhost', 302)).status).toBe(302);
+    expect((await eventually('traefik.octopod.localhost', 302)).status).toBe(302);
   });
 
   it("keeps a project's routes from another project's containers, whatever Host they send", async () => {
-    await eventually('alpha.localhost', 200);
-    await eventually('beta.localhost', 200);
+    await eventually('alpha.octopod.localhost', 200);
+    await eventually('beta.octopod.localhost', 200);
     const from = (network: string, host: string): string =>
       execFileSync('docker', ['run', '--rm', '--network', network, 'alpine:3.20', 'sh', '-c', `(printf 'GET / HTTP/1.0\\r\\nHost: ${host}\\r\\n\\r\\n'; sleep 3) | nc -w 5 ${INSTANCE}-edge ${PORT} | head -1`], { encoding: 'utf8' });
-    expect(from('octopodtest-alpha-edge', 'alpha.localhost')).toMatch(/200/);
-    expect(from('octopodtest-alpha-edge', 'beta.localhost')).toMatch(/403/);
-    expect(from('octopodtest-beta-edge', 'alpha.localhost')).toMatch(/403/);
+    expect(from('octopodtest-alpha-edge', 'alpha.octopod.localhost')).toMatch(/200/);
+    expect(from('octopodtest-alpha-edge', 'beta.octopod.localhost')).toMatch(/403/);
+    expect(from('octopodtest-beta-edge', 'alpha.octopod.localhost')).toMatch(/403/);
     // The host reaches both.
-    expect((await get('beta.localhost', '/')).status).toBe(200);
+    expect((await get('beta.octopod.localhost', '/')).status).toBe(200);
   });
 
   it('serves a router the project added in its own compose file, next to octopod\'s', async () => {
-    expect((await eventually('extra.localhost', 200)).body).toContain('Name: from-override');
-    expect((await eventually('alpha.localhost', 200)).status).toBe(200);
+    expect((await eventually('extra.octopod.localhost', 200)).body).toContain('Name: from-override');
+    expect((await eventually('alpha.octopod.localhost', 200)).status).toBe(200);
   });
 
   it('answers 404 for a host no project declared', async () => {
-    expect((await eventually('nobody.localhost', 404)).status).toBe(404);
+    expect((await eventually('nobody.octopod.localhost', 404)).status).toBe(404);
   });
 
   it('does not adopt a neighbour labelled for another Traefik', async () => {
-    await eventually('alpha.localhost', 200);
+    await eventually('alpha.octopod.localhost', 200);
     // Give Traefik time to have seen the neighbour, then check it did not route to it.
     await new Promise((r) => setTimeout(r, 2000));
-    expect((await get('neighbour.localhost')).status).toBe(404);
+    expect((await get('neighbour.octopod.localhost')).status).toBe(404);
   });
 
   it('keeps projects off each other’s networks, with the edge on both', () => {
@@ -278,8 +278,8 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
 
   it('reports what runs and where', async () => {
     const status = await octopod.status('alpha');
-    expect(status.routes).toEqual([{ service: 'web', url: `http://alpha.localhost:${PORT}`, port: 80, portSource: 'declared' }]);
-    expect((await octopod.status('beta')).routes).toEqual([{ service: 'web', url: `http://beta.localhost:${PORT}`, port: 80, portSource: 'image' }]);
+    expect(status.routes).toEqual([{ service: 'web', url: `http://alpha.octopod.localhost:${PORT}`, port: 80, portSource: 'declared' }]);
+    expect((await octopod.status('beta')).routes).toEqual([{ service: 'web', url: `http://beta.octopod.localhost:${PORT}`, port: 80, portSource: 'image' }]);
     expect(status.compose.map((f) => basename(f))).toEqual(['docker-compose.yml', 'docker-compose.override.yml']);
     expect(status.services).toEqual([expect.objectContaining({ service: 'web', state: 'running' })]);
   });
@@ -295,7 +295,7 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
     expect(bad.output).toMatch(/\(exit code \d+\)/);
     const restarted = await octopod.restart('alpha', 'web');
     expect(restarted.services).toEqual([expect.objectContaining({ service: 'web', state: 'running' })]);
-    expect((await eventually('alpha.localhost', 200)).status).toBe(200);
+    expect((await eventually('alpha.octopod.localhost', 200)).status).toBe(200);
   });
 
   it("lets a project's routed containers reach its own hosts, at the browser's URL", async () => {
@@ -306,11 +306,11 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
     await octopod.register(root);
     try {
       await octopod.up('hostsp');
-      expect((await eventually('api.hostsp.localhost', 200)).body).toContain('Host: api.hostsp.localhost');
+      expect((await eventually('api.hostsp.octopod.localhost', 200)).body).toContain('Host: api.hostsp.octopod.localhost');
       // The edge's port is not 80 here: the same URL from inside, through the edge.
-      const inside = await octopod.exec('hostsp', 'client', ['wget', '-qO-', `http://api.hostsp.localhost:${PORT}/`]);
+      const inside = await octopod.exec('hostsp', 'client', ['wget', '-qO-', `http://api.hostsp.octopod.localhost:${PORT}/`]);
       expect(inside.ok).toBe(true);
-      expect(inside.output).toContain('Host: api.hostsp.localhost');
+      expect(inside.output).toContain('Host: api.hostsp.octopod.localhost');
     } finally {
       await octopod.unregister('hostsp').catch(() => undefined);
     }
@@ -353,8 +353,8 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
   it('brings a project down cleanly, network included, while the other keeps running', async () => {
     await octopod.down('beta');
     expect(docker('network', 'ls', '--format', '{{.Name}}').split('\n')).not.toContain('octopodtest-beta-edge');
-    expect((await eventually('alpha.localhost', 200)).status).toBe(200);
-    expect((await eventually('beta.localhost', 404)).status).toBe(404);
+    expect((await eventually('alpha.octopod.localhost', 200)).status).toBe(200);
+    expect((await eventually('beta.octopod.localhost', 404)).status).toBe(404);
   });
 });
 
@@ -485,8 +485,8 @@ describe.skipIf(!dockerAvailable())('a project made of recipes (real docker)', {
   it('serves the app as a user named after the project, wired to its database', async () => {
     await octopod.register(root);
     const status = await octopod.up('delta');
-    expect(status.routes).toEqual([expect.objectContaining({ service: 'app', url: `http://delta.localhost:${PORT}`, port: 3000, portSource: 'compose' })]);
-    const answer = await eventually('delta.localhost', 200);
+    expect(status.routes).toEqual([expect.objectContaining({ service: 'app', url: `http://delta.octopod.localhost:${PORT}`, port: 3000, portSource: 'compose' })]);
+    const answer = await eventually('delta.octopod.localhost', 200);
     // Started once its database was healthy: its first connection was answered.
     expect(answer.body).toBe('user=delta db=ready-at-start');
   });
@@ -558,7 +558,7 @@ describe.skipIf(!dockerAvailable())('a project made of recipes (real docker)', {
     await rm(join(base, 'state', 'projects', 'delta', 'secrets.json'));
     await octopod.up('delta');
     expect(await password()).toBe(before);
-    expect((await eventually('delta.localhost', 200)).body).toContain('user=delta');
+    expect((await eventually('delta.octopod.localhost', 200)).body).toContain('user=delta');
     const db = await octopod.exec('delta', 'db', ['sh', '-c', 'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRES_USER" -tAc "SELECT 1" "$POSTGRES_DB"']);
     expect(db.output.trim()).toBe('1');
     // Two values for one secret: the state's is used, and status says so.
@@ -615,14 +615,14 @@ describe.skipIf(!dockerAvailable())('the examples (real docker)', { timeout: 600
   it('whoami: its two services, each on its own host', async () => {
     const { name } = await octopod.ensureRegistered(join(base, 'whoami'));
     await octopod.up(name);
-    expect((await eventually('whoami.localhost', 200)).body).toMatch(/Hostname:/);
-    expect((await eventually('api.whoami.localhost', 200)).body).toContain('Name: api');
+    expect((await eventually('whoami.octopod.localhost', 200)).body).toMatch(/Hostname:/);
+    expect((await eventually('api.whoami.octopod.localhost', 200)).body).toContain('Name: api');
   });
 
   it('node-postgres: the app, as its own user, finds its database from the first request', async () => {
     const { name } = await octopod.ensureRegistered(join(base, 'node-postgres'));
     await octopod.up(name);
-    const answer = await eventually('node-postgres.localhost', 200);
+    const answer = await eventually('node-postgres.octopod.localhost', 200);
     expect(answer.body).toContain('Hello from node-postgres, the user named after the project.');
     expect(answer.body).toContain('Database: db:5432/app');
   });
@@ -682,7 +682,7 @@ describe.skipIf(!dockerAvailable())('a PHP project made of recipes (real docker)
   it('serves the app as a user named after the project, with its extensions and its database', async () => {
     const { name } = await octopod.ensureRegistered(root);
     await octopod.up(name);
-    const answer = await eventually('phpapp.localhost', 200);
+    const answer = await eventually('phpapp.octopod.localhost', 200);
     expect(answer.body).toBe('user=phpapp php=8.4 db=ok');
     expect((await stat(join(root, 'written.txt'))).uid).toBe(process.getuid?.());
   });
@@ -806,10 +806,10 @@ describe.skipIf(!dockerAvailable())('the service recipes, together (real docker)
     // What the console draws: each service's recipe, and where its icon leads — a database,
     // to the admin wired to it.
     const known = Object.fromEntries(status.services.map((x) => [x.service, x]));
-    expect(known.db).toEqual(expect.objectContaining({ recipe: 'mariadb', link: `http://pma.stack.localhost:${PORT}` }));
-    expect(known.docs).toEqual(expect.objectContaining({ recipe: 'mongodb', link: `http://mongo.stack.localhost:${PORT}` }));
-    expect(known.mail).toEqual(expect.objectContaining({ recipe: 'mailpit', link: `http://mail.stack.localhost:${PORT}` }));
-    expect(known.cache).toEqual(expect.objectContaining({ recipe: 'redis', link: `http://redis.stack.localhost:${PORT}` }));
+    expect(known.db).toEqual(expect.objectContaining({ recipe: 'mariadb', link: `http://pma.stack.octopod.localhost:${PORT}` }));
+    expect(known.docs).toEqual(expect.objectContaining({ recipe: 'mongodb', link: `http://mongo.stack.octopod.localhost:${PORT}` }));
+    expect(known.mail).toEqual(expect.objectContaining({ recipe: 'mailpit', link: `http://mail.stack.octopod.localhost:${PORT}` }));
+    expect(known.cache).toEqual(expect.objectContaining({ recipe: 'redis', link: `http://redis.stack.octopod.localhost:${PORT}` }));
     expect(known.rc).toEqual(expect.objectContaining({ admin: 'cache' }));
     for (const volume of ['db-data', 'cache-data', 'docs-data']) {
       expect((await stat(join(root, '.octopod', 'data', volume))).uid, volume).toBe(process.getuid?.());
@@ -824,22 +824,22 @@ describe.skipIf(!dockerAvailable())('the service recipes, together (real docker)
     };
     // What a failing admin said, for the CI log.
     const why = async (service: string) => (await octopod.logs('stack', service, 40)).join('\n');
-    const mail = await served('mail.stack.localhost', /Mailpit/i);
+    const mail = await served('mail.stack.octopod.localhost', /Mailpit/i);
     if (mail.status !== 200) console.error(await why('mail'));
     expect(mail.status).toBe(200);
     // Logged in with the database's user: the page names the server it is connected to.
-    const pma = await served('pma.stack.localhost', /phpMyAdmin/);
+    const pma = await served('pma.stack.octopod.localhost', /phpMyAdmin/);
     if (pma.status !== 200) console.error(await why('pma'));
     expect(pma.body).toMatch(/db/);
-    const me = await served('mongo.stack.localhost', /Mongo Express/i);
+    const me = await served('mongo.stack.octopod.localhost', /Mongo Express/i);
     if (me.status !== 200) console.error(await why('me'));
     expect(me.status).toBe(200);
     // Redis Commander lists a key the project wrote.
     await octopod.exec('stack', 'cache', ['redis-cli', 'set', 'greeting:hello', 'world']);
-    const rc = await served('redis.stack.localhost', /Redis Commander/);
+    const rc = await served('redis.stack.octopod.localhost', /Redis Commander/);
     if (rc.status !== 200) console.error(await why('rc'));
     expect(rc.status).toBe(200);
-    const keys = await get('redis.stack.localhost', `/apiv2/keys/${encodeURIComponent('R:cache:6379:0')}/${encodeURIComponent('greeting:hello')}`);
+    const keys = await get('redis.stack.octopod.localhost', `/apiv2/keys/${encodeURIComponent('R:cache:6379:0')}/${encodeURIComponent('greeting:hello')}`);
     expect(keys.body).toContain('greeting:hello');
   });
 });
@@ -884,7 +884,7 @@ describe.skipIf(!dockerAvailable())('octopod mcp, as a coding agent runs it (rea
     const up = await call('octopod_up');
     expect(up.isError, up.text).toBe(false);
     expect(await octopod.names()).toContain('agentic');
-    expect((await eventually('agentic.localhost', 200)).body).toContain('Hostname');
+    expect((await eventually('agentic.octopod.localhost', 200)).body).toContain('Hostname');
     const status = JSON.parse((await call('octopod_status')).text) as { project: { services: { service: string; state: string }[] } };
     expect(status.project.services).toEqual([expect.objectContaining({ service: 'web', state: 'running' })]);
     // whoami has no shell: an argv reaches it as it is.
@@ -921,7 +921,7 @@ describe.skipIf(!dockerAvailable())('after Docker lost its networks (real docker
     docker('network', 'rm', `${INSTANCE}-edge_default`, `${INSTANCE}-pruned-edge`);
     expect((await octopod.edgeUp()).running).toBe(true);
     await octopod.up('pruned');
-    expect((await eventually('pruned.localhost', 200)).status).toBe(200);
+    expect((await eventually('pruned.octopod.localhost', 200)).status).toBe(200);
   });
 });
 
@@ -1063,7 +1063,7 @@ describe.skipIf(!dockerAvailable())('a Python project made of recipes (real dock
 
   it("serves the project's program as its user, with uv, and Valkey as its REDIS_URL", async () => {
     await octopod.up('pyapp');
-    expect((await eventually('pyapp.localhost', 200)).body).toContain('served by python-app');
+    expect((await eventually('pyapp.octopod.localhost', 200)).body).toContain('served by python-app');
     const who = await octopod.exec('pyapp', 'app', ['sh', '-c', 'id -un; id -u; command -v uv; echo "$REDIS_URL"']);
     expect(who.output.trim().split('\n')).toEqual(['pyapp', String(process.getuid?.()), '/usr/local/bin/uv', 'redis://cache:6379']);
     expect((await octopod.logs('pyapp', 'app', 50)).join('\n')).toContain('python-app: no .venv yet');
@@ -1106,9 +1106,9 @@ describe.skipIf(!dockerAvailable())('the OIDC provider, seen from the browser an
       [
         "const issuer = `${process.env.OIDC_ISSUER_BASE}/admi`;",
         "const meta = await (await fetch(`${issuer}/.well-known/openid-configuration`)).json();",
-        "const login = await fetch(meta.authorization_endpoint, { method: 'POST', redirect: 'manual', body: new URLSearchParams({ response_type: 'code', client_id: 'app', redirect_uri: 'http://idp.localhost/cb', scope: 'openid', username: 'ada', claims: '{\"groups\":[\"admi-dev\"]}' }) });",
+        "const login = await fetch(meta.authorization_endpoint, { method: 'POST', redirect: 'manual', body: new URLSearchParams({ response_type: 'code', client_id: 'app', redirect_uri: 'http://idp.octopod.localhost/cb', scope: 'openid', username: 'ada', claims: '{\"groups\":[\"admi-dev\"]}' }) });",
         "const code = new URL(login.headers.get('location')).searchParams.get('code');",
-        "const tokens = await (await fetch(meta.token_endpoint, { method: 'POST', body: new URLSearchParams({ grant_type: 'authorization_code', code, client_id: 'app', redirect_uri: 'http://idp.localhost/cb' }) })).json();",
+        "const tokens = await (await fetch(meta.token_endpoint, { method: 'POST', body: new URLSearchParams({ grant_type: 'authorization_code', code, client_id: 'app', redirect_uri: 'http://idp.octopod.localhost/cb' }) })).json();",
         "const id = JSON.parse(Buffer.from(tokens.id_token.split('.')[1], 'base64url').toString());",
         "console.log(JSON.stringify({ issuer: meta.issuer, iss: id.iss, sub: id.sub, groups: id.groups }));",
         '',
@@ -1127,10 +1127,10 @@ describe.skipIf(!dockerAvailable())('the OIDC provider, seen from the browser an
 
   it('names one issuer on both sides, and signs the claims the login gave', async () => {
     await octopod.up('idp');
-    await eventually('id.idp.localhost', 200, '/admi/.well-known/openid-configuration');
+    await eventually('id.idp.octopod.localhost', 200, '/admi/.well-known/openid-configuration');
     // As a browser asks: its Host carries the edge's port.
-    const fromHost = await get(`id.idp.localhost:${PORT}`, '/admi/.well-known/openid-configuration');
-    const issuer = `http://id.idp.localhost:${PORT}/admi`;
+    const fromHost = await get(`id.idp.octopod.localhost:${PORT}`, '/admi/.well-known/openid-configuration');
+    const issuer = `http://id.idp.octopod.localhost:${PORT}/admi`;
     expect(JSON.parse(fromHost.body).issuer).toBe(issuer);
     const flow = await octopod.exec('idp', 'app', ['node', 'flow.mjs'], { timeoutMs: 60_000 });
     expect(flow.ok, flow.output).toBe(true);
@@ -1141,7 +1141,7 @@ describe.skipIf(!dockerAvailable())('the OIDC provider, seen from the browser an
 
   it('takes a user from the host through its admin, and lets a CI in the app sign in with its password', async () => {
     const token = (await octopod.secrets('idp')).find((s) => s.service === 'id' && s.name === 'admin-token')!.value;
-    const put = await get('id.idp.localhost', '/admin/api/users/ci', 'PUT', { Authorization: `Bearer ${token}` }, 5000, JSON.stringify({ claims: { groups: ['admi-staff'] }, password: 'ci-pass' }));
+    const put = await get('id.idp.octopod.localhost', '/admin/api/users/ci', 'PUT', { Authorization: `Bearer ${token}` }, 5000, JSON.stringify({ claims: { groups: ['admi-staff'] }, password: 'ci-pass' }));
     expect(put.status, put.body).toBe(201);
     const grant = await octopod.exec('idp', 'app', [
       'node',
@@ -1150,16 +1150,16 @@ describe.skipIf(!dockerAvailable())('the OIDC provider, seen from the browser an
     ]);
     expect(grant.output.trim()).toBe('admi-staff');
     // The admin app (qdadm), built in the image, served at /admin/ with its assets.
-    const page = await get('id.idp.localhost', '/admin/');
+    const page = await get('id.idp.octopod.localhost', '/admin/');
     expect(page.status).toBe(200);
     const script = /src="(\/admin\/assets\/[^"]+\.js)"/.exec(page.body)?.[1];
     expect(script, page.body).toBeTruthy();
-    expect((await get('id.idp.localhost', script!)).status).toBe(200);
+    expect((await get('id.idp.octopod.localhost', script!)).status).toBe(200);
   });
 
   it('opens its admin with no token by default, and gives its users to octopod oidc', async () => {
-    expect(JSON.parse((await get('id.idp.localhost', '/admin/api/session')).body)).toEqual({ open: true });
-    expect((await get('id.idp.localhost', '/admin/api/users')).status).toBe(200);
+    expect(JSON.parse((await get('id.idp.octopod.localhost', '/admin/api/session')).body)).toEqual({ open: true });
+    expect((await get('id.idp.octopod.localhost', '/admin/api/users')).status).toBe(200);
     await octopod.oidcUsers('idp', 'PUT', 'agent', { claims: { groups: ['staff'] }, password: 'p4ss' });
     const { users } = (await octopod.oidcUsers('idp', 'GET')) as { users: { sub: string; password: boolean }[] };
     expect(users).toEqual(expect.arrayContaining([expect.objectContaining({ sub: 'agent', password: true })]));

@@ -118,13 +118,19 @@ export class ConsoleAccess {
   }
 }
 
-/** The session a request's Cookie header carries, if any. */
-export function sessionOf(cookie: string | undefined): string | undefined {
+/**
+ * The sessions a request's Cookie header carries: every value of the console's cookie. The
+ * projects share the console's site (`*.octopod.localhost`): one of them may set a cookie of
+ * that name for the whole domain, which the browser sends beside the console's own — one
+ * true session among them is enough, a planted one never is.
+ */
+export function sessionsOf(cookie: string | undefined): string[] {
+  const out: string[] = [];
   for (const part of (cookie ?? '').split(';')) {
     const [name, ...value] = part.trim().split('=');
-    if (name === SESSION_COOKIE) return value.join('=');
+    if (name === SESSION_COOKIE && value.length > 0) out.push(value.join('='));
   }
-  return undefined;
+  return out;
 }
 
 /** The Set-Cookie of a session, or of its removal: the console's own pages only, never sent cross-site. */

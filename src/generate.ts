@@ -3,7 +3,7 @@
  * project's compose override. Pure functions of their inputs — tested without Docker.
  */
 import { isAbsolute, relative } from 'node:path';
-import { edgeNetwork } from './names.js';
+import { EDGE_DOMAIN, edgeNetwork } from './names.js';
 import type { Declaration } from './declaration.js';
 
 export const TRAEFIK_IMAGE = 'traefik:v3.6.1';
@@ -17,8 +17,8 @@ export const EDGE_LABEL = 'octopod.edge';
 /** Serves the console: a relay from the edge to the API's unix socket. */
 export const CONSOLE_IMAGE = 'nginx:1.28-alpine';
 /** Where the console is: a name under no project's (a project named `octopod` is refused). */
-export const CONSOLE_HOST = 'octopod.localhost';
-export const DASHBOARD_HOST = 'traefik.localhost';
+export const CONSOLE_HOST = EDGE_DOMAIN;
+export const DASHBOARD_HOST = 'traefik.octopod.localhost';
 /**
  * The middleware, in Traefik's file provider, that keeps the edge's own pages to the
  * host: the projects' containers reach the edge over their edge networks, and must not
@@ -57,7 +57,7 @@ export function consoleContainer(instance: string): string {
 /**
  * The edge listens inside on the port it is published on: a project's container that
  * reaches it under a project's host (an alias on its edge network) uses the very URL a
- * browser on the host uses, `http://api.demo.localhost:8480` included.
+ * browser on the host uses, `http://api.demo.octopod.localhost:8480` included.
  */
 export function traefikConfig(instance: string, port = 80): Record<string, unknown> {
   return {
@@ -381,7 +381,9 @@ export function projectOverride(
     if (!current) throw new Error(`service "${exposure.service}" is not in ${declaration.compose.join(', ')}`);
     // One router and one Traefik service per exposure: a compose service may be exposed
     // under several hosts, on several ports.
-    const id = `${declaration.project}-${exposure.host.slice(0, -'.localhost'.length).replace(/\./g, '-')}`;
+    // A router per host, named after what is particular to it: the edge's domain left out.
+    const local = exposure.host.endsWith(`.${EDGE_DOMAIN}`) ? exposure.host.slice(0, -`.${EDGE_DOMAIN}`.length) : exposure.host.replace(/\.localhost$/, '');
+    const id = `${declaration.project}-${local.replace(/\./g, '-')}`;
     const existing = current.networks === undefined ? ['default'] : Array.isArray(current.networks) ? current.networks : Object.keys(current.networks);
     const previous = out[exposure.service] as { labels: Record<string, string> } | undefined;
     out[exposure.service] = {

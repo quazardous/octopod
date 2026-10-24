@@ -8,7 +8,7 @@ program. What each answer holds is in [CONTRACT.md](./CONTRACT.md).
 
 ```sh
 octopod up                    # start the edge if needed, then the project (registered the first time)
-octopod up --instance 2       # the same project a second time, at demo-2.localhost
+octopod up --instance 2       # the same project a second time, at demo-2.octopod.localhost
 octopod status                # its services, URLs and warnings
 octopod logs --service web --tail 100
 octopod restart [--service s]

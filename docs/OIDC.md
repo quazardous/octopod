@@ -6,13 +6,13 @@ create elsewhere and no login bypass in the app's code.
 
 ```yaml
 services:
-  app: { recipe: python-app }   # OIDC_ISSUER_BASE=http://id.shop.localhost
-  id:  { recipe: oidc }         # issuers at http://id.shop.localhost/<name>
+  app: { recipe: python-app }   # OIDC_ISSUER_BASE=http://id.shop.octopod.localhost
+  id:  { recipe: oidc }         # issuers at http://id.shop.octopod.localhost/<name>
 ```
 
 ## Issuers
 
-Any path is an issuer: `http://id.shop.localhost/staff` and `http://id.shop.localhost/google`
+Any path is an issuer: `http://id.shop.octopod.localhost/staff` and `http://id.shop.octopod.localhost/google`
 are two, with nothing to declare. The app composes its issuer from `OIDC_ISSUER_BASE` and
 keeps its client id in its own configuration, as in production; the provider takes any
 client id and any secret. The issuer's URL is the same for the browser and for the app's
@@ -27,7 +27,7 @@ recipe says `open-login: false`, takes any user name and the claims to sign:
 
 ## Users and the admin
 
-`http://id.<project>.localhost/admin/` is the provider's admin, a qdadm app: its users, their
+`http://id.<project>.octopod.localhost/admin/` is the provider's admin, a qdadm app: its users, their
 claims, a password or none, the issuers they may use. It opens straight on them: a
 development provider behind the edge, which answers your machine and the project alone.
 The same users are on its JSON API, `/admin/api/users`, which asks for nothing either.
@@ -51,7 +51,7 @@ tokens:
 
 ```sh
 octopod oidc user shop ci --claims '{"groups":["staff"]}' --password ci-pass   # or a PUT on /admin/api/users/ci
-curl -d 'grant_type=password&client_id=ci&username=ci&password=ci-pass' http://id.shop.localhost/staff/token
+curl -d 'grant_type=password&client_id=ci&username=ci&password=ci-pass' http://id.shop.octopod.localhost/staff/token
 ```
 
 `client_credentials` is served too, for a service that signs in as itself.

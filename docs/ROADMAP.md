@@ -13,9 +13,9 @@ which octopod layers under its own and never takes away.
 
 ## Where it stands (0.5)
 
-- **The edge**: one Traefik on `127.0.0.1`, projects at `http://<project>.localhost` with no
+- **The edge**: one Traefik on `127.0.0.1`, projects at `http://<project>.octopod.localhost` with no
   certificate and no `/etc/hosts`, each project on its own internal network, instances of a
-  project side by side (`demo-2.localhost`). A project's containers reach its own hosts at
+  project side by side (`demo-2.octopod.localhost`). A project's containers reach its own hosts at
   the browser's URLs.
 - **The contract**: `octopod.yaml`, the CLI with `--json`, an HTTP API on a unix socket
   (TCP with a token on Windows), versioned with `features` a client checks

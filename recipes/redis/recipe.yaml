@@ -8,7 +8,7 @@ image: "redis:{{params.version}}"
 unpinned: true
 build: true
 provides: [redis]
-# Its keys at http://redis.<project>.localhost, unless the project names its own viewer.
+# Its keys at http://redis.<project>.octopod.localhost, unless the project names its own viewer.
 admin: redis-commander
 params:
   version: { type: enum, values: ["8.0", "7.4", "7.2", "6.2"], default: "7.4" }

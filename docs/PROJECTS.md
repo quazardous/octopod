@@ -13,9 +13,9 @@ Next to your compose file, say what to expose:
 project: demo            # optional: the folder's name by default
 group: shop              # optional: the console groups projects by it (and tags: [php, legacy])
 expose:
-  - service: web         # → http://demo.localhost
+  - service: web         # → http://demo.octopod.localhost
   - service: api
-    host: api            # → http://api.demo.localhost
+    host: api            # → http://api.demo.octopod.localhost
     port: 8080           # optional: found in the compose file or the image otherwise
 ```
 
@@ -27,7 +27,7 @@ is always the project's name or a name under it: a project cannot take another's
 
 ```yaml
 services:
-  app: { recipe: node-app }   # npm run dev, at http://<project>.localhost
+  app: { recipe: node-app }   # npm run dev, at http://<project>.octopod.localhost
   db:  { recipe: postgres }   # its URL handed to the app as DATABASE_URL
 ```
 
@@ -53,7 +53,7 @@ on a recipe service, its user keeps its home (history, caches) in `.octopod/home
 ## Instances
 
 `octopod up --instance 2` runs the same folder a second time, as `demo-2`: its own
-containers, network, data (`.octopod/data/2/`) and hosts (`demo-2.localhost`). The console
+containers, network, data (`.octopod/data/2/`) and hosts (`demo-2.octopod.localhost`). The console
 shows a project's instances as one stacked tile. A compose file that fixes a
 `container_name` or a host port cannot run twice; `up` says which.
 
@@ -62,6 +62,22 @@ shows a project's instances as one stacked tile. A compose file that fixes a
 `group:` puts projects together: the console folds them, `octopod list --group shop` lists
 them, and a group's projects can share servers ([SHARING.md](./SHARING.md)). `tags:` are free
 labels, for `octopod list --tag php` and the console's filter.
+
+## Addresses
+
+Everything octopod serves is under `octopod.localhost`, which is the console itself:
+
+| What | Address |
+|---|---|
+| a project's app, its other services | `shop.octopod.localhost`, `pma.shop.octopod.localhost` |
+| the same in a group | `shop.group-m2m.octopod.localhost`, `pma.shop.group-m2m.octopod.localhost` |
+| a group's shared services | `pma.group-m2m.octopod.localhost` |
+| the machine's pool (shared, no group) | `pma.octopod.localhost` |
+| Traefik's dashboard | `traefik.octopod.localhost` |
+
+A project's services are all under its own name, one domain per project. A project without a
+group may not be named `octopod`, `traefik`, `api`, `console`, `group-…`, nor like a shared
+service's address (`pma`, `mail`, `id`, `mongo`, `redis`): they sit at the same level.
 
 ## Projects that talk to each other
 

@@ -1,10 +1,10 @@
 # A local OpenID Connect provider, octopod's own (src/oidc): any path is an issuer
-# (http://id.<project>.localhost/<name>), its login page takes a user name and the claims
+# (http://id.<project>.octopod.localhost/<name>), its login page takes a user name and the claims
 # to put in the tokens (groups, email…). For development: any client, no secret to keep.
 # Its address goes to whoever requires `oidc` (OIDC_ISSUER_BASE): the same from the
 # browser and from the project's containers, so a token's `iss` matches on both sides.
 title: OIDC provider
-summary: A local OpenID Connect provider at http://id.<project>.localhost/<issuer> — any issuer name, a login page that takes a user and its claims.
+summary: A local OpenID Connect provider at http://id.<project>.octopod.localhost/<issuer> — any issuer name, a login page that takes a user and its claims.
 icon: icon.svg
 link: /admin/
 image: node:22-bookworm-slim
@@ -12,7 +12,7 @@ unpinned: true
 build: true
 provides: [oidc]
 params:
-  # The admin (http://id.<project>.localhost/admin) and its API: read it with octopod secrets.
+  # The admin (http://id.<project>.octopod.localhost/admin) and its API: read it with octopod secrets.
   admin-token: { type: secret, bytes: 24 }
   # true: the admin asks for its token (octopod secrets); false: it opens on the users, its
   # API answers without it — the edge answers the machine and the project alone.

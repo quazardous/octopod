@@ -390,8 +390,8 @@ describe('the built-in recipes', () => {
     const book = await loadRecipes([BUILTIN_RECIPES]);
     const env = (edgePort?: number) =>
       renderServices({ project: 'shop', book, services: { app: { recipe: 'python-app' }, id: { recipe: 'oidc' } }, workspace: '/p', owner: '1:1', ...(edgePort ? { edgePort } : {}) }).compose.services.app.environment as Record<string, string>;
-    expect(env().OIDC_ISSUER_BASE).toBe('http://id.shop.localhost');
-    expect(env(8480).OIDC_ISSUER_BASE).toBe('http://id.shop.localhost:8480');
+    expect(env().OIDC_ISSUER_BASE).toBe('http://id.shop.octopod.localhost');
+    expect(env(8480).OIDC_ISSUER_BASE).toBe('http://id.shop.octopod.localhost:8480');
     const out = renderServices({ project: 'shop', book, services: { id: { recipe: 'oidc' } }, workspace: '/p', owner: '1:1' });
     expect(out.services[0]).toEqual(expect.objectContaining({ route: 'id', port: 8080 }));
   });

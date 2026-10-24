@@ -1,10 +1,10 @@
-# Redis Commander at http://redis.<project>.localhost, connected to the project's Redis or
+# Redis Commander at http://redis.<project>.octopod.localhost, connected to the project's Redis or
 # Valkey — the service that provides `redis`: its keys by prefix, their values (strings,
 # hashes, lists, sets, sorted sets, streams), and a command line. No login of its own: a
 # development viewer, answering only on the machine, like every route of the edge. It runs
 # as the image's own unprivileged user, and keeps nothing.
 title: Redis Commander
-summary: Web viewer of the project's Redis or Valkey at http://redis.<project>.localhost.
+summary: Web viewer of the project's Redis or Valkey at http://redis.<project>.octopod.localhost.
 icon: icon.svg
 image: ghcr.io/joeferner/redis-commander:0.9
 unpinned: true

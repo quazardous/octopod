@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CODE_MS, ConsoleAccess, MAX_FAILURES, SESSION_MS, sessionCookie, sessionOf } from './consoleAccess.js';
+import { CODE_MS, ConsoleAccess, MAX_FAILURES, SESSION_MS, sessionCookie, sessionsOf } from './consoleAccess.js';
 
 describe("the console's enrollment", () => {
   let dir: string;
@@ -73,8 +73,10 @@ describe("the console's enrollment", () => {
   });
 
   it('reads its cookie, and writes it for the console only', () => {
-    expect(sessionOf('a=1; octopod_console=abc_-; b=2')).toBe('abc_-');
-    expect(sessionOf(undefined)).toBeUndefined();
+    expect(sessionsOf('a=1; octopod_console=abc_-; b=2')).toEqual(['abc_-']);
+    expect(sessionsOf(undefined)).toEqual([]);
+    // One planted by a project for the whole domain, beside the console's own: both are read.
+    expect(sessionsOf('octopod_console=planted; octopod_console=mine')).toEqual(['planted', 'mine']);
     expect(sessionCookie('abc')).toBe(`octopod_console=abc; Path=/; HttpOnly; SameSite=Strict; Max-Age=${SESSION_MS / 1000}`);
     expect(sessionCookie(null)).toContain('Max-Age=0');
   });

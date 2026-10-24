@@ -19,7 +19,7 @@ import { BUILD_LABEL, formatPlan, PROJECT_LABEL, renderServices, SHARED_NETWORK,
 import { ConsoleAccess } from './consoleAccess.js';
 import { cliDocker, composeUp, DockerError, type Docker } from './docker.js';
 import { bindSources, choosePort, projectAllowConfig, composePorts, CONSOLE_HOST, consoleContainer, consoleNginxConfig, DASHBOARD_HOST, DATA_DIR, dataVolumes, duplicationBlockers, edgeCompose, edgeContainer, imagePorts, localOnlyConfig, projectOverride, traefikConfig, type ComposeService, type ComposeVolume, type ResolvedPort } from './generate.js';
-import { edgeNetwork, fullHost, instanceName } from './names.js';
+import { edgeNetwork, fullHost, instanceName, projectDomain, RESERVED_PROJECTS, reservedName } from './names.js';
 
 /** The version of the contract in docs/CONTRACT.md: the declaration, the API, the CLI's JSON. */
 export const CONTRACT = 1;
@@ -676,7 +676,17 @@ export class Octopod {
           owner: currentOwner(),
           secrets: kept,
           edgePort: await this.edgePort({ choose: false }).catch(() => undefined),
-          ...(declaration.shareGroup ? { shared: { project: this.sharedOf(declaration.shareGroup).project, network: this.sharedNetwork(declaration.shareGroup, declaration.project), tenant: declaration.project } } : {}),
+          domain: projectDomain(declaration.project, declaration.group),
+          ...(declaration.shareGroup
+            ? {
+                shared: {
+                  project: this.sharedOf(declaration.shareGroup).project,
+                  network: this.sharedNetwork(declaration.shareGroup, declaration.project),
+                  tenant: declaration.project,
+                  domain: projectDomain(this.sharedOf(declaration.shareGroup).project, declaration.shareGroup),
+                },
+              }
+            : {}),
           ...(declaration.instance ? { instance: declaration.instance } : {}),
           ...(keepSecrets ? {} : { secretFactory: () => '‹generated›' }),
         }),
@@ -743,7 +753,7 @@ export class Octopod {
     const expose = [...declaration.expose];
     for (const service of rendered.services) {
       if (service.route === undefined || declared.has(service.name)) continue;
-      const host = fullHost(declaration.project, service.route || undefined);
+      const host = fullHost(declaration.project, service.route || undefined, declaration.group);
       const taken = expose.find((e) => e.host === host);
       if (taken) throw new OctopodError(`services ${taken.service} and ${service.name} both want ${host}: expose one of them under a host of its own`);
       expose.push({ service: service.name, host });
@@ -804,7 +814,7 @@ export class Octopod {
     const { rendered } = await this.render(declaration, false);
     return {
       project: declaration.project,
-      text: formatPlan(declaration.project, rendered.services, declaration.workspace ?? declaration.root),
+      text: formatPlan(declaration.project, rendered.services, declaration.workspace ?? declaration.root, projectDomain(declaration.project, declaration.group)),
       services: rendered.services,
       compose: rendered.compose,
     };
@@ -881,6 +891,10 @@ export class Octopod {
     }
     const owner = registry[declaration.project];
     if (owner && owner !== root) throw new OctopodError(`project "${declaration.project}" is already registered from ${owner}`);
+    // Beside the machine pool's shared services at the top of the domain: their addresses are taken.
+    const pool = [...(await loadRecipes([BUILTIN_RECIPES])).recipes.values()].flatMap((e) => (e.recipe.route && e.recipe.route !== true ? [e.recipe.route.subdomain] : []));
+    const reserved = reservedName(declaration.project, declaration.group, [...RESERVED_PROJECTS, ...pool]);
+    if (reserved) throw new OctopodError(reserved);
     registry[declaration.project] = root;
     await this.writeJson('projects.json', registry);
     return this.project(await this.withRecipes(declaration, false));

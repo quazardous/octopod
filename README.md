@@ -13,7 +13,7 @@ project repeats the same traps in its own compose file. octopod does that part o
 the whole machine.
 
 - **One edge for every project.** A single Traefik on loopback serves each project at
-  `http://<project>.localhost` (and `http://<name>.<project>.localhost`). No DNS, no
+  `http://<project>.octopod.localhost` (and `http://<name>.<project>.octopod.localhost`). No DNS, no
   `/etc/hosts`, no certificates: `*.localhost` resolves to your machine, and browsers treat
   it as a secure context.
 - **Projects stay plain.** A project keeps its own compose file and adds a small
@@ -75,7 +75,7 @@ cd examples/whoami       # in a clone, or copy the folder
 octopod up               # registers the project the first time
 ```
 
-Open `http://whoami.localhost` and `http://api.whoami.localhost`, then
+Open `http://whoami.octopod.localhost` and `http://api.whoami.octopod.localhost`, then
 `http://octopod.localhost` for the console. If port 80 was taken, the edge is on 8480, and
 the URLs carry `:8480`: `octopod edge status` gives them.
 
@@ -88,9 +88,9 @@ Next to your compose file, an `octopod.yaml` says what to expose:
 ```yaml
 project: demo            # optional: the folder's name by default
 expose:
-  - service: web         # → http://demo.localhost
+  - service: web         # → http://demo.octopod.localhost
   - service: api
-    host: api            # → http://api.demo.localhost
+    host: api            # → http://api.demo.octopod.localhost
 ```
 
 Or no compose file at all, only recipes, each handing its address to the apps:
@@ -99,7 +99,7 @@ Or no compose file at all, only recipes, each handing its address to the apps:
 services:
   app:  { recipe: php-app, php: "8.3" }
   db:   { recipe: mariadb }          # DATABASE_URL
-  mail: { recipe: mailpit }          # MAILER_DSN, and the inbox at mail.<project>.localhost
+  mail: { recipe: mailpit }          # MAILER_DSN, and the inbox at mail.<project>.octopod.localhost
   id:   { recipe: oidc }             # an OpenID Connect provider: OIDC_ISSUER_BASE
 ```
 
