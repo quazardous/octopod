@@ -19,18 +19,19 @@ the whole machine.
 - **Projects stay plain.** A project keeps its own compose file and adds a small
   `octopod.yaml` that says what to expose. octopod generates the labels, the routes and the
   networks. No Traefik label is written by hand.
-- **Projects are isolated.** Each has its own internal edge network: Traefik reaches every
-  project, and projects cannot reach each other.
+- **Projects are isolated.** Each has its own internal edge network, and its routes answer
+  only your machine and its own containers: projects cannot reach each other.
 - **A container you can walk into.** `octopod shell` opens a shell in a service, as its
   user, in its working directory, or as root without sudo in the image.
 - **A console.** `http://octopod.localhost` shows every project, the state of its services,
-  their URLs and their logs.
+  their URLs and their logs, and brings them up or down.
 - **Data in the project, nothing owned by root.** Named volumes are kept in the project's
   `.octopod/data`, created as you. A service that runs or writes there as root is reported.
 - **Or no compose file at all.** A project can name recipes instead: apps (`node-app`,
   `php-app`, `python-app`), databases (`postgres`, `mariadb`, `mongodb`), `redis`, `valkey`, `memcached`,
   `mailpit`, an OpenID Connect provider (`oidc`), admins (`phpmyadmin`, `mongo-express`)
-  and tools (`php-cli`), each handing its address to the apps.
+  and tools (`php-cli`), each handing its address to the apps; servers shared by a group's
+  projects, each walled off in its own database.
 
 octopod is only infrastructure: Traefik and Docker composition. It knows nothing about
 what runs in your containers, and adds no variable to the services of your own compose
@@ -76,156 +77,45 @@ Open `http://whoami.localhost` and `http://api.whoami.localhost`, then
 `http://octopod.localhost` for the console. If port 80 was taken, the edge is on 8480, and
 the URLs carry `:8480`: `octopod edge status` gives them.
 
+![The console: two projects, their services, states and routes](docs/console.png)
+
 ## Your project
 
-Next to your compose file, an `octopod.yaml`:
+Next to your compose file, an `octopod.yaml` says what to expose:
 
 ```yaml
 project: demo            # optional: the folder's name by default
-group: shop              # optional: the console groups projects by it (and tags: [php, legacy])
 expose:
   - service: web         # → http://demo.localhost
   - service: api
     host: api            # → http://api.demo.localhost
-    port: 8080           # optional: found in the compose file or the image otherwise
 ```
 
-An editor completes and checks it with its JSON Schema, from a first line
-`# yaml-language-server: $schema=https://raw.githubusercontent.com/quazardous/octopod/main/schema/octopod.schema.json`
-(`schema/recipe.schema.json` for a recipe; both are in the npm package too).
-
-Or no compose file at all, only recipes:
+Or no compose file at all, only recipes, each handing its address to the apps:
 
 ```yaml
 services:
-  app: { recipe: node-app }   # npm run dev, at http://<project>.localhost
-  db:  { recipe: postgres }   # its URL handed to the app as DATABASE_URL
+  app:  { recipe: php-app, php: "8.3" }
+  db:   { recipe: mariadb }          # DATABASE_URL
+  mail: { recipe: mailpit }          # MAILER_DSN, and the inbox at mail.<project>.localhost
+  id:   { recipe: oidc }             # an OpenID Connect provider: OIDC_ISSUER_BASE
 ```
 
-The app's user keeps its home (history, caches) with `home: true`, and the project can be
-mounted where it has always been (`workdir: /shop`); the shell's prompt says
-`shop@shop:app`.
+Then `octopod up`, and `octopod shell` to walk in. Projects of one group can share one
+database server, each with its own database and user on it (`shared: true`).
 
-A PHP stack, each service's address handed to the app (`DATABASE_URL`, `REDIS_URL`,
-`MAILER_DSN`), the admins at `pma.` and `mail.<project>.localhost`:
+## Documentation
 
-```yaml
-services:
-  app:   { recipe: php-app, php: "8.3", extensions: [intl, pdo_mysql, redis] }
-  db:    { recipe: mariadb, version: "10.11" }
-  cache: { recipe: redis }
-  mail:  { recipe: mailpit }
-  pma:   { recipe: phpmyadmin }
-```
-
-The app's image gets a user named after the project, at your uid, and nothing installed in
-it: its dependencies are the project's (`octopod shell -- npm install`). The user is the
-image's own, renamed and moved to your uid when the image is built — `node-app` starts from
-`node:22-bookworm-slim` for that reason: alpine images have no `usermod`. `octopod plan`
-shows what `up` would run, and `octopod recipes` lists the recipes. You can add your own
-recipe folders with `OCTOPOD_RECIPES`, `recipes:` in `octopod.yaml`, or the project's
-`.octopod/recipes/`; `octopod recipes --check` reads their Dockerfiles against octopod's rules.
-
-A PHP app's workers run beside it, supervised, and never take the container down with them:
-
-```yaml
-services:
-  app:
-    recipe: php-app
-    programs:
-      worker: { command: php bin/console messenger:consume async }
-      seed:   { command: php bin/console app:seed, autostart: false }   # octopod program start app/seed
-```
-
-Projects of one group can share servers instead of running one each, every project with its
-own database and user on them (and one mailpit, one OIDC provider…), one server per version:
-
-```yaml
-group: shop
-shared: true          # the databases; or a list: [mariadb, mailpit, oidc]
-services:
-  app: { recipe: php-app }
-  db:  { recipe: mariadb }   # the group's mariadb-11-4; DATABASE_URL is this project's database
-```
-
-`octopod share true` makes it the machine's default, for every project that says nothing
-(those without a group share the machine's pool); `shared: false` on a service keeps it to its
-project.
-
-An app that signs in with OpenID Connect gets a local provider, octopod's own: any path is
-an issuer, and its login page takes a user name and the claims to put in the tokens
-(`groups`, `email`), so each role is tried without accounts to manage:
-
-```yaml
-services:
-  app: { recipe: python-app }   # OIDC_ISSUER_BASE=http://id.shop.localhost
-  id:  { recipe: oidc }         # issuers at http://id.shop.localhost/<name>
-```
-
-The issuer's URL is the same for the browser and for the app's container: a project's
-containers reach its hosts through the edge.
-
-A Django app on MariaDB names the driver it compiles (mysqlclient has no Linux wheel):
-`app: { recipe: python-app, drivers: [mysql] }` adds a compiler and the MariaDB client's
-headers to the image, and `octopod shell -- uv sync` builds it.
-
-The project's tools run on demand, never kept up:
-
-```yaml
-  cli: { recipe: php-cli, php: "8.3" }   # octopod shell cli -- vendor/bin/phpstan analyse
-```
-
-`octopod ps` shows the programs. A project that already keeps its programs as supervisord files
-mounts their folder instead (`supervisor_d: docker/supervisor`), and `octopod program
-reload app` applies a change to them.
-
-See [`examples/`](./examples) for both kinds. Projects are isolated from each other; one
-that must reach another's service joins a network of both, in their compose files: see
-[docs/PATTERNS.md](./docs/PATTERNS.md#a-service-shared-between-projects).
-
-## Commands
-
-```sh
-octopod up                    # start the edge if needed, then the project (registered the first time)
-octopod register [dir]        # declare a project without starting it
-octopod status                # its services, URLs and warnings
-octopod list --group shop     # the registered projects (--tag php, too)
-octopod logs --service web --tail 100
-octopod shell [service]       # a shell in a service, as its user; --root; -- command…
-octopod run db dump > dump.sql   # a service's actions: shell, dump, load, reset for a database
-octopod ps                    # the programs of its supervised services
-octopod program start app/seed
-octopod restart [--service s]
-octopod down                  # --volumes removes Docker's volume objects; the data stays
-octopod up --instance 2       # the same project a second time, at demo-2.localhost
-octopod unregister <project>
-octopod edge status           # the edge, the console and the dashboard's addresses
-octopod console code          # a code that enrolls a browser in the console; revoke signs every one out
-octopod doctor                # what is wrong on this machine, and the command that fixes each thing
-octopod uninstall [--purge]   # service, projects, edge, extension away; data stays; --purge: the state too
-octopod version
-```
-
-Commands run in a project's folder act on that project; elsewhere, name it
-(`octopod status demo`). All but `shell` take `--json`. The same operations are an HTTP API on a unix
-socket (`octopod serve`), for other tools: see [docs/CONTRACT.md](./docs/CONTRACT.md).
-
-## The console
-
-![The console: two projects, their services, states and routes](docs/console.png)
-
-`http://octopod.localhost` shows every project as a tile — its state, the services
-running, its warnings and URLs — grouped by `group`. A project's page has the state and
-health of each service and its programs, every instance, what octopod warns about, and
-the logs, which it refreshes. It brings a project up or down — the rest (`restart`,
-`exec`, `run`, removing volumes) stays on the command line — and links to Traefik's dashboard at `http://traefik.localhost`. Both answer only
-from your machine, never from a project's container. The console reads the API, which
-`octopod setup` runs as the `octopod` systemd user service.
-
-The console shows nothing to a browser you have not enrolled: the first time, it opens on
-a login page. Run `octopod console code` — or *Console code* in the tray's or the GNOME
-extension's menu, which copies it — and paste the code there, valid 10 minutes and once; the browser stays enrolled for 30 days, or until *Sign out*.
-`octopod console revoke` signs every browser out.
+- [Your project](./docs/PROJECTS.md): `octopod.yaml`, data, shells and homes, instances, groups.
+- [Recipes](./docs/RECIPES.md): the built-in ones, a PHP stack, workers, actions, your own.
+- [Sharing servers](./docs/SHARING.md): one server for several projects, walled off.
+- [OpenID Connect](./docs/OIDC.md): a local provider, its users and admin, a CI that signs in.
+- [The console](./docs/CONSOLE.md): `http://octopod.localhost`, enrollment, the tray and GNOME.
+- [Commands](./docs/COMMANDS.md): every command; all take `--json`.
+- [Windows](./docs/WINDOWS.md): what to install, and what differs from Linux.
+- [The contract](./docs/CONTRACT.md): the declaration, the labels, the API, what clients rely on.
+- [Patterns](./docs/PATTERNS.md): the lessons behind these choices, and two projects that talk.
+- [Roadmap](./docs/ROADMAP.md).
 
 ## How it works
 
@@ -238,11 +128,9 @@ extension's menu, which copies it — and paste the code there, valid 10 minutes
 - **Data**: each named volume of the project is bound to `.octopod/data/<volume>`, which
   is git-ignored. The data is deleted with the project, not with a `docker volume prune`.
 
-The lessons behind these choices are in [docs/PATTERNS.md](./docs/PATTERNS.md).
-
 ## Status
 
-0.5 is a preview. It is tested on Linux with Docker, and runs on Windows with Docker
+0.6 is a preview. It is tested on Linux with Docker, and runs on Windows with Docker
 Desktop; macOS and rootless Docker are not tested yet. Until 1.0, the contract may change
 between minor versions; every change is in the [changelog](./CHANGELOG.md), and a breaking one says what
 to do. The plan is in [docs/ROADMAP.md](./docs/ROADMAP.md).
