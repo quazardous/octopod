@@ -271,6 +271,27 @@ function portTaken(port: number): Promise<boolean> {
   });
 }
 
+/**
+ * The compose file that puts a group's shared services on each project's network: one
+ * network per project (made here, internal), the services on all of them.
+ */
+function sharedNetworks(services: string[], networks: Record<string, string>): string {
+  // Keyed by project, sorted: a project joining the group adds a network and changes none,
+  // which compose would recreate under the containers attached to it.
+  const members = Object.keys(networks).sort();
+  const key = (member: string) => `${SHARED_NETWORK}_${member}`;
+  return (
+    JSON.stringify(
+      {
+        networks: Object.fromEntries(members.map((m) => [key(m), { name: networks[m], internal: true }])),
+        services: Object.fromEntries(services.map((s) => [s, { networks: ['default', ...members.map(key)] }])),
+      },
+      null,
+      2,
+    ) + '\n'
+  );
+}
+
 export class Octopod {
   readonly stateDir: string;
   readonly instance: string;
@@ -548,7 +569,7 @@ export class Octopod {
           owner: currentOwner(),
           secrets: kept,
           edgePort: await this.edgePort({ choose: false }).catch(() => undefined),
-          ...(declaration.group ? { shared: { project: this.sharedOf(declaration.group).project, network: this.sharedOf(declaration.group).network, tenant: declaration.project } } : {}),
+          ...(declaration.group ? { shared: { project: this.sharedOf(declaration.group).project, network: this.sharedNetwork(declaration.group, declaration.project), tenant: declaration.project } } : {}),
           ...(declaration.instance ? { instance: declaration.instance } : {}),
           ...(keepSecrets ? {} : { secretFactory: () => '‹generated›' }),
         }),
@@ -797,7 +818,10 @@ export class Octopod {
     // changed is built again here, before up recreates its container.
     const stale = await this.staleBuilds(declaration);
     if (stale.length > 0) await this.docker.run([...this.composeArgs(declaration, true), 'build', ...stale]);
-    await composeUp(this.docker, [...this.composeArgs(declaration, true), 'up', '-d']);
+    // --remove-orphans: a service the project no longer runs (now the group's, or gone from
+    // its files) is taken away, its data left where it is.
+    await composeUp(this.docker, [...this.composeArgs(declaration, true), 'up', '-d', '--remove-orphans']);
+    await this.forgetOrphanVolumes(declaration, config.volumes ?? {});
     // Tools are not started, but built now: run on demand, they answer at once.
     if (declaration.tools) await this.docker.run([...this.composeArgs(declaration, true), '--profile', TOOL_PROFILE, 'build', ...declaration.tools]);
     // The images those builds replaced, now nameless: the project's only.
@@ -812,6 +836,21 @@ export class Octopod {
     if (group && declaration.shared) await this.writeAllowList(this.sharedOf(group).project, await this.sharedMembers(group));
     if (instance > 1) await this.noteInstance(name, instance, true);
     return this.status(name, instance);
+  }
+
+  /**
+   * The volume objects of services the project no longer runs: octopod's pointers to its
+   * `.octopod/data` only — the data stays, and a volume of Docker's own storage is left alone.
+   */
+  private async forgetOrphanVolumes(declaration: Declaration, volumes: Record<string, ComposeVolume>): Promise<void> {
+    const kept = new Set(Object.entries(volumes).map(([key, v]) => v.name ?? `${declaration.project}_${key}`));
+    const listed = await this.docker.run(['volume', 'ls', '--filter', `label=com.docker.compose.project=${declaration.project}`, '--format', '{{.Name}}']).catch(() => '');
+    const ours = join(declaration.root, DATA_DIR);
+    for (const name of listed.split('\n').map((l) => l.trim()).filter((l) => l && !kept.has(l))) {
+      const options = await this.docker.run(['volume', 'inspect', name, '--format', '{{json .Options}}']).catch(() => 'null');
+      const device = ((JSON.parse(options.trim() || 'null') ?? {}) as Record<string, string>).device ?? '';
+      if (device === ours || device.startsWith(`${ours}/`)) await this.docker.run(['volume', 'rm', name]).catch(() => undefined);
+    }
   }
 
   /**
@@ -942,8 +981,16 @@ export class Octopod {
    * octopod in its state directory (its data too: it belongs to no one project), on a
    * network the projects that use them join.
    */
-  private sharedOf(group: string): { project: string; network: string; dir: string } {
-    return { project: `${group}-shared`, network: `${this.instance}-${group}-shared`, dir: this.path('groups', group) };
+  private sharedOf(group: string): { project: string; dir: string } {
+    return { project: `${group}-shared`, dir: this.path('groups', group) };
+  }
+
+  /**
+   * The network between a group's shared services and one project: one per project, so a
+   * project reaches the shared services and nothing of the group's other projects.
+   */
+  private sharedNetwork(group: string, project: string): string {
+    return `${this.instance}-${group}-shared-${project}`;
   }
 
   /**
@@ -953,7 +1000,7 @@ export class Octopod {
    */
   private async upShared(declaration: Prepared): Promise<string[]> {
     const group = declaration.group!;
-    const { project, network, dir } = this.sharedOf(group);
+    const { project, dir } = this.sharedOf(group);
     const registry = await this.registry();
     if (registry[project] && registry[project] !== dir) throw new OctopodError(`"${project}" is a registered project: group ${group}'s shared services need that name`);
     // One service for the group: each project asks for it alike, or says which differs.
@@ -981,7 +1028,7 @@ export class Octopod {
     );
     await writeFile(
       join(dir, 'network.json'),
-      JSON.stringify({ networks: { [SHARED_NETWORK]: { name: network } }, services: Object.fromEntries(Object.keys(services).map((s) => [s, { networks: ['default', SHARED_NETWORK] }])) }, null, 2) + '\n',
+      sharedNetworks(Object.keys(services), Object.fromEntries([declaration.project, ...(await this.sharedMembers(group))].map((m) => [m, this.sharedNetwork(group, m)]))),
     );
     if (!registry[project]) await this.writeJson('projects.json', { ...registry, [project]: dir });
     await this.up(project);

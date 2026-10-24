@@ -83,6 +83,8 @@ Rules, checked when the project is registered and every time it is brought up:
   octopod's state). When a volume of the same name already exists
   in Docker's storage, `up` refuses and says how to move its data: binding over it would
   hide it.
+- **Up removes orphans**: a service the project's files no longer declare (one now shared
+  by its group, one deleted) has its container taken away on `up`; its data stays.
 - **Down**: the edge is disconnected, then `docker compose … down`. `volumes: true`
   removes the Docker volume objects; the data in `.octopod/data` is the project's and
   stays.
@@ -224,8 +226,9 @@ workspace: .               # the folder a recipe's workspace mounts; the project
   (`<state>/groups/<group>/`, data included: it belongs to no one project), brought up
   before the first project that uses them and down after the last one. Every project of the
   group asks for a shared service alike (the same recipe and params), or `up` says which
-  differ. The services that require it join the network `octopod-<group>-shared` and reach
-  it by its name; nothing else of the projects shares a network.
+  differ. Each project has its own network to the shared services,
+  `octopod-<group>-shared-<project>` (internal), which its services that require them join:
+  they reach them by name, and nothing of the group's other projects.
   - A recipe says how it is shared in `tenant:`: the params each project gets
     (`{{tenant}}` is the project's name) and the secret it gets its own value of; its
     `command` makes the tenancy in the running service, alike each time, with the name in

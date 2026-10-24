@@ -1029,7 +1029,7 @@ describe.skipIf(!dockerAvailable())("a group's shared database (real docker)", {
   }, 900_000);
 
   afterAll(async () => {
-    for (const name of ['ga', 'gb', 'gtest-shared']) await octopod.unregister(name).catch(() => undefined);
+    for (const name of ['ga', 'gb', 'gc', 'gtest-shared']) await octopod.unregister(name).catch(() => undefined);
     await octopod.edgeDown();
     await rm(base, { recursive: true, force: true });
   }, 900_000);
@@ -1049,8 +1049,28 @@ describe.skipIf(!dockerAvailable())("a group's shared database (real docker)", {
     // The app reaches the group's server by its name, with its own URL.
     const reach = await octopod.exec('ga', 'app', ['node', '-e', "const u = new URL(process.env.DATABASE_URL); require('node:net').connect(3306, u.hostname).on('connect', function () { console.log(u.username, u.pathname); this.end(); })"]);
     expect(reach.output.trim()).toBe('ga /ga');
+    // The group's network is the shared services', not a way from one project to another.
+    const across = await octopod.exec('ga', 'app', ['node', '-e', "require('node:net').connect(3000, 'gb-app-1').on('connect', () => console.log('reached')).on('error', (e) => console.log('blocked', e.code))"]);
+    expect(across.output.trim()).toMatch(/^blocked/);
     // Its data is the group's, in octopod's state, owned by the operator.
     expect((await stat(join(base, 'state', 'groups', 'gtest', '.octopod', 'data', 'db-data'))).uid).toBe(process.getuid?.());
+  });
+
+  it("takes away a project's own server once the group's replaces it", async () => {
+    const root = join(base, 'gc');
+    await mkdir(join(root, 'node_modules'), { recursive: true });
+    await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'gc', scripts: { dev: 'node -e "require(\'node:http\').createServer((q, r) => r.end(\'ok\')).listen(3000)"' } }));
+    await writeFile(join(root, 'octopod.yaml'), 'project: gc\ngroup: gtest\nservices:\n  app: { recipe: node-app }\n  db: { recipe: mariadb }\n');
+    await octopod.register(root);
+    await octopod.up('gc');
+    expect(docker('ps', '--format', '{{.Names}}')).toContain('gc-db-1');
+    await writeFile(join(root, 'octopod.yaml'), 'project: gc\ngroup: gtest\nservices:\n  app: { recipe: node-app }\n  db: { recipe: mariadb, shared: true }\n');
+    await octopod.up('gc');
+    expect(docker('ps', '-a', '--format', '{{.Names}}')).not.toContain('gc-db-1');
+    // Its volume object too, a pointer to its data, which stays in the project.
+    expect(docker('volume', 'ls', '--format', '{{.Name}}').split('\n')).not.toContain('gc_db-data');
+    expect((await stat(join(root, '.octopod', 'data', 'db-data'))).isDirectory()).toBe(true);
+    await octopod.unregister('gc');
   });
 
   it('keeps the server while a project of the group runs, and stops it with the last one', async () => {
