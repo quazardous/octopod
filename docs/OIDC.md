@@ -10,6 +10,10 @@ services:
   id:  { recipe: oidc }         # issuers at http://id.shop.octopod.localhost/<name>
 ```
 
+In production the app signs in with the real provider instead, **with the same code**: only
+three settings change. [In production: the real provider](#in-production-the-real-provider)
+says which, provider by provider.
+
 ## Issuers
 
 Any path is an issuer: `http://id.shop.octopod.localhost/staff` and `http://id.shop.octopod.localhost/google`
@@ -61,6 +65,58 @@ curl -d 'grant_type=password&client_id=ci&username=ci&password=ci-pass' http://i
 ```
 
 `client_credentials` is served too, for a service that signs in as itself.
+
+## In production: the real provider
+
+The development provider stands in for the real one; it never goes to production. An app
+built for it switches with **no code change**, if it keeps to three rules from the start.
+
+**1. Everything the app knows of its provider is three settings.**
+
+| Setting | In development (octopod) | In production |
+|---|---|---|
+| the issuer | `${OIDC_ISSUER_BASE}/<name>`, e.g. `http://id.shop.octopod.localhost/entra` | the provider's issuer URL (table below) |
+| the client id | anything (`app`) | the id of the app's registration at the provider |
+| the client secret | anything | the secret of that registration, from your secret store — never the repository |
+
+octopod sets `OIDC_ISSUER_BASE` in the app's container. Let the app read a full `OIDC_ISSUER`
+and, when it is not set, build it from `OIDC_ISSUER_BASE` and the issuer name you mirror:
+
+```python
+OIDC_ISSUER = os.environ.get("OIDC_ISSUER") or f"{os.environ['OIDC_ISSUER_BASE']}/entra"
+```
+
+**2. The app finds the endpoints by discovery**, `<issuer>/.well-known/openid-configuration`:
+it never writes `/authorize` or `/token` itself. octopod's paths and the real provider's
+differ (`/oauth2/v2.0/authorize` at Microsoft, `/protocol/openid-connect/auth` at Keycloak);
+discovery gives each its own, and the signing keys (`jwks_uri`) with them. Most libraries do it
+from the issuer alone (`mozilla-django-oidc` needs its endpoint settings filled from it).
+
+**3. The app reads only the claims the real provider sends.** Name the development issuer
+after it, and give its users the same claims, in the same claim:
+
+| Provider | Issuer in production | Its groups, roles | In development |
+|---|---|---|---|
+| Microsoft Entra ID | `https://login.microsoftonline.com/<tenant-id>/v2.0` | `groups` (object ids, once *Token configuration → groups claim* is on), or app roles in `roles` | issuer `/entra`; `groups-claim: roles` for app roles |
+| Google | `https://accounts.google.com` | none: Google sends `email`, `email_verified`, `hd` (the Workspace domain); roles stay the app's | issuer `/google`; users with `email` and `hd`, no groups |
+| Keycloak | `https://<host>/realms/<realm>` | `groups` with a *Group Membership* mapper (full path off), realm roles in `realm_access.roles` | issuer `/keycloak` |
+| Authentik | `https://<host>/application/o/<app-slug>/` (the trailing `/` is part of it) | `groups`, in the `profile` scope | issuer `/authentik` |
+| Okta | `https://<org>.okta.com/oauth2/default` | `groups`, once a groups claim is added to the authorization server | issuer `/okta` |
+
+**At the provider, before the first deployment:**
+- Register the app (a "web application" client) and its **redirect URI**, exactly as the app
+  sends it: `https://shop.example.com/oidc/callback/`. The development provider takes any
+  redirect URI; the real one refuses all the others. Try the real URI early, on a staging host.
+- Ask for the scopes the claims come with: `openid email profile`, plus the provider's own
+  for groups when it has one.
+- The issuer is compared character for character with a token's `iss`: copy it from the
+  provider's discovery document, trailing slash included.
+- Sign-out (`end_session_endpoint`), token lifetimes and refresh tokens are the provider's:
+  read them from discovery, and test them against it.
+
+**What the development provider does that a real one never will**: it takes any client id
+and secret and any redirect URI, it signs whatever claims a user is given, and anyone on the
+machine signs in as anyone. Nothing in the app should depend on that.
 
 ## What it is not
 

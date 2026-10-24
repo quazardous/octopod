@@ -111,7 +111,7 @@ database server, each with its own database and user on it (`shared: true`).
 - [Your project](./docs/PROJECTS.md): `octopod.yaml`, data, shells and homes, instances, groups.
 - [Recipes](./docs/RECIPES.md): the built-in ones, a PHP stack, workers, actions, your own.
 - [Sharing servers](./docs/SHARING.md): one server for several projects, walled off.
-- [OpenID Connect](./docs/OIDC.md): a local provider, its users and admin, a CI that signs in.
+- [OpenID Connect](./docs/OIDC.md): a local provider, its users, groups and admin, a CI that signs in — and how the same app switches to Google, Entra, Keycloak… in production.
 - [The console](./docs/CONSOLE.md): `http://octopod.localhost`, enrollment, the tray and GNOME.
 - [Commands](./docs/COMMANDS.md): every command; all take `--json`.
 - [Windows](./docs/WINDOWS.md): what to install, and what differs from Linux.
