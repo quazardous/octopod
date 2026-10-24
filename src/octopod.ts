@@ -336,7 +336,7 @@ export class Octopod {
     // With the API on TCP, no socket: the console reaches it through host.docker.internal.
     const socketDir = this.tcp ? undefined : dirname(this.socket);
     if (socketDir) await prepareSocketDir(socketDir);
-    const traefik = JSON.stringify(traefikConfig(this.instance), null, 2) + '\n';
+    const traefik = JSON.stringify(traefikConfig(this.instance, port), null, 2) + '\n';
     const nginx = consoleNginxConfig(this.tcp ? await this.apiTcp() : basename(this.socket));
     await mkdir(this.path('edge', 'dynamic'), { recursive: true });
     await writeFile(this.path('edge', 'traefik.yml'), traefik);
@@ -405,11 +405,27 @@ export class Octopod {
     if (running?.trim() === 'false') await this.docker.run(['start', name]).catch(() => undefined);
   }
 
+  /**
+   * The edge on a project's edge network, under each of the project's hosts as an alias:
+   * Docker's DNS answers `api.demo.localhost` with the edge there, so the project's routed
+   * containers reach their own hosts at the URLs a browser uses. Its own hosts only, on its
+   * own network. Reconnected when the hosts changed: Docker sets aliases at connection.
+   */
   private async connect(project: string): Promise<void> {
     const network = edgeNetwork(this.instance, project);
     const exists = await this.docker.run(['network', 'ls', '--filter', `name=^${network}$`, '--format', '{{.Name}}']).catch(() => '');
     if (exists.trim() !== network) return;
-    await this.docker.run(['network', 'connect', network, edgeContainer(this.instance)]).catch((e: Error) => {
+    const edge = edgeContainer(this.instance);
+    const hosts = await this.readJson<string[]>(join('projects', project, 'hosts.json'), []);
+    const attached = await this.docker
+      .run(['inspect', '--format', '{{json .NetworkSettings.Networks}}', edge])
+      .then((out) => (JSON.parse(out.trim() || '{}') as Record<string, { Aliases?: string[] | null }>)[network])
+      .catch(() => undefined);
+    if (attached) {
+      if (hosts.every((h) => attached.Aliases?.includes(h))) return;
+      await this.docker.run(['network', 'disconnect', network, edge]).catch(() => undefined);
+    }
+    await this.docker.run(['network', 'connect', ...hosts.flatMap((h) => ['--alias', h]), network, edge]).catch((e: Error) => {
       if (!/already exists|already connected/i.test(e.message)) throw e;
     });
   }
@@ -710,6 +726,7 @@ export class Octopod {
     await this.writeJson(join('projects', declaration.project, 'ports.json'), ports);
     const override = projectOverride(this.instance, declaration, config.services ?? {}, data, Object.fromEntries(Object.entries(ports).map(([h, r]) => [h, r.port])));
     await this.writeJson(join('projects', declaration.project, 'override.json'), override);
+    await this.writeJson(join('projects', declaration.project, 'hosts.json'), [...new Set(declaration.expose.map((e) => e.host))]);
     await this.edgeUp();
     // compose builds an image only when it is missing: one whose recipe or build arguments
     // changed is built again here, before up recreates its container.

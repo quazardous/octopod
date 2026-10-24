@@ -54,9 +54,14 @@ export function consoleContainer(instance: string): string {
   return `${instance}-console`;
 }
 
-export function traefikConfig(instance: string): Record<string, unknown> {
+/**
+ * The edge listens inside on the port it is published on: a project's container that
+ * reaches it under a project's host (an alias on its edge network) uses the very URL a
+ * browser on the host uses, `http://api.demo.localhost:8480` included.
+ */
+export function traefikConfig(instance: string, port = 80): Record<string, unknown> {
   return {
-    entryPoints: { web: { address: ':80' } },
+    entryPoints: { web: { address: `:${port}` } },
     api: { dashboard: true },
     providers: {
       docker: {
@@ -171,7 +176,7 @@ export function edgeCompose(settings: EdgeSettings): Record<string, unknown> {
         image: TRAEFIK_IMAGE,
         container_name: edgeContainer(settings.instance),
         restart: 'unless-stopped',
-        ports: [`127.0.0.1:${settings.port}:80`],
+        ports: [`127.0.0.1:${settings.port}:${settings.port}`],
         volumes: [
           '/var/run/docker.sock:/var/run/docker.sock:ro',
           `${settings.configFile}:/etc/traefik/traefik.yml:ro`,

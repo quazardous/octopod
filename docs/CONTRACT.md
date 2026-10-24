@@ -69,7 +69,13 @@ Rules, checked when the project is registered and every time it is brought up:
      exposed service the labels below and the network `octopod-<project>-edge` —
      **`internal`**: Traefik reaches the service over it, and it is no way out to the
      internet for a project that declared none;
-  2. the edge is connected to that network.
+  2. the edge is connected to that network, under each of the project's hosts as an alias
+     (`demo.localhost`, `api.demo.localhost`): inside the project's exposed services,
+     Docker's DNS answers them with the edge, so a container reaches its project's hosts
+     at the URLs a browser on the host uses (an OIDC issuer, an app calling its own API).
+     The edge listens inside on the port it is published on, so `:8480` works on both
+     sides. A service that is not exposed is not on that network: it joins
+     `octopod-<project>-edge` in the project's compose to reach them.
 - **Data**: each of the project's own named volumes (not external, local driver, no
   options of its own) is bound to `<root>/.octopod/data/<volume>`, created by octopod as
   the operator, with `<root>/.octopod/.gitignore` (`*`) so git leaves it alone. This is the

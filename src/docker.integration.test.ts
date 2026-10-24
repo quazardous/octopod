@@ -224,11 +224,12 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
 
   it('keeps the console and the dashboard from the projects\' containers', async () => {
     await eventually('octopod.localhost', 200);
-    // From a project's edge network, where its containers reach the edge. A raw request
+    // From a project's edge network, where its containers reach the edge (on its published
+    // port, which it listens on inside too). A raw request
     // (busybox wget sends its own Host header before any given one), its input kept open
     // until the answer is in: a closed one reads to Traefik as a client gone (499).
     const from = (host: string): string =>
-      execFileSync('docker', ['run', '--rm', '--network', 'octopodtest-alpha-edge', 'alpine:3.20', 'sh', '-c', `(printf 'GET / HTTP/1.0\\r\\nHost: ${host}\\r\\n\\r\\n'; sleep 3) | nc -w 5 ${INSTANCE}-edge 80 | head -1`], { encoding: 'utf8' });
+      execFileSync('docker', ['run', '--rm', '--network', 'octopodtest-alpha-edge', 'alpine:3.20', 'sh', '-c', `(printf 'GET / HTTP/1.0\\r\\nHost: ${host}\\r\\n\\r\\n'; sleep 3) | nc -w 5 ${INSTANCE}-edge ${PORT} | head -1`], { encoding: 'utf8' });
     expect(from('octopod.localhost')).toMatch(/403/);
     expect(from('traefik.localhost')).toMatch(/403/);
     expect(from('alpha.localhost')).toMatch(/200/);
@@ -280,6 +281,24 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
     const restarted = await octopod.restart('alpha', 'web');
     expect(restarted.services).toEqual([expect.objectContaining({ service: 'web', state: 'running' })]);
     expect((await eventually('alpha.localhost', 200)).status).toBe(200);
+  });
+
+  it("lets a project's routed containers reach its own hosts, at the browser's URL", async () => {
+    const root = join(base, 'hostsp');
+    await mkdir(root);
+    await writeFile(join(root, 'docker-compose.yml'), 'services:\n  web:\n    image: traefik/whoami:v1.10\n  client:\n    image: busybox:1.37\n    command: [sleep, infinity]\n');
+    await writeFile(join(root, 'octopod.yaml'), 'project: hostsp\nexpose:\n  - service: web\n  - service: web\n    host: api\n  - service: client\n    host: client\n    port: 80\n');
+    await octopod.register(root);
+    try {
+      await octopod.up('hostsp');
+      expect((await eventually('api.hostsp.localhost', 200)).body).toContain('Host: api.hostsp.localhost');
+      // The edge's port is not 80 here: the same URL from inside, through the edge.
+      const inside = await octopod.exec('hostsp', 'client', ['wget', '-qO-', `http://api.hostsp.localhost:${PORT}/`]);
+      expect(inside.ok).toBe(true);
+      expect(inside.output).toContain('Host: api.hostsp.localhost');
+    } finally {
+      await octopod.unregister('hostsp').catch(() => undefined);
+    }
   });
 
   it('runs a command in a service that restarts in a loop, in a one-off container the edge does not route to', async () => {

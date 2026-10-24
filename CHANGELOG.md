@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A project's exposed containers reach the project's own hosts at the URLs a browser uses: `http://api.demo.localhost` (or `:8480`) from inside the project goes through the edge, as it does from the host. The edge is now an alias for each of the project's hosts on its edge network, and listens inside on the port it is published on. Useful for an identity provider's issuer, or an app that calls its own API by its public address.
+
 ## [0.5.1] - 2026-10-23
 
 ### Added

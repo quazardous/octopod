@@ -45,6 +45,9 @@ describe('the edge', () => {
   it('listens on loopback only, and reads the docker socket read-only', () => {
     const { traefik } = services();
     expect(traefik.ports).toEqual(['127.0.0.1:80:80']);
+    // Inside on the port it is published on: a container's URL is the browser's.
+    expect((edgeCompose({ ...settings, port: 8480 }).services as Record<string, Service>).traefik.ports).toEqual(['127.0.0.1:8480:8480']);
+    expect(traefikConfig('octopod', 8480).entryPoints).toEqual({ web: { address: ':8480' } });
     expect(traefik.volumes).toContain('/var/run/docker.sock:/var/run/docker.sock:ro');
   });
 
