@@ -3,6 +3,7 @@
 # kept in the project (.octopod/data) unless `persist: false`.
 title: MongoDB
 summary: Document database, reachable inside the project as host <service> on port 27017.
+icon: icon.svg
 image: "mongo:{{params.version}}"
 unpinned: true
 build: true

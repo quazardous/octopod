@@ -342,7 +342,7 @@ first time, kept after), and answers only a request that carries that token in t
 | POST | `/v1/edge/up` · `/v1/edge/down` | | `{ running, port, dashboard, console }` |
 | GET | `/v1/projects?group=&tag=` | | `Project[]` — every registered project, or those of a group, or carrying a tag |
 | POST | `/v1/projects` | `{ root }` | `Project` (registered from `root/octopod.yaml`) |
-| GET | `/v1/projects/:name` | | `ProjectStatus` |
+| GET | `/v1/projects/:name` | | `ProjectStatus`; each of its `services` made of a recipe carries `recipe` (its id), `link` (where the console's icon leads: its route at the recipe's `link:`, or for a database the route of the admin wired to it) and `app` (it works on the project's files) |
 | POST | `/v1/projects/:name/up` · `/down` | `{ volumes?: boolean, instance? }` for down, `{ instance? }` for up | `ProjectStatus` — the only POSTs the console's relay lets through, with `X-Octopod-Console: 1`; a down with `volumes: true` and that header is refused (403) |
 | POST | `/v1/projects/:name/restart` | `{ service? }` | `ProjectStatus` |
 | POST | `/v1/projects/:name/exec` | `{ service, argv: string[], timeoutMs? }` | `{ ok, mode, output, truncated }` — argv, never a shell string built by octopod; output bounded; a failure says how it ended (exit code, timeout). `mode: "run"` when the service was not running (stopped, restarting in a loop): the command ran in a one-off container of it (same image, mounts, user, network), kept out of the edge's routes |
@@ -351,6 +351,7 @@ first time, kept after), and answers only a request that carries that token in t
 | POST | `/v1/projects/:name/run` | `{ service, action, input?, output?, confirm?, instance? }` | `{ ok, code, stderr }` — `input` and `output` are absolute paths: the action reads the one, writes the other (created `0600`), streamed. An interactive action is refused; one that destroys needs `confirm: true`. Refused through the console's relay, like every POST |
 | GET | `/v1/projects/:name/programs?instance=` | | `{ service, program, state, detail }[]` — every program of the running supervised services, the recipe's and the project's, as supervisord reports them (`RUNNING`, `STOPPED`, `BACKOFF`, `FATAL`, `EXITED`…) |
 | POST | `/v1/projects/:name/program` | `{ service, program, action: "start" \| "stop" \| "restart", instance? }`, or `{ service, action: "reload" }` | the service's programs, after the action |
+| GET | `/v1/recipes/:id/icon?project=` | | the recipe's icon, an SVG served as an image (`sandbox` policy: no script runs from it); a plain one for a recipe without |
 | GET | `/v1/projects/:name/secrets?instance=` | | `{ values: string[] }` — the secrets octopod generated for the project's recipes, every running instance's unless one is named: for a client to mask them. Refused (403) through the console's relay |
 | GET | `/v1/recipes?root=` | | `{ recipes: {id,title,summary,dir,digest}[], shadowed: {id,dir,by}[] }` |
 | POST | `/v1/plan` | `{ root, instance? }` | `{ project, text, services, compose }` — writes nothing |

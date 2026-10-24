@@ -4,6 +4,7 @@
 # default: nothing kept; `persist: true` keeps its data in .octopod/data.
 title: Valkey
 summary: In-memory store compatible with Redis (cache, queues, messages), reachable inside the project as host <service> on port 6379.
+icon: icon.svg
 image: "valkey/valkey:{{params.version}}"
 unpinned: true
 build: true

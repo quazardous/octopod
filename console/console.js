@@ -237,6 +237,30 @@ function serviceTone(s) {
   return '';
 }
 
+/**
+ * A known service as a small icon of its software, in its state's colour; its link opens what
+ * it serves (an admin, an inbox; a database, its admin). Set through the CSSOM: the page's
+ * policy forbids inline styles.
+ */
+function decoration(s, project) {
+  const icon = el('span', { class: `deco-icon ${serviceTone(s)}` });
+  icon.style.setProperty('--icon', `url("/v1/recipes/${encodeURIComponent(s.recipe)}/icon?project=${encodeURIComponent(project)}")`);
+  const title = `${s.service} · ${s.recipe} · ${s.state}${s.health ? `, ${s.health}` : ''}`;
+  return s.link ? el('a', { class: 'deco', href: s.link, target: '_blank', rel: 'noreferrer', title }, icon) : el('span', { class: 'deco', title }, icon);
+}
+
+/** A project's known services, apps first: what the stack is, at a glance. */
+function decorations(p, project) {
+  const known = (p.services || []).filter((s) => s.recipe).sort((a, b) => Number(Boolean(b.app)) - Number(Boolean(a.app)) || a.service.localeCompare(b.service));
+  return known.length ? el('div', { class: 'decos' }, known.map((s) => decoration(s, project))) : null;
+}
+
+/** The routes worth listing: an app's, or a service octopod knows nothing of; a known one is its icon. */
+function plainRoutes(p) {
+  const known = new Set((p.services || []).filter((s) => s.recipe && !s.app).map((s) => s.service));
+  return (p.routes || []).filter((r) => !known.has(r.service));
+}
+
 function programTone(g) {
   if (g.state === 'RUNNING') return 'ok';
   if (g.state === 'FATAL' || g.state === 'BACKOFF' || g.state === 'UNKNOWN') return 'bad';
@@ -280,7 +304,7 @@ function servicesTable(p, base, instance) {
       el(
         'tr',
         {},
-        el('td', {}, el('span', { class: `dot ${serviceTone(s)}` }), el('span', { class: 'mono' }, s.service)),
+        el('td', {}, s.recipe ? decoration(s, base) : el('span', { class: `dot ${serviceTone(s)}` }), el('span', { class: 'mono' }, ` ${s.service}`)),
         el(
           'td',
           {},
@@ -325,7 +349,7 @@ function card(p, base, nested = false) {
   const instance = p.instance || 1;
   const { tone, label } = projectTone(p);
   const key = `${base}#${instance}`;
-  const routes = (p.routes || []).map((r) => el('a', { href: r.url, target: '_blank', rel: 'noreferrer' }, r.url.replace(/^http:\/\//, '')));
+  const routes = plainRoutes(p).map((r) => el('a', { href: r.url, target: '_blank', rel: 'noreferrer' }, r.url.replace(/^http:\/\//, '')));
   return el(
     'article',
     { class: nested ? 'card instance' : 'card', 'data-name': base },
@@ -406,7 +430,8 @@ function tile(p) {
     ),
     failure(p.name, 1),
     p.problem ? el('p', { class: 'problem' }, p.problem) : el('p', { class: 'tile-facts muted' }, facts, warnings ? el('span', { class: 'dot warn tile-alert' }) : null),
-    el('div', { class: 'tile-routes' }, (p.routes || []).map((r) => el('a', { href: r.url, target: '_blank', rel: 'noreferrer' }, r.url.replace(/^http:\/\//, '')))),
+    decorations(p, p.name),
+    el('div', { class: 'tile-routes' }, plainRoutes(p).map((r) => el('a', { href: r.url, target: '_blank', rel: 'noreferrer' }, r.url.replace(/^http:\/\//, '')))),
     (p.tags || []).length ? el('div', { class: 'tile-tags' }, p.tags.map((t) => el('span', { class: 'tag' }, `#${t}`))) : null,
   );
 }
@@ -424,13 +449,14 @@ function instanceStrip(base, selected) {
     all.map((x) => {
       const n = x.instance || 1;
       const { tone, label } = projectTone(x);
-      const route = (x.routes || [])[0];
+      const route = plainRoutes(x)[0];
       return el(
         'div',
         { class: `chip${n === selected ? ' selected' : ''}` },
         el('a', { href: pageOf(base.name, n), class: 'chip-name', 'aria-current': n === selected ? 'page' : null }, el('span', { class: `dot ${tone}` }), x.name),
         el('span', { class: `pill ${tone}` }, label),
         route ? el('a', { href: route.url, target: '_blank', rel: 'noreferrer', class: 'mono' }, route.url.replace(/^http:\/\//, '')) : null,
+        decorations(x, base.name),
         actButton(base.name, n, label === 'down' || x.problem ? 'up' : 'down'),
       );
     }),
@@ -448,7 +474,8 @@ function renderDetail(projects) {
     $('summary').textContent = '';
     return;
   }
-  $('projects').replaceChildren(back, instanceStrip(base, instance), card({ ...p, others: [] }, project));
+  // replaceChildren writes a null as the text "null": a project run once has no strip.
+  $('projects').replaceChildren(...[back, instanceStrip(base, instance), card({ ...p, others: [] }, project)].filter(Boolean));
   $('summary').textContent = [base.group ? `group ${base.group}` : '', instance > 1 ? `instance ${instance} of ${project}` : ''].filter(Boolean).join(' · ');
   // The page opens on its logs, every service's; closed, they stay closed on this page.
   const key = `${project}#${instance}`;

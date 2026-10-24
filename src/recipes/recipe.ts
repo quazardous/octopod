@@ -118,6 +118,13 @@ export const RecipeSchema = z
     readOnly: z.boolean().default(false),
     /** The port the service listens on: written as `expose`, where octopod finds it. */
     port: z.number().int().min(1).max(65535).optional(),
+    /**
+     * The console's picture of it: an SVG of the recipe's folder (its software's logo, or a
+     * glyph that says what it does), drawn in the console's colours.
+     */
+    icon: z.string().regex(/^[A-Za-z0-9._-]+\.svg$/, 'an SVG file of the recipe folder').optional(),
+    /** Where the console's icon of a routed service leads, on its route: `/admin/` for the OIDC provider. */
+    link: z.string().regex(/^\/[A-Za-z0-9._~\/-]*$/, 'a path').default('/'),
     /** Routed by the edge: at the project's host, or at `<subdomain>.<project>.localhost`. */
     route: z.union([z.literal(true), z.object({ subdomain: Ident }).strict()]).optional(),
     profiles: z.array(Ident).default([]),

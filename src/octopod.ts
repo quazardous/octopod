@@ -94,7 +94,12 @@ export interface ProjectStatus extends Project {
   /** The project's other instances up, when this is the first. */
   instances?: number[];
   /** `programs`: a supervised service's, as its supervisor reports them, when it runs. */
-  services: { service: string; state: string; health?: string; programs?: { program: string; state: string; detail: string }[] }[];
+  /**
+   * `recipe`: the recipe a service is made of (the console draws its icon); `link`: where the
+   * console's icon leads (its route, its admin's for a database); `app`: it works on the
+   * project's files.
+   */
+  services: { service: string; state: string; health?: string; programs?: { program: string; state: string; detail: string }[]; recipe?: string; link?: string; app?: boolean }[];
   /** Things the operator should fix, e.g. data written by a service that runs as another user. */
   warnings?: string[];
 }
@@ -295,6 +300,10 @@ function sharedNetworks(services: string[], networks: Record<string, string>, al
     ) + '\n'
   );
 }
+
+/** A service with no picture of its own: a box. */
+const GENERIC_ICON =
+  '<svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><title>Service</title><path fill="none" stroke="black" stroke-width="2" stroke-linejoin="round" d="M12 2.5 21 7v10l-9 4.5L3 17V7z M3 7l9 4.5L21 7 M12 11.5v10"/></svg>';
 
 export class Octopod {
   readonly stateDir: string;
@@ -636,6 +645,22 @@ export class Octopod {
       recipes: [...book.recipes.values()].map((e) => ({ id: e.id, title: e.recipe.title, summary: e.recipe.summary, dir: e.dir, digest: e.digest })),
       shadowed: book.shadowed,
     };
+  }
+
+  /**
+   * A recipe's icon (an SVG of its folder), the one a project sees when it is named — its own
+   * recipe folders included; a plain glyph for a recipe without one, or unknown.
+   */
+  async recipeIcon(id: string, project?: string): Promise<string> {
+    const registry = await this.registry();
+    const declaration = project && registry[project] ? await loadDeclaration(registry[project]).catch(() => undefined) : undefined;
+    const book = await loadRecipes(this.recipeDirs(declaration)).catch(() => undefined);
+    const entry = book?.recipes.get(id);
+    if (entry?.recipe.icon) {
+      const svg = await readFile(join(entry.dir, entry.id, entry.recipe.icon), 'utf8').catch(() => undefined);
+      if (svg) return svg;
+    }
+    return GENERIC_ICON;
   }
 
   /** Each built recipe's Dockerfile against octopod's rules (`recipes --check`): a help, not a gate. */
@@ -1127,13 +1152,17 @@ export class Octopod {
       ...failing,
     ];
     const others = instance === 1 ? await this.instances(name) : [];
+    const known = await this.knownServices(declaration, made);
     return {
       ...(await this.project(declaration)),
       ...(instance > 1 ? { instance } : others.length > 0 ? { instances: others } : {}),
-      services: rows.map((r) => {
-        const own = programs.filter((p) => p.service === r.Service).map(({ program, state, detail }) => ({ program, state, detail }));
-        return { service: r.Service, state: r.State, ...(r.Health ? { health: r.Health } : {}), ...(supervisors.has(r.Service) ? { programs: own } : {}) };
-      }).concat(tools),
+      services: rows
+        .map((r) => {
+          const own = programs.filter((p) => p.service === r.Service).map(({ program, state, detail }) => ({ program, state, detail }));
+          return { service: r.Service, state: r.State, ...(r.Health ? { health: r.Health } : {}), ...(supervisors.has(r.Service) ? { programs: own } : {}) };
+        })
+        .concat(tools)
+        .map((s) => ({ ...s, ...known.get(s.service) })),
       ...(warnings.length > 0 ? { warnings } : {}),
     };
   }
@@ -1228,6 +1257,34 @@ export class Octopod {
   }
 
   /** The services made of recipes, as rendered (secrets left out): what each is. */
+  /**
+   * What the console shows of a recipe's service: its recipe (for its icon), and where its
+   * icon leads — its route (an admin's at its `link`), or, for a database, the route of the
+   * admin wired to it (phpMyAdmin for MariaDB).
+   */
+  private async knownServices(declaration: Declaration, made: RenderedService[]): Promise<Map<string, { recipe: string; link?: string; app?: boolean }>> {
+    const port = (await this.readJson<{ port?: number }>('edge/edge.json', {})).port ?? 80;
+    const urlOf = (service: string): string | undefined => {
+      const host = declaration.expose.find((e) => e.service === service)?.host;
+      return host ? this.url(host, port) : undefined;
+    };
+    const out = new Map<string, { recipe: string; link?: string; app?: boolean }>();
+    for (const s of made) {
+      const url = urlOf(s.name);
+      out.set(s.name, { recipe: s.recipe, ...(url && s.link ? { link: `${url}${s.link === '/' ? '' : s.link}` } : {}), ...(s.app ? { app: true } : {}) });
+    }
+    // An admin lends its address to what it administers.
+    for (const s of made) {
+      const url = urlOf(s.name);
+      if (s.app || !url) continue;
+      for (const p of s.uses ?? []) {
+        const target = out.get(p);
+        if (target && !target.link) target.link = url;
+      }
+    }
+    return out;
+  }
+
   /**
    * A service now the group's whose former data is still in the project: said, with the way
    * over — octopod does not move a database's data on its own.

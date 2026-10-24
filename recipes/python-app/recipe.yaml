@@ -6,6 +6,7 @@
 # A worker-only project turns the route off (route: false on its service).
 title: Python app
 summary: supervisord running the project's programs (an ASGI/WSGI server on port 8000, workers, tasks) as the project's user; uv in the image, dependencies in the project's .venv.
+icon: icon.svg
 image: "python:{{params.python}}-slim"
 unpinned: true
 build: true

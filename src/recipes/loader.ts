@@ -131,6 +131,9 @@ export async function loadRecipe(dir: string, id: string): Promise<RecipeEntry> 
       throw new RecipeError(`${file}: builds, but ${join(dir, id, 'Dockerfile')} is missing`);
     });
   }
+  if (recipe.icon && !(await stat(join(dir, id, recipe.icon)).then((s) => s.isFile(), () => false))) {
+    throw new RecipeError(`${file}: icon ${recipe.icon} is not a file of the recipe's folder`);
+  }
   return { id, recipe, dir, digest: digestOf(recipe, dockerfile), ...(dockerfile !== undefined ? { dockerfile } : {}) };
 }
 

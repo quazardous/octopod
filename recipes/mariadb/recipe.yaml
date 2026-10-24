@@ -4,6 +4,7 @@
 # kept in the project (.octopod/data) unless `persist: false`.
 title: MariaDB
 summary: Relational database, reachable inside the project as host <service> on port 3306.
+icon: icon.svg
 image: "mariadb:{{params.version}}"
 unpinned: true
 build: true

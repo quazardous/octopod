@@ -116,6 +116,18 @@ export function handler(octopod: Octopod) {
         if (root !== null && !root.startsWith('/')) return send(res, 400, { error: '"root" must be an absolute path' });
         return send(res, 200, await octopod.recipes(root ?? undefined));
       }
+      if (resource === 'recipes' && name && action === 'icon' && method === 'GET') {
+        // An SVG of a recipe's folder: an image only, whatever it holds — no script runs from it.
+        const svg = await octopod.recipeIcon(name, url.searchParams.get('project') ?? undefined);
+        res.writeHead(200, {
+          'content-type': 'image/svg+xml',
+          'cache-control': 'max-age=3600',
+          'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+          'x-content-type-options': 'nosniff',
+        });
+        res.end(svg);
+        return;
+      }
       if (resource === 'plan' && !name && method === 'POST') {
         const { root, instance } = await body(req);
         if (typeof root !== 'string' || !root.startsWith('/')) return send(res, 400, { error: '"root" must be an absolute path' });

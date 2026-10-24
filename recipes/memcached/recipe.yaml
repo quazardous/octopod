@@ -3,6 +3,7 @@
 # image's own unprivileged user.
 title: Memcached
 summary: In-memory cache, reachable inside the project as host <service> on port 11211.
+icon: icon.svg
 image: memcached:1.6
 unpinned: true
 provides: [memcached]

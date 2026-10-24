@@ -3,6 +3,7 @@
 # only on the machine, like every route of the edge.
 title: mongo-express
 summary: Web admin of the project's MongoDB at http://mongo.<project>.localhost.
+icon: icon.svg
 image: mongo-express:1.0
 unpinned: true
 build: true

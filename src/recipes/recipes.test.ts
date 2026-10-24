@@ -144,6 +144,12 @@ describe('a recipe\'s Dockerfile, checked', () => {
     expect(lintDockerfile(ok.replace(/\n/g, '\r\n'))).toEqual([]);
   });
 
+  it("refuses an icon that is not a file of the recipe's folder", async () => {
+    const dir = join(base, 'recipes');
+    await recipe(dir, 'pic', 'title: T\nsummary: s\nimage: base:1\nunpinned: true\nicon: missing.svg\n');
+    await expect(loadRecipes([dir])).rejects.toThrow(/icon missing.svg is not a file of the recipe's folder/);
+  });
+
   it('names each rule broken, with its line', () => {
     const bad = ['FROM node:22', 'COPY package.json /app/', 'RUN npm ci', 'VOLUME /data', 'USER app', 'USER 0'].join('\n');
     const problems = lintDockerfile(bad);

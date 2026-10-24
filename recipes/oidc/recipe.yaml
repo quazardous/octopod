@@ -5,6 +5,8 @@
 # browser and from the project's containers, so a token's `iss` matches on both sides.
 title: OIDC provider
 summary: A local OpenID Connect provider at http://id.<project>.localhost/<issuer> — any issuer name, a login page that takes a user and its claims.
+icon: icon.svg
+link: /admin/
 image: node:22-bookworm-slim
 unpinned: true
 build: true

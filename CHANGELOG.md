@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The console draws a project's known services as small icons of their software (an envelope for mailpit), in their state's colour, on its tile, its instances and its page; a click opens what each serves: the OIDC admin, the mail inbox, and for a database, the admin wired to it (phpMyAdmin, mongo-express). Their URLs are no longer listed beside the app's. A recipe names its picture (`icon:`, an SVG of its folder) and where it leads (`link:`); `status` gives each service its `recipe`, `link` and `app`; `GET /v1/recipes/:id/icon` serves the picture.
+
+### Fixed
+
+- The console's page of a project run once no longer shows a stray "null" above it.
+
 ## [0.6.0] - 2026-10-24
 
 After upgrading, run `octopod up` once in each project: its routes then answer only your machine and its own containers (until then they keep their old labels), and its containers reach its own hosts. `octopod setup` once too: the user service now retries without limit.

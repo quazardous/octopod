@@ -3,6 +3,7 @@
 # `persist: false`.
 title: PostgreSQL 16
 summary: Relational database, reachable inside the project as host <service> on port 5432.
+icon: icon.svg
 image: postgres:16.4-bookworm
 unpinned: true
 build: true

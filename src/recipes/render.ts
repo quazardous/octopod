@@ -118,6 +118,12 @@ export interface RenderedService {
   waits?: { service: string; healthy: boolean }[];
   /** Run by the group, not by the project. */
   shared?: true;
+  /** An app: it works on the project's files (the recipe has a workspace). */
+  app?: true;
+  /** Where the console's icon leads on its route (the recipe's `link`). */
+  link?: string;
+  /** The project's services it is wired to (its requirements' providers). */
+  uses?: string[];
 }
 
 /** A project's tenant in a shared service: the command that makes it, its name, its secret. */
@@ -343,6 +349,7 @@ export function renderServices(options: RenderOptions): Rendered {
     const host = hostScope(options.hostOs ?? hostOsOf());
     const env = present(renderMap(recipe.env, { ...scopes(r, options), host }, `${r.name}.env`));
     const waits: { service: string; healthy: boolean }[] = [];
+    const uses: string[] = [];
     let reachesShared = false;
     for (const requirement of recipe.requires) {
       const providers = resolved.filter((o) => o.name !== r.name && o.entry.recipe.provides.includes(requirement.capability));
@@ -359,6 +366,7 @@ export function renderServices(options: RenderOptions): Rendered {
         reachesShared = true;
         continue;
       }
+      uses.push(provider.name);
       // What it requires is there: it starts once its provider is ready — healthy when the
       // provider can say so, started otherwise — not before, to fail on a refused connection.
       if (!waits.some((w) => w.service === provider.name)) waits.push({ service: provider.name, healthy: Boolean(provider.entry.recipe.health) });
@@ -466,6 +474,9 @@ export function renderServices(options: RenderOptions): Rendered {
       ...(recipe.port ? { port: recipe.port } : {}),
       ...(recipe.route && r.request.route !== false ? { route: recipe.route === true ? '' : recipe.route.subdomain } : {}),
       ...(waits.length > 0 ? { waits } : {}),
+      ...(recipe.workspace ? { app: true as const } : {}),
+      ...(recipe.route ? { link: recipe.link } : {}),
+      ...(uses.length > 0 ? { uses } : {}),
       ...(Object.keys(r.programs).length > 0 ? { programs: Object.keys(r.programs) } : {}),
       ...(recipe.supervisor ? { supervisor: recipe.supervisor.config } : {}),
       ...(recipe.tool ? { tool: true } : {}),

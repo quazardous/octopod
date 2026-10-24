@@ -48,6 +48,15 @@ afterEach(async () => {
 
 // A unix socket: the API does not run on Windows yet.
 describe.skipIf(process.platform === 'win32')('the API', () => {
+  it("gives a recipe's icon as an image no script runs from, and a plain one for a recipe without", async () => {
+    const icon = await raw('GET', '/v1/recipes/mariadb/icon');
+    expect(icon.status).toBe(200);
+    expect(icon.headers['content-type']).toBe('image/svg+xml');
+    expect(String(icon.headers['content-security-policy'])).toContain('sandbox');
+    expect(icon.text).toContain('<title>MariaDB</title>');
+    expect((await raw('GET', '/v1/recipes/whoami/icon')).text).toContain('<title>Service</title>');
+  });
+
   it('is a socket only its owner can use', async () => {
     expect((await stat(socket)).mode & 0o777).toBe(0o600);
     expect((await stat(join(base, 'run'))).mode & 0o777).toBe(0o700);

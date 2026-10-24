@@ -5,6 +5,7 @@
 # and any tool that follows XDG) is kept in .octopod/data.
 title: PHP command line (tool)
 summary: PHP CLI and composer, run on demand for the project's tools (phpstan, php-cs-fixer…) as the project's user; never kept up.
+icon: icon.svg
 image: "php:{{params.php}}-cli"
 unpinned: true
 build: true

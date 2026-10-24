@@ -3,6 +3,7 @@
 # cache by default: nothing kept; `persist: true` keeps its data in .octopod/data.
 title: Redis
 summary: In-memory store (cache, queues, sessions), reachable inside the project as host <service> on port 6379.
+icon: icon.svg
 image: "redis:{{params.version}}"
 unpinned: true
 build: true

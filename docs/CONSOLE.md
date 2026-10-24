@@ -7,6 +7,10 @@ its warnings and its URLs, grouped by `group`. A project run more than once is o
 tile, a dot per instance. A project's page has its instances, the state and health of each
 service and its programs, what octopod warns about, and the logs, which it refreshes.
 
+A project's known services show as small icons of their software (an envelope for the mail
+catcher), in their state's colour: a click opens what each serves — the OIDC admin, the
+mail inbox, and for a database the admin wired to it. Only the app's URLs are listed.
+
 It brings a project up or down; Down asks for a second click. The rest (`restart`, `exec`,
 `run`, removing volumes) stays on the command line. It links to Traefik's dashboard at
 `http://traefik.localhost`.

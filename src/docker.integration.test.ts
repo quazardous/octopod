@@ -735,6 +735,12 @@ describe.skipIf(!dockerAvailable())('the service recipes, together (real docker)
       'sessions:running:healthy',
     ]);
     expect(status.warnings ?? []).toEqual([]);
+    // What the console draws: each service's recipe, and where its icon leads — a database,
+    // to the admin wired to it.
+    const known = Object.fromEntries(status.services.map((x) => [x.service, x]));
+    expect(known.db).toEqual(expect.objectContaining({ recipe: 'mariadb', link: `http://pma.stack.localhost:${PORT}` }));
+    expect(known.docs).toEqual(expect.objectContaining({ recipe: 'mongodb', link: `http://mongo.stack.localhost:${PORT}` }));
+    expect(known.mail).toEqual(expect.objectContaining({ recipe: 'mailpit', link: `http://mail.stack.localhost:${PORT}` }));
     for (const volume of ['db-data', 'cache-data', 'docs-data']) {
       expect((await stat(join(root, '.octopod', 'data', volume))).uid, volume).toBe(process.getuid?.());
     }

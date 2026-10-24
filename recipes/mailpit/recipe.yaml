@@ -3,6 +3,7 @@
 # http://mail.<project>.localhost. It keeps nothing.
 title: Mailpit
 summary: Catches the project's outgoing mail (SMTP on <service>:1025) and shows it at http://mail.<project>.localhost.
+icon: icon.svg
 image: axllent/mailpit:v1
 unpinned: true
 build: true

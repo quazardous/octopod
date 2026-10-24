@@ -3,6 +3,7 @@
 # machine, like every route of the edge.
 title: phpMyAdmin
 summary: Web admin of the project's MariaDB at http://pma.<project>.localhost, logged in with its user.
+icon: icon.svg
 image: phpmyadmin:5.2
 unpinned: true
 build: true
