@@ -54,6 +54,27 @@ octopod oidc user ada --no-password        # one-click sign-in again; --issuers 
 octopod oidc remove ada
 ```
 
+## Signed in, with no password: agents, tests, a browser
+
+An agent or a test signs an app in as one of the provider's users — its groups and
+attributes, its password never asked — or as a passing identity (`--claims`):
+
+```sh
+octopod oidc session ada --url http://shop.octopod.localhost/oidc/authenticate/
+# Cookie: sessionid=…        (--json: each cookie; --cookie-jar f.txt: curl's file, Playwright reads it)
+octopod oidc link ada --url http://shop.octopod.localhost/oidc/authenticate/
+# http://id.shop.octopod.localhost/sign-in?ticket=…   open it: the app comes back signed in, once, within 2 minutes
+octopod oidc token ada --issuer staff --client api      # signed id and access tokens, for an API's bearer
+octopod oidc session --claims '{"groups":["beta"]}' --url …   # nobody in the provider: these claims
+```
+
+`--url` is the address that starts the app's own sign-in: `session` follows it through the
+edge as a browser would, the provider letting the user in at once with a single-use ticket,
+and keeps the cookies the app sets — any OIDC app, nothing in its code. The tickets and the
+tokens are asked for with the admin token, even when the admin is open, and the provider
+logs each one. An agent with `octopod mcp` has the same as `octopod_oidc_session` (`link:
+true` for the link) and `octopod_oidc_token`.
+
 ## A CI without a browser
 
 With `password-grant: true` on the recipe, a test trades a user's name and password for

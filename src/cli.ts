@@ -30,6 +30,7 @@
 import { helpText } from './help.js';
 import { spawn } from 'node:child_process';
 import { closeSync, existsSync, openSync, read as readFs } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { dockerEnv } from './docker.js';
 import { DECLARATION_FILE, loadDeclaration } from './declaration.js';
@@ -69,7 +70,7 @@ function print(value: unknown, json: boolean): void {
   }
 }
 
-const VALUED = new Set(['--service', '--tail', '--socket', '--timeout', '--instance', '--group', '--tag', '--claims', '--password', '--issuers', '--attr', '--description']);
+const VALUED = new Set(['--service', '--tail', '--socket', '--timeout', '--instance', '--group', '--tag', '--claims', '--password', '--issuers', '--attr', '--description', '--url', '--cookie-jar', '--issuer', '--client', '--scope']);
 
 /** Every value of a flag given more than once (`--group a --group b`). */
 function flags(args: string[], name: string): string[] {
@@ -239,6 +240,33 @@ async function main(argv: string[]): Promise<void> {
         };
         const answer = await octopod.oidcUsers(project, 'PUT', user, body, instance);
         return json ? print(answer, true) : console.log(`${user}: ${JSON.stringify(answer)}`);
+      }
+      if (sub === 'session' || sub === 'link' || sub === 'token') {
+        // [project] [user]: a user of the provider, or --claims for a passing identity.
+        if (names.length > 2) throw new Error(`usage: octopod oidc ${sub} [project] [<user>] [--claims JSON]`);
+        const project = names.length === 2 ? names[0]! : (await loadDeclaration(process.cwd())).project;
+        const user = names.length >= 1 ? names[names.length - 1] : undefined;
+        const claims = flag(rest, '--claims');
+        if (!user && claims === undefined) throw new Error(`octopod oidc ${sub}: name a user, or give --claims for a passing identity`);
+        const who = { ...(user ? { sub: user } : {}), ...(claims !== undefined ? { claims: JSON.parse(claims) as Record<string, unknown> } : {}), ...(flag(rest, '--issuer') ? { issuer: flag(rest, '--issuer') } : {}) };
+        if (sub === 'token') {
+          const tokens = await octopod.oidcToken(project, who, { issuer: flag(rest, '--issuer'), client: flag(rest, '--client'), scope: flag(rest, '--scope') }, instance);
+          return json ? print(tokens, true) : console.log(`id_token ${String(tokens.id_token)}\naccess_token ${String(tokens.access_token)}`);
+        }
+        const start = flag(rest, '--url');
+        if (!start) throw new Error(`octopod oidc ${sub}: --url, the address that starts the app's sign-in (http://app.….octopod.localhost/oidc/authenticate/)`);
+        if (sub === 'link') {
+          const link = await octopod.oidcLink(project, who, start, instance);
+          return json ? print(link, true) : console.log(link.url);
+        }
+        const session = await octopod.oidcSession(project, who, start, instance);
+        const jarFile = flag(rest, '--cookie-jar');
+        if (jarFile) {
+          await writeFile(resolve(jarFile), session.jar, { mode: 0o600 });
+          console.error(`cookies written to ${resolve(jarFile)} (curl -b, Playwright)`);
+        }
+        if (json) return print({ cookies: session.cookies, landed: session.landed }, true);
+        return console.log(`Cookie: ${session.header}`);
       }
       if (sub === 'groups') {
         const project = names[0] ?? (await loadDeclaration(process.cwd())).project;

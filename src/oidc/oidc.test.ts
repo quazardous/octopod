@@ -204,6 +204,67 @@ describe('the OIDC server', () => {
   });
 });
 
+describe('sign-ins on demand (octopod oidc session, link, token)', () => {
+  let dir: string;
+  let server: Server;
+  let base: string;
+
+  beforeAll(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'octopod-oidc-signin-'));
+    process.env.OIDC_ADMIN_TOKEN = 'admin-t0ken';
+    process.env.OIDC_ADMIN_LOGIN = 'false';
+    server = start(0, dir);
+    delete process.env.OIDC_ADMIN_TOKEN;
+    delete process.env.OIDC_ADMIN_LOGIN;
+    await new Promise((r) => server.once('listening', r));
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+  afterAll(async () => {
+    await new Promise((r) => server.close(r));
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const asked = (path: string, payload: unknown, token: string | null = 'admin-t0ken') =>
+    fetch(`${base}/admin/api/${path}`, { method: 'POST', headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(payload) });
+  const query = { response_type: 'code', client_id: 'app', redirect_uri: 'http://demo.octopod.localhost/cb', scope: 'openid', state: 's1' };
+
+  it('signs a user in at once with a ticket, its password unknown, once', async () => {
+    await fetch(`${base}/admin/api/users/ada`, { method: 'PUT', body: JSON.stringify({ claims: { email: 'ada@example.test' }, groups: ['staff'], password: 'secret' }) });
+    // The admin token, even with the admin open: a container of the project has no business here.
+    expect((await asked('sign-in', { sub: 'ada' }, null)).status).toBe(401);
+    const { ticket } = (await (await asked('sign-in', { sub: 'ada' })).json()) as { ticket: string };
+    const authorize = (t: string) => fetch(`${base}/admi/authorize?${new URLSearchParams({ ...query, login_ticket: t })}`, { redirect: 'manual' });
+    const first = await authorize(ticket);
+    expect(first.status).toBe(302);
+    const back = new URL(first.headers.get('location')!);
+    expect(back.searchParams.get('state')).toBe('s1');
+    const tokens = (await (await fetch(`${base}/admi/token`, { method: 'POST', body: new URLSearchParams({ grant_type: 'authorization_code', code: back.searchParams.get('code')!, client_id: 'app', redirect_uri: query.redirect_uri }) })).json()) as Record<string, string>;
+    expect(claimsOf(tokens.id_token!)).toEqual(expect.objectContaining({ sub: 'ada', email: 'ada@example.test', groups: ['staff'] }));
+    // Used up: the page, as for anyone.
+    expect((await authorize(ticket)).status).toBe(200);
+  });
+
+  it('signs in a passing identity, from a link through a cookie of its own', async () => {
+    const { ticket } = (await (await asked('sign-in', { claims: { groups: ['beta'] } })).json()) as { ticket: string };
+    const link = await fetch(`${base}/sign-in?${new URLSearchParams({ ticket, next: 'http://demo.octopod.localhost/login' })}`, { redirect: 'manual' });
+    expect(link.status).toBe(302);
+    expect(link.headers.get('location')).toBe('http://demo.octopod.localhost/login');
+    const cookie = link.headers.get('set-cookie')!.split(';')[0]!;
+    const back = await fetch(`${base}/admi/authorize?${new URLSearchParams(query)}`, { redirect: 'manual', headers: { cookie } });
+    expect(back.status).toBe(302);
+    expect(back.headers.get('set-cookie')).toMatch(/oidc_ticket=; .*Max-Age=0/);
+    expect((await fetch(`${base}/sign-in?${new URLSearchParams({ ticket, next: 'http://x' })}`, { redirect: 'manual' })).status).toBe(400);
+  });
+
+  it('gives tokens with no flow, without the password grant', async () => {
+    expect((await asked('tokens', { sub: 'ada' }, null)).status).toBe(401);
+    const tokens = (await (await asked('tokens', { sub: 'ada', issuer: 'admi', client_id: 'api' })).json()) as Record<string, string>;
+    expect(claimsOf(tokens.access_token!)).toEqual(expect.objectContaining({ sub: 'ada', aud: 'api', groups: ['staff'] }));
+    expect(claimsOf(tokens.id_token!).iss).toMatch(/\/admi$/);
+    expect((await asked('tokens', { sub: 'nobody' })).status).toBe(400);
+  });
+});
+
 describe('the OIDC users of an older provider', () => {
   it('turns the groups a user typed as a claim into its memberships, the groups made', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'octopod-oidc-old-'));

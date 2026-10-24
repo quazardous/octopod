@@ -8,7 +8,7 @@
 import { settleSharing, type ShareList } from './sharing.js';
 import { chmod, lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { createHash, randomBytes } from 'node:crypto';
-import { request as httpRequest } from 'node:http';
+import { CookieJar, edgeRequest, edgeUrl, follow, type Cookie } from './edgeClient.js';
 import { createConnection, createServer } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative } from 'node:path';
@@ -368,6 +368,13 @@ async function writeIfChanged(file: string, content: string, mode?: number): Pro
   const tmp = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
   await writeFile(tmp, content, mode === undefined ? {} : { mode });
   await rename(tmp, file);
+}
+
+/** Who an OIDC sign-in on demand is for: a user of the provider, or a passing identity's claims. */
+export interface OidcIdentity {
+  sub?: string;
+  claims?: Record<string, unknown>;
+  issuer?: string;
 }
 
 export class Octopod {
@@ -1325,7 +1332,8 @@ export class Octopod {
     return this.oidcAdmin(name, method, `groups${group === undefined ? '' : `/${encodeURIComponent(group)}`}`, body, instance);
   }
 
-  private async oidcAdmin(name: string, method: 'GET' | 'PUT' | 'DELETE', resource: string, body?: unknown, instance = 1): Promise<unknown> {
+  /** The project's OIDC provider — its own, or its group's — where it answers, and its admin token. */
+  private async oidcProvider(name: string, instance = 1): Promise<{ base: URL; token?: string; label: string }> {
     const status = await this.status(name, instance);
     const own = status.services.find((s) => s.recipe === 'oidc');
     const shared = own ? undefined : status.shared?.find((s) => s.recipe === 'oidc');
@@ -1335,33 +1343,72 @@ export class Octopod {
     const route = (shared ? (await this.status(project)).routes : status.routes).find((r) => r.service === service);
     if (!route) throw new OctopodError(`${project}/${service} has no route: is it up?`);
     const token = (await this.secrets(project, shared ? undefined : instance)).find((s) => s.service === service && s.name === 'admin-token')?.value;
-    const url = new URL(`/admin/api/${resource}`, route.url);
-    // To the edge on loopback, the host named: a *.localhost name need not resolve on the host.
-    return new Promise((resolve, reject) => {
-      const payload = body === undefined ? undefined : JSON.stringify(body);
-      const req = httpRequest(
-        { host: '127.0.0.1', port: Number(url.port || 80), path: url.pathname, method, headers: { host: url.host, ...(token ? { authorization: `Bearer ${token}` } : {}), ...(payload ? { 'content-type': 'application/json' } : {}) }, timeout: 30_000 },
-        (res) => {
-          let text = '';
-          res.setEncoding('utf8');
-          res.on('data', (c: string) => (text += c));
-          res.on('end', () => {
-            const answer = (() => {
-              try {
-                return JSON.parse(text) as { error_description?: string };
-              } catch {
-                return { error_description: text.slice(0, 200) };
-              }
-            })();
-            if ((res.statusCode ?? 500) >= 400) reject(new OctopodError(`${project}/${service}: ${answer.error_description ?? `HTTP ${res.statusCode}`}`));
-            else resolve(answer);
-          });
-        },
-      );
-      req.on('timeout', () => req.destroy(new Error('the provider did not answer in 30 s')));
-      req.on('error', (e) => reject(new OctopodError(`${project}/${service}: ${e.message}`)));
-      req.end(payload);
+    return { base: new URL(route.url), ...(token ? { token } : {}), label: `${project}/${service}` };
+  }
+
+  private async oidcAdmin(name: string, method: 'GET' | 'PUT' | 'DELETE' | 'POST', resource: string, body?: unknown, instance = 1): Promise<unknown> {
+    const provider = await this.oidcProvider(name, instance);
+    const payload = body === undefined ? undefined : JSON.stringify(body);
+    const answer = await edgeRequest(new URL(`/admin/api/${resource}`, provider.base), {
+      method,
+      headers: { ...(provider.token ? { authorization: `Bearer ${provider.token}` } : {}), ...(payload ? { 'content-type': 'application/json' } : {}) },
+      ...(payload ? { body: payload } : {}),
+    }).catch((e: Error) => {
+      throw new OctopodError(`${provider.label}: ${e.message}`);
     });
+    const parsed = (() => {
+      try {
+        return JSON.parse(answer.body) as { error_description?: string };
+      } catch {
+        return { error_description: answer.body.slice(0, 200) };
+      }
+    })();
+    if (answer.status >= 400) throw new OctopodError(`${provider.label}: ${parsed.error_description ?? `HTTP ${answer.status}`}`);
+    return parsed;
+  }
+
+  /**
+   * A session of an app, signed in as a user of the project's OIDC provider (or a passing
+   * identity, its claims given) with no password: the app's own sign-in, run from `start`
+   * through the edge, the provider letting the user in at once. The cookies the app set.
+   */
+  async oidcSession(name: string, who: OidcIdentity, start: string, instance = 1): Promise<{ cookies: Cookie[]; jar: string; header: string; landed: string }> {
+    const provider = await this.oidcProvider(name, instance);
+    const { ticket } = (await this.oidcAdmin(name, 'POST', 'sign-in', who, instance)) as { ticket: string };
+    const app = edgeUrl(start);
+    const jar = new CookieJar();
+    // The ticket goes with the redirect to the provider's authorize, and nowhere else.
+    const { url, answer } = await follow(app, jar, (next) => {
+      if (next.host === provider.base.host && next.pathname.endsWith('/authorize')) next.searchParams.set('login_ticket', ticket);
+      return next;
+    }).catch((e: Error) => {
+      throw new OctopodError(`${start}: ${e.message}`);
+    });
+    if (answer.status >= 400) throw new OctopodError(`${start}: the app's sign-in ended on ${url} with ${answer.status}`);
+    const own = jar.cookies.filter((c) => c.domain === app.hostname || (c.wide && app.hostname.endsWith(`.${c.domain}`)));
+    return { cookies: own, jar: jar.netscape(), header: own.map((c) => `${c.name}=${c.value}`).join('; '), landed: url.toString() };
+  }
+
+  /** A link that signs a browser in as `who`, once and briefly: the provider sets its ticket, then sends it to `start`. */
+  async oidcLink(name: string, who: OidcIdentity, start: string, instance = 1): Promise<{ url: string; expires_in: number }> {
+    const provider = await this.oidcProvider(name, instance);
+    edgeUrl(start);
+    const { ticket, expires_in } = (await this.oidcAdmin(name, 'POST', 'sign-in', who, instance)) as { ticket: string; expires_in: number };
+    const url = new URL('/sign-in', provider.base);
+    url.searchParams.set('ticket', ticket);
+    url.searchParams.set('next', start);
+    return { url: url.toString(), expires_in };
+  }
+
+  /** Signed tokens for `who`, with no flow and no password grant: for an API's bearer. */
+  async oidcToken(name: string, who: OidcIdentity, options: { issuer?: string; client?: string; scope?: string } = {}, instance = 1): Promise<Record<string, unknown>> {
+    return (await this.oidcAdmin(
+      name,
+      'POST',
+      'tokens',
+      { ...who, ...(options.issuer ? { issuer: options.issuer } : {}), ...(options.client ? { client_id: options.client } : {}), ...(options.scope ? { scope: options.scope } : {}) },
+      instance,
+    )) as Record<string, unknown>;
   }
 
   /**

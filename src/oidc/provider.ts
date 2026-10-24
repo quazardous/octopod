@@ -168,6 +168,11 @@ export class Provider {
     return { status: 200, body: this.tokens(issuer, request.clientId, login, request.scope, entry.authTime, request.nonce) };
   }
 
+  /** Tokens for a login without a flow: what `octopod oidc token` asks for, by the admin API. */
+  tokensFor(issuer: string, clientId: string, login: Login, scope = 'openid'): Record<string, unknown> {
+    return this.tokens(issuer, clientId, login, scope, Math.floor(this.now() / 1000));
+  }
+
   /** An ID token and an access token for a login: the claims it carries, never over the provider's own. */
   private tokens(issuer: string, clientId: string, login: Login, scope: string, authTime: number, nonce?: string): Record<string, unknown> {
     const iat = Math.floor(this.now() / 1000);

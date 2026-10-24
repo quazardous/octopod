@@ -1098,7 +1098,39 @@ describe.skipIf(!dockerAvailable())('the OIDC provider, seen from the browser an
     base = await mkdtemp(join(tmpdir(), 'octopod-oidc-'));
     root = join(base, 'idp');
     await mkdir(root);
-    await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'idp', scripts: { dev: 'node -e "require(\'node:http\').createServer((q, r) => r.end(\'app\')).listen(3000)"' } }));
+    await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'idp', scripts: { dev: 'node app.mjs' } }));
+    // An app that signs in with OIDC as any app does: a state cookie, the code exchanged on
+    // the server's side, a session cookie; /me says who.
+    await writeFile(
+      join(root, 'app.mjs'),
+      [
+        "import { createServer } from 'node:http';",
+        "const issuer = `${process.env.OIDC_ISSUER_BASE}/admi`;",
+        // The edge's port, as the issuer's address carries it.
+        "const port = new URL(process.env.OIDC_ISSUER_BASE).port;",
+        "const back = `http://idp.octopod.localhost${port ? ':' + port : ''}/cb`;",
+        "const cookie = (q, k) => (q.headers.cookie ?? '').split('; ').find((c) => c.startsWith(k + '='))?.slice(k.length + 1);",
+        "createServer(async (q, r) => {",
+        "  const url = new URL(q.url, 'http://x');",
+        "  const meta = await (await fetch(`${issuer}/.well-known/openid-configuration`)).json();",
+        "  if (url.pathname === '/login') {",
+        "    const state = Math.random().toString(36).slice(2);",
+        "    const to = new URL(meta.authorization_endpoint);",
+        "    for (const [k, v] of Object.entries({ response_type: 'code', client_id: 'app', redirect_uri: back, scope: 'openid', state })) to.searchParams.set(k, v);",
+        "    return r.writeHead(302, { location: to.toString(), 'set-cookie': `st=${state}; Path=/` }).end();",
+        "  }",
+        "  if (url.pathname === '/cb') {",
+        "    if (url.searchParams.get('state') !== cookie(q, 'st')) return r.writeHead(400).end('state');",
+        "    const tokens = await (await fetch(meta.token_endpoint, { method: 'POST', body: new URLSearchParams({ grant_type: 'authorization_code', code: url.searchParams.get('code'), client_id: 'app', redirect_uri: back }) })).json();",
+        "    const id = JSON.parse(Buffer.from(tokens.id_token.split('.')[1], 'base64url').toString());",
+        "    return r.writeHead(302, { location: '/me', 'set-cookie': `sid=${encodeURIComponent(JSON.stringify({ sub: id.sub, groups: id.groups ?? [] }))}; Path=/; HttpOnly` }).end();",
+        "  }",
+        "  if (url.pathname === '/me') return cookie(q, 'sid') ? r.end(decodeURIComponent(cookie(q, 'sid'))) : r.writeHead(401).end('nobody');",
+        "  r.end('app');",
+        "}).listen(3000);",
+        '',
+      ].join('\n'),
+    );
     await mkdir(join(root, 'node_modules'));
     // The code flow, run inside the app: every URL is the issuer's public one.
     await writeFile(
@@ -1165,6 +1197,31 @@ describe.skipIf(!dockerAvailable())('the OIDC provider, seen from the browser an
     expect(users).toEqual(expect.arrayContaining([expect.objectContaining({ sub: 'agent', password: true })]));
     await octopod.oidcUsers('idp', 'DELETE', 'agent');
     await expect(octopod.oidcUsers('idp', 'GET', 'agent')).rejects.toThrow(/no user agent/);
+  });
+
+  it('signs an app in as a user with no password: a session, a link for a browser, tokens', async () => {
+    await octopod.oidcUsers('idp', 'PUT', 'zoe', { groups: ['ops'], password: 'never-typed' });
+    const start = `http://idp.octopod.localhost:${PORT}/login`;
+    const session = await octopod.oidcSession('idp', { sub: 'zoe' }, start);
+    expect(session.landed).toMatch(/\/me$/);
+    const me = await get('idp.octopod.localhost', '/me', 'GET', { cookie: session.header });
+    expect(JSON.parse(me.body)).toEqual({ sub: 'zoe', groups: ['ops'] });
+    expect(session.jar).toMatch(/^# Netscape HTTP Cookie File/);
+    // A passing identity, no user made.
+    const guest = await octopod.oidcSession('idp', { sub: 'tmp', claims: { groups: ['beta'] } }, start);
+    expect(JSON.parse((await get('idp.octopod.localhost', '/me', 'GET', { cookie: guest.header })).body)).toEqual({ sub: 'tmp', groups: ['beta'] });
+    // A link, followed as a browser follows it: the provider's cookie, then the app's flow.
+    const { url } = await octopod.oidcLink('idp', { sub: 'zoe' }, start);
+    const { CookieJar, follow } = await import('./edgeClient.js');
+    const jar = new CookieJar();
+    const landed = await follow(new URL(url), jar);
+    expect(landed.url.pathname).toBe('/me');
+    expect(JSON.parse(landed.answer.body)).toEqual({ sub: 'zoe', groups: ['ops'] });
+    // Used once: the same link no longer signs in.
+    expect((await follow(new URL(url), new CookieJar())).answer.status).toBe(400);
+    const tokens = await octopod.oidcToken('idp', { sub: 'zoe' }, { issuer: 'admi', client: 'api' });
+    const id = JSON.parse(Buffer.from(String(tokens.id_token).split('.')[1]!, 'base64url').toString()) as Record<string, unknown>;
+    expect(id).toEqual(expect.objectContaining({ sub: 'zoe', aud: 'api', groups: ['ops'] }));
   });
 
   it('signs a user\'s groups and its groups\' claims, kept through octopod oidc', async () => {

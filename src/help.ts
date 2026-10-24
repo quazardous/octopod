@@ -29,8 +29,9 @@ export const HELP: Record<string, CommandHelp> = {
   program: { usage: 'octopod program start|stop|restart [project] <service>/<program> | reload [project] <service>', about: "Start, stop or restart one program; reload a service's supervisor_d folder.", flags: [INSTANCE] },
   secrets: { usage: 'octopod secrets [project] [--instance N]', about: "The secrets octopod generated for the project (passwords, the OIDC admin token): their names; with --json, the values.", flags: [INSTANCE, JSON_FLAG] },
   oidc: {
-    usage: 'octopod oidc users|groups [project] | user [project] <name> [--group g]… [--attr k=v]… | remove [project] <name> | group add|remove [project] <group>',
-    about: "The users and groups of the project's OIDC provider, its own or its group's.",
+    usage:
+      'octopod oidc users|groups [project] | user [project] <name> [--group g]… [--attr k=v]… | remove [project] <name> | group add|remove [project] <group> | session|link [project] [<name>] --url <app sign-in> | token [project] [<name>]',
+    about: "The users and groups of the project's OIDC provider, its own or its group's; and a user signed in with no password: an app's session (its cookies), a link for a browser, tokens.",
     flags: [
       ['--group g', "a group of the user's (again for more; --no-groups: none); a new name makes the group"],
       ['--attr k=v', 'an attribute (email=ada@example.test; JSON values parse: n=3)'],
@@ -38,6 +39,10 @@ export const HELP: Record<string, CommandHelp> = {
       ['--password p', 'a password (--no-password: one-click sign-in)'],
       ['--issuers a,b', 'the issuers it may use (--all-issuers: any)'],
       ['--description t', "a group's description"],
+      ['--url u', "session, link: the address that starts the app's sign-in"],
+      ['--cookie-jar f', "session: the cookies in curl's file (Playwright reads it too)"],
+      ['--issuer i', 'session, link, token: the issuer it is for (token: dev by default)'],
+      ['--client c', 'token: its audience (octopod by default)'],
       JSON_FLAG,
     ],
   },

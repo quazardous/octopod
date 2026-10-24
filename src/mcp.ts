@@ -15,7 +15,7 @@ import { OCTOPOD_VERSION } from './meta.js';
 import { CONTRACT, type Octopod } from './octopod.js';
 
 /** The tools, in the order they are listed: locked by a test, part of the contract. */
-export const MCP_TOOLS = ['octopod_status', 'octopod_logs', 'octopod_plan', 'octopod_exec', 'octopod_run', 'octopod_up', 'octopod_down', 'octopod_restart'] as const;
+export const MCP_TOOLS = ['octopod_status', 'octopod_logs', 'octopod_plan', 'octopod_exec', 'octopod_run', 'octopod_up', 'octopod_down', 'octopod_restart', 'octopod_oidc_session', 'octopod_oidc_token'] as const;
 
 export interface McpOptions {
   /** The client's folder: where the project is looked for. */
@@ -199,6 +199,43 @@ export function mcpServer(octopod: Octopod, options: McpOptions): McpServer {
     guarded(async ({ project: named, instance: n, service }) => {
       const { name } = await resolve(named);
       return text(await octopod.restart(name, service, n));
+    }),
+  );
+
+  const identity = {
+    user: z.string().min(1).max(128).optional().describe("A user of the project's OIDC provider (octopod oidc users): signed in with its groups and attributes, password or not."),
+    claims: z.record(z.string(), z.unknown()).optional().describe('Claims for a passing identity, or added to the user\'s.'),
+    issuer: z.string().min(1).max(63).optional().describe('The issuer it is for (the path after the provider\'s address).'),
+  };
+  const who = (a: { user?: string; claims?: Record<string, unknown>; issuer?: string }) => {
+    if (!a.user && !a.claims) throw new Error('name a user, or give claims for a passing identity');
+    return { ...(a.user ? { sub: a.user } : {}), ...(a.claims ? { claims: a.claims } : {}), ...(a.issuer ? { issuer: a.issuer } : {}) };
+  };
+
+  server.registerTool(
+    'octopod_oidc_session',
+    {
+      description:
+        "Signs an app in as a user of the project's OIDC provider, with no password: runs the app's own sign-in from url and returns its cookies (a Cookie header for curl or a browser). link: true returns instead a single-use URL that signs a browser in.",
+      inputSchema: { project, instance, ...identity, url: z.string().url().describe("The address that starts the app's sign-in (http://app.….octopod.localhost/oidc/authenticate/)."), link: z.boolean().optional() },
+    },
+    guarded(async (args) => {
+      const { name } = await resolve(args.project);
+      if (args.link) return text(await octopod.oidcLink(name, who(args), args.url, args.instance));
+      const session = await octopod.oidcSession(name, who(args), args.url, args.instance);
+      return text({ cookie: session.header, cookies: session.cookies, landed: session.landed });
+    }),
+  );
+
+  server.registerTool(
+    'octopod_oidc_token',
+    {
+      description: "Signed id and access tokens for a user of the project's OIDC provider, with no password and no flow: for an API that takes a bearer token.",
+      inputSchema: { project, instance, ...identity, client: z.string().min(1).max(128).optional().describe('The token\'s audience (octopod by default).') },
+    },
+    guarded(async (args) => {
+      const { name } = await resolve(args.project);
+      return text(await octopod.oidcToken(name, who(args), { issuer: args.issuer, client: args.client }, args.instance));
     }),
   );
 

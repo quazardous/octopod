@@ -2560,6 +2560,10 @@ export class Provider {
         }
         return { status: 200, body: this.tokens(issuer, request.clientId, login, request.scope, entry.authTime, request.nonce) };
     }
+    /** Tokens for a login without a flow: what `octopod oidc token` asks for, by the admin API. */
+    tokensFor(issuer, clientId, login, scope = 'openid') {
+        return this.tokens(issuer, clientId, login, scope, Math.floor(this.now() / 1000));
+    }
     /** An ID token and an access token for a login: the claims it carries, never over the provider's own. */
     tokens(issuer, clientId, login, scope, authTime, nonce) {
         const iat = Math.floor(this.now() / 1000);
@@ -2613,7 +2617,7 @@ COPY <<'OIDC_SERVER' /opt/oidc/server.js
  *   OIDC_PASSWORD_GRANT  1 to trade a user's name and password for tokens, with no browser
  *   OIDC_GROUPS_CLAIM    the claim a user's groups are signed in (groups)
  */
-import { timingSafeEqual } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { extname, join, resolve, sep } from 'node:path';
@@ -2623,7 +2627,47 @@ import { adminPage } from './admin.js';
 import { groupOf, passwordMatches, shown, userOf, Users } from './users.js';
 const ISSUER = /^\/([a-z0-9][a-z0-9-]{0,62})(\/.*)?$/;
 /** First segments that are the provider's own, not issuers. */
-const RESERVED = ['admin', 'health'];
+const RESERVED = ['admin', 'health', 'sign-in'];
+/** How long a sign-in ticket waits to be used: a command, or a link someone opens. */
+const TICKET_MS = 2 * 60_000;
+/**
+ * Sign-in tickets: an identity, asked for by octopod with the admin token, that the next
+ * authorize of its issuer (or of any) signs in at once — no page, no password. Once each,
+ * and briefly: what an agent or a test takes a session of an app with.
+ */
+class SignIns {
+    tickets = new Map();
+    issue(login, issuer) {
+        const now = Date.now();
+        for (const [t, v] of this.tickets)
+            if (v.expires <= now)
+                this.tickets.delete(t);
+        const ticket = randomBytes(24).toString('base64url');
+        this.tickets.set(ticket, { login, ...(issuer ? { issuer } : {}), expires: now + TICKET_MS });
+        return ticket;
+    }
+    /** Whether a ticket is waiting: a link sets it in a cookie before it is used. */
+    has(ticket) {
+        const v = this.tickets.get(ticket);
+        return Boolean(v && v.expires > Date.now());
+    }
+    /** The identity of a ticket for an issuer, the ticket used up. */
+    take(ticket, issuer) {
+        const v = ticket ? this.tickets.get(ticket) : undefined;
+        if (!v || v.expires <= Date.now() || (v.issuer && v.issuer !== issuer))
+            return undefined;
+        this.tickets.delete(ticket);
+        return v.login;
+    }
+}
+function cookieOf(req, name) {
+    for (const part of (req.headers.cookie ?? '').split(';')) {
+        const [k, ...v] = part.trim().split('=');
+        if (k === name)
+            return v.join('=');
+    }
+    return undefined;
+}
 /** What the login page passes back, beside the user name and claims. */
 const REQUEST_FIELDS = ['response_type', 'client_id', 'redirect_uri', 'scope', 'state', 'nonce', 'code_challenge', 'code_challenge_method'];
 const escape = (s) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -2716,6 +2760,28 @@ async function admin(req, res, path, options) {
             return asset(res, options.adminDir, path);
         if (path === '/admin' || path === '/admin/')
             return send(res, 200, adminPage(), { 'content-security-policy': "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'" });
+    }
+    // A sign-in on demand, and tokens with no flow: always the admin token's, open or not.
+    if ((path === '/admin/api/sign-in' || path === '/admin/api/tokens') && req.method === 'POST') {
+        if (!admitted(req.headers.authorization, options.adminToken))
+            return send(res, 401, { error: 'unauthorized', error_description: 'the admin token is needed, even with an open admin' }, { 'www-authenticate': 'Bearer' });
+        const input = JSON.parse((await body(req)) || '{}');
+        const user = typeof input.sub === 'string' ? options.users.get(input.sub) : undefined;
+        const claims = input.claims && typeof input.claims === 'object' && !Array.isArray(input.claims) ? input.claims : undefined;
+        if (!user && !claims)
+            return send(res, 400, { error: 'invalid_request', error_description: typeof input.sub === 'string' ? `no user ${input.sub}: name one, or give claims for a passing identity` : 'a user (sub) or claims' });
+        // A user of the store, with its claims (password or none); or a passing identity.
+        const login = user ? { sub: user.sub, claims: { ...options.users.claimsOf(user), ...(claims ?? {}) } } : { sub: typeof input.sub === 'string' ? input.sub : 'guest', claims: claims };
+        const issuer = typeof input.issuer === 'string' && input.issuer ? input.issuer : undefined;
+        if (path === '/admin/api/sign-in') {
+            const ticket = options.signIns.issue(login, issuer);
+            console.log(`oidc: a sign-in for ${login.sub}${issuer ? ` on ${issuer}` : ''}, asked with the admin token`);
+            return send(res, 201, { ticket, expires_in: TICKET_MS / 1000 });
+        }
+        const proto = String(req.headers['x-forwarded-proto'] ?? 'http').split(',')[0];
+        const name = issuer ?? 'dev';
+        console.log(`oidc: tokens for ${login.sub} on ${name}, asked with the admin token`);
+        return send(res, 200, options.provider.tokensFor(`${proto}://${req.headers.host}/${name}`, typeof input.client_id === 'string' ? input.client_id : 'octopod', login, typeof input.scope === 'string' ? input.scope : 'openid'));
     }
     // What the admin app asks before it shows its login: whether there is one.
     // Open, it gives its token too: the login form fills itself in, one click signs in.
@@ -2827,11 +2893,22 @@ async function groupsApi(req, res, path, options) {
         return save(name, group, group ? 200 : 201);
     return send(res, 405, { error: 'method_not_allowed', error_description: `${req.method} on a group: GET, PUT or DELETE` });
 }
-export function handler(provider, options) {
+export function handler(provider, given) {
+    const options = { ...given, signIns: given.signIns ?? new SignIns(), provider };
     return async (req, res) => {
         const url = new URL(req.url ?? '/', 'http://local');
         if (url.pathname === '/health')
             return send(res, 200, { ok: true });
+        // A sign-in link: its ticket in a cookie of the provider's, then the app, whose flow comes back here.
+        if (url.pathname === '/sign-in' && req.method === 'GET') {
+            const ticket = url.searchParams.get('ticket') ?? '';
+            const next = url.searchParams.get('next') ?? '';
+            if (!options.signIns.has(ticket))
+                return send(res, 400, { error: 'invalid_request', error_description: 'unknown, used or expired ticket: ask octopod oidc link for another' });
+            if (!/^https?:\/\//.test(next))
+                return send(res, 400, { error: 'invalid_request', error_description: 'next must be the http(s) address that starts the app\'s sign-in' });
+            return send(res, 302, '', { location: next, 'set-cookie': `oidc_ticket=${ticket}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${TICKET_MS / 1000}` });
+        }
         if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) {
             return admin(req, res, url.pathname, options).catch((e) => send(res, 400, { error: 'invalid_request', error_description: e.message }));
         }
@@ -2851,6 +2928,12 @@ export function handler(provider, options) {
                 const request = provider.authorizeRequest(issuer, query);
                 if ('error' in request)
                     return send(res, 400, { error: 'invalid_request', error_description: request.error });
+                // A sign-in asked by octopod: its ticket in the query (a command) or in a cookie (a link).
+                const fromCookie = cookieOf(req, 'oidc_ticket');
+                const ticketed = options.signIns.take(query.login_ticket ?? fromCookie, match[1]);
+                if (ticketed) {
+                    return send(res, 302, '', { location: provider.issueCode(request, ticketed), ...(fromCookie ? { 'set-cookie': 'oidc_ticket=; Path=/; HttpOnly; Max-Age=0' } : {}) });
+                }
                 return send(res, 200, loginPage(issuer, query, options.users.of(match[1]), options.openLogin));
             }
             if (path === '/authorize' && req.method === 'POST') {

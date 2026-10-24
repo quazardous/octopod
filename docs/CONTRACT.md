@@ -282,8 +282,12 @@ workspace: .               # the folder a recipe's workspace mounts; the project
   client secret: a development provider. It keeps users (claims, a password as a scrypt
   hash) and groups (claims given to their members; a user's groups signed in `groups`, or
   the `groups-claim` param), managed at `/admin` and its API (`/admin/api/users`,
-  `/admin/api/groups`, `GET /admin/api/session` → `{ open, token? }`), which ask for nothing unless `admin-login: true`, then for the service's
-  `admin-token` secret (`octopod secrets`); `octopod oidc users|user|remove|groups|group [project]`
+  `/admin/api/groups`, `GET /admin/api/session` → `{ open, token? }`; with the admin token
+  always, `POST /admin/api/sign-in` `{ sub | claims, issuer? }` → `{ ticket, expires_in }`, a
+  single-use sign-in that an issuer's `authorize` takes as `login_ticket`, or from the cookie
+  `GET /sign-in?ticket=&next=` sets, and `POST /admin/api/tokens` `{ sub | claims, issuer?,
+  client_id?, scope? }` → tokens), which ask for nothing unless `admin-login: true`, then for the service's
+  `admin-token` secret (`octopod secrets`); `octopod oidc users|user|remove|groups|group|session|link|token [project]`
   manages them from the command line, the project's provider or its group's; params `password-grant`
   (a CI signs in with no browser) and `open-login: false` (only the admin's users). Its signing key is kept in `.octopod/data/<service>-keys`.
 - **The host, in an env.** A recipe's `env` (and a requirement's) may read `{{host.os}}`
@@ -458,6 +462,8 @@ names and parameters part of the contract (feature `mcp`):
 | `octopod_up` | `project?`, `instance?` | registers the folder's project if needed, then up; past 60 s it answers that the up is still running, and it goes on |
 | `octopod_down` | `project?`, `instance?`, `volumes?`, `confirm?` | `volumes: true` needs `confirm: true` |
 | `octopod_restart` | `project?`, `instance?`, `service` | one service |
+| `octopod_oidc_session` | `project?`, `instance?`, `user?`, `claims?`, `issuer?`, `url`, `link?` | `{ cookie, cookies, landed }`: the app signed in as the user, from `url`, its sign-in; with `link`, `{ url, expires_in }` for a browser |
+| `octopod_oidc_token` | `project?`, `instance?`, `user?`, `claims?`, `issuer?`, `client?` | the provider's signed `id_token` and `access_token` for the user |
 
 A tool's failure is a result with `isError`, its message said for the agent. Not offered:
 secrets, a shell, register and unregister, the edge.

@@ -22,6 +22,9 @@ function fakeOctopod(overrides: Partial<Record<keyof Octopod, unknown>> = {}) {
     ensureRegistered: vi.fn(async () => ({ name: 'demo', registered: false })),
     runAction: vi.fn(async () => ({ ok: true, code: 0, stderr: '' })),
     plan: vi.fn(async () => ({ text: '+ app  node-app' })),
+    oidcSession: vi.fn(async () => ({ header: 'sessionid=abc', cookies: [], landed: 'http://app/me', jar: '' })),
+    oidcLink: vi.fn(async () => ({ url: 'http://id/sign-in?ticket=t', expires_in: 120 })),
+    oidcToken: vi.fn(async () => ({ id_token: 'x.y.z' })),
     ...overrides,
   };
 }
@@ -48,7 +51,7 @@ describe('octopod mcp', () => {
     return { client, call };
   }
 
-  it('offers its eight tools, and neither secrets, a shell nor the edge', async () => {
+  it('offers its tools, and neither secrets, a shell nor the edge', async () => {
     const { client } = await connect(fakeOctopod());
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name)).toEqual([...MCP_TOOLS]);
@@ -87,6 +90,16 @@ describe('octopod mcp', () => {
     await call('octopod_run', { service: 'db', action: 'reset', confirm: true });
     expect(octopod.runAction).toHaveBeenCalledWith('demo', 'db', 'reset', expect.objectContaining({ confirm: true }));
     expect((await call('octopod_run', { service: 'db', action: 'load', input: 'dump.sql' })).isError).toBe(true);
+  });
+
+  it('signs an app in as a user, or gives a link or tokens; a user or claims is needed', async () => {
+    const octopod = fakeOctopod();
+    const { call } = await connect(octopod);
+    expect((await call('octopod_oidc_session', { user: 'ada', url: 'http://app.demo.octopod.localhost/login' })).text).toContain('sessionid=abc');
+    expect(octopod.oidcSession).toHaveBeenCalledWith('demo', { sub: 'ada' }, 'http://app.demo.octopod.localhost/login', undefined);
+    expect((await call('octopod_oidc_session', { user: 'ada', url: 'http://app.demo.octopod.localhost/login', link: true })).text).toContain('sign-in?ticket');
+    expect((await call('octopod_oidc_token', { claims: { groups: ['beta'] } })).text).toContain('x.y.z');
+    expect((await call('octopod_oidc_token', {})).isError).toBe(true);
   });
 
   it('keeps the lines of the logs that match', async () => {
