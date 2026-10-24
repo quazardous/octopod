@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/octopod.svg" alt="octopod's tako, the octopus" width="160"></p>
+
 # octopod
 
 [![npm](https://img.shields.io/npm/v/@quazardous/octopod)](https://www.npmjs.com/package/@quazardous/octopod)
