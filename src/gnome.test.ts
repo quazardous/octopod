@@ -48,7 +48,11 @@ describe('the GNOME extension, outside the shell', () => {
 
   it.skipIf(!hasPwsh)('and the Windows tray says the same', { timeout: 60_000 }, () => {
     const ps = (script: string): { up: boolean; dockerDown: boolean; line: string } => {
-      const r = spawnSync('pwsh', ['-NoProfile', '-Command', `. '${join(GNOME_SOURCE, '..', '..', 'bin', 'octopod-tray-look.ps1')}'; ${script} | ConvertTo-Json -Compress`], { encoding: 'utf8' });
+      const argv = ['-NoProfile', '-Command', `. '${join(GNOME_SOURCE, '..', '..', 'bin', 'octopod-tray-look.ps1')}'; ${script} | ConvertTo-Json -Compress`];
+      // pwsh on a Linux runner now and then dies at .NET's start ("The given assembly name was
+      // invalid"), before the script runs: such a start is tried again.
+      let r = spawnSync('pwsh', argv, { encoding: 'utf8' });
+      for (let i = 0; i < 3 && /FileLoadException/.test(r.stdout + r.stderr); i++) r = spawnSync('pwsh', argv, { encoding: 'utf8' });
       return JSON.parse(r.stdout);
     };
     const pairs: [string, Look][] = [

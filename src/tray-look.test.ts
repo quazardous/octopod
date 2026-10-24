@@ -16,7 +16,12 @@ const hasPwsh = spawnSync('pwsh', ['-NoProfile', '-Command', 'exit 0']).status =
 
 /** Runs `script` after the look file, and reads what it prints as JSON. */
 function pwsh(script: string): unknown {
-  const r = spawnSync('pwsh', ['-NoProfile', '-Command', `. '${LOOK}'; ${script} | ConvertTo-Json -Compress`], { encoding: 'utf8' });
+  // pwsh on a Linux runner now and then dies before running anything ("The given assembly
+  // name was invalid", .NET's start, not the script): such a start is tried again.
+  let r = spawnSync('pwsh', ['-NoProfile', '-Command', `. '${LOOK}'; ${script} | ConvertTo-Json -Compress`], { encoding: 'utf8' });
+  for (let i = 0; i < 3 && /FileLoadException/.test(r.stdout + r.stderr); i++) {
+    r = spawnSync('pwsh', ['-NoProfile', '-Command', `. '${LOOK}'; ${script} | ConvertTo-Json -Compress`], { encoding: 'utf8' });
+  }
   expect(r.status, r.stderr).toBe(0);
   return JSON.parse(r.stdout);
 }
