@@ -1,7 +1,7 @@
 {
   "name": "@quazardous/octopod",
   "version": "0.7.0",
-  "description": "One local edge for all your Docker projects: a shared Traefik, declared projects and isolated networks, behind a small API",
+  "description": "A clean, declared architecture for every Docker project of your machine — one local edge, ready-made services, shared servers — that a coding agent drives through the CLI or MCP",
   "license": "MIT",
   "author": "David Berlioz",
   "type": "module",

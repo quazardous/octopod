@@ -7,12 +7,31 @@
 [![License: MIT](https://img.shields.io/github/license/quazardous/octopod)](./LICENSE)
 [![Node](https://img.shields.io/node/v/@quazardous/octopod)](https://nodejs.org)
 
-> One local edge for all your Docker projects: a shared Traefik, declared projects and isolated networks — behind a small API.
+> A clean, declared architecture for every Docker project of your machine — one local edge, ready-made services, shared servers — that a coding agent drives, reads and trusts.
 
-On a development machine, every Docker project grows its own Traefik, its own labels, its
-own ports. They fight over port 80, one Traefik adopts another project's routes, and each
-project repeats the same traps in its own compose file. octopod does that part once, for
-the whole machine.
+A coding agent writes an app fast; the infrastructure is where it loses its time and leaves
+a mess: ports that clash, a compose file copied from the last project, a database password
+guessed, a login faked in the app's code. octopod gives every project the same clean shape —
+declared in a small `octopod.yaml`, routed by one shared Traefik, walled off from the others,
+its data in its own folder — and gives the agent what it needs to work on it without
+guessing:
+
+- **Tools, not shell strings.** `octopod mcp` serves the operations as MCP tools: status,
+  logs, plan, `exec` (an argv, never a shell string), a database's actions, up, down, a
+  signed-in session. `octopod setup --mcp` registers it with Claude Code; the agent's folder
+  names the project. What would destroy data asks for `confirm`; secrets are never offered.
+- **A project that says what it is.** `octopod plan` gives each service, its image, the
+  variables it gets and from which service (`DATABASE_URL ← db`), its address; `octopod
+  status` the state, the addresses, the group's servers it uses; `octopod help` every
+  command. All of it in `--json` too.
+- **Its data at hand.** `octopod run db shell|dump|load|reset` on the project's database —
+  its own, or its tenancy in a server its group shares, confined to it.
+- **Sign-in, for real, in one command.** A local OpenID Connect provider stands in for
+  Google, Entra or Keycloak, with no bypass in the app's code; `octopod oidc session ada
+  --url …` returns the app's cookies signed in as a user, and the same app goes to the real
+  provider in production with three settings changed ([OIDC.md](./docs/OIDC.md)).
+
+What every project gets:
 
 - **One edge for every project.** A single Traefik on loopback serves each project at
   `http://<project>.octopod.localhost` (and `http://<name>.<project>.octopod.localhost`; in a group,
