@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - The console's page of a project run once no longer shows a stray "null" above it.
+- The OIDC provider's admin (`/admin/`) opened on a blank page: the built app failed as it started. Run `octopod up` on a project with an `oidc` service to rebuild it.
 
 ## [0.6.0] - 2026-10-24
 

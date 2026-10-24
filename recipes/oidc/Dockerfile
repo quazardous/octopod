@@ -1852,7 +1852,7 @@ interface FormUser {
 }
 
 export class UsersModule extends Module {
-  static name = 'users'
+  static moduleName = 'users'
 
   async connect(ctx: any) {
     ctx.entity('users', new EntityManager({

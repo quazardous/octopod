@@ -662,7 +662,7 @@ describe.skipIf(!dockerAvailable())('a PHP project made of recipes (real docker)
     // Its cache kept in the project, the operator's — not in Docker's storage.
     expect((await stat(join(root, '.octopod', 'data', 'cli-cache', 'probe'))).uid).toBe(process.getuid?.());
     // Nothing left running of it.
-    expect((await octopod.status('phpapp')).services.filter((x) => x.service === 'cli')).toEqual([{ service: 'cli', state: 'tool' }]);
+    expect((await octopod.status('phpapp')).services.filter((x) => x.service === 'cli')).toMatchObject([{ service: 'cli', state: 'tool', recipe: 'php-cli' }]);
   });
 
   it('runs a program dropped in the supervisor_d folder once reloaded, the others untouched', async () => {
