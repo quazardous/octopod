@@ -364,8 +364,34 @@ export class Octopod {
   }
 
   private async writeJson(file: string, value: unknown): Promise<void> {
+    await this.writeAtomic(file, JSON.stringify(value, null, 2) + '\n');
+  }
+
+  /** Written whole or not at all: a reader never meets a half-written file, nor a killed writer. */
+  private async writeAtomic(file: string, content: string, mode?: number): Promise<void> {
     await mkdir(join(this.path(file), '..'), { recursive: true });
-    await writeFile(this.path(file), JSON.stringify(value, null, 2) + '\n');
+    const tmp = `${this.path(file)}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
+    await writeFile(tmp, content, mode === undefined ? {} : { mode });
+    await rename(tmp, this.path(file));
+  }
+
+  /**
+   * A project's secrets: none when it has none yet, and an error when the file cannot be read.
+   * Never an empty set in its place: new passwords over a database made with the old ones
+   * lock the project out of it.
+   */
+  private async readSecrets(project: string): Promise<Record<string, Record<string, string>>> {
+    const file = join('projects', project, 'secrets.json');
+    const text = await readFile(this.path(file), 'utf8').catch((e: NodeJS.ErrnoException) => {
+      if (e.code === 'ENOENT') return undefined;
+      throw new OctopodError(`${this.path(file)} cannot be read (${e.message}): octopod will not make new secrets over it`);
+    });
+    if (text === undefined) return {};
+    try {
+      return JSON.parse(text) as Record<string, Record<string, string>>;
+    } catch (e) {
+      throw new OctopodError(`${this.path(file)} is not valid JSON (${(e as Error).message}): octopod will not make new secrets over it — put it right, or remove it to start again`);
+    }
   }
 
   /** The API's port and token (TCP only): made the first time, kept after, readable by the operator only. */
@@ -591,8 +617,7 @@ export class Octopod {
     const book = await loadRecipes(this.recipeDirs(declaration)).catch((e: Error) => {
       throw new OctopodError(e.message);
     });
-    const secretsFile = join('projects', declaration.project, 'secrets.json');
-    const kept = keepSecrets ? await this.readJson<Record<string, Record<string, string>>>(secretsFile, {}) : {};
+    const kept = keepSecrets ? await this.readSecrets(declaration.project) : {};
     try {
       return {
         book,
@@ -628,7 +653,8 @@ export class Octopod {
     const dir = join(declaration.root, '.octopod');
     const composeFile = join(dir, `recipes.${declaration.project}.json`);
     if (write) {
-      await this.writeSecret(join('projects', declaration.project, 'secrets.json'), rendered.secrets);
+      // A service gone from this rendering keeps its secrets: its data may still need them.
+      await this.writeSecret(join('projects', declaration.project, 'secrets.json'), { ...(await this.readSecrets(declaration.project)), ...rendered.secrets });
       await mkdir(dir, { recursive: true });
       await writeFile(join(dir, '.gitignore'), '*\n', { flag: 'wx' }).catch(() => undefined);
       await writeFile(composeFile, JSON.stringify(rendered.compose, null, 2) + '\n');
@@ -713,8 +739,7 @@ export class Octopod {
   }
 
   private async writeSecret(file: string, value: unknown): Promise<void> {
-    await mkdir(join(this.path(file), '..'), { recursive: true });
-    await writeFile(this.path(file), JSON.stringify(value, null, 2) + '\n', { mode: 0o600 });
+    await this.writeAtomic(file, JSON.stringify(value, null, 2) + '\n', 0o600);
   }
 
   /** The instances beyond the first that have been brought up and not down. */
@@ -1492,7 +1517,7 @@ export class Octopod {
     const out: Secret[] = [];
     for (const n of instances) {
       const project = instanceName(name, n);
-      const kept = await this.readJson<Record<string, Record<string, string>>>(join('projects', project, 'secrets.json'), {});
+      const kept = await this.readSecrets(project);
       for (const [service, values] of Object.entries(kept)) {
         for (const [key, value] of Object.entries(values)) out.push({ project, service, name: key, value });
       }

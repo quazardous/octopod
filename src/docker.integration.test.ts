@@ -511,6 +511,26 @@ describe.skipIf(!dockerAvailable())('a project made of recipes (real docker)', {
     expect((await stat(probe)).uid).toBe(process.getuid?.());
   });
 
+  it("keeps a database's secrets while its service is out of the declaration, and never makes new ones over a file it cannot read", async () => {
+    const declared = await readFile(join(root, 'octopod.yaml'), 'utf8');
+    const password = async () => (await octopod.secrets('delta')).find((s) => s.service === 'db' && s.name === 'password')?.value;
+    const before = await password();
+    expect(before).toBeTruthy();
+    // Out for one up, back for the next: its data was made with the first password.
+    await writeFile(join(root, 'octopod.yaml'), 'services:\n  app: { recipe: node-app, home: true, workdir: /delta }\n');
+    await octopod.up('delta');
+    await writeFile(join(root, 'octopod.yaml'), declared);
+    await octopod.up('delta');
+    expect(await password()).toBe(before);
+    // A file cut short: the up stops, it does not start the database again with new passwords.
+    const file = join(base, 'state', 'projects', 'delta', 'secrets.json');
+    const kept = await readFile(file, 'utf8');
+    await writeFile(file, kept.slice(0, 20));
+    await expect(octopod.up('delta')).rejects.toThrow(/not valid JSON/);
+    await writeFile(file, kept);
+    expect(await password()).toBe(before);
+  });
+
   it('removes what it built when the project is unregistered, and keeps the data', async () => {
     await octopod.unregister('delta');
     expect(docker('images', '--format', '{{.Repository}}').split('\n')).not.toEqual(expect.arrayContaining(['delta-app']));
