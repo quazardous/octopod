@@ -153,6 +153,10 @@ describe('a recipe\'s Dockerfile, checked', () => {
     expect(problems[2]).toMatch(/^line 3: RUN installs a project's dependencies/);
     expect(problems[3]).toMatch(/^line 4: VOLUME/);
     expect(problems[4]).toMatch(/^line 6: the last USER is 0/);
+    // An earlier stage builds a tool of the recipe from the Dockerfile's own files: it may
+    // install what that needs; only its result goes on.
+    const staged = ['ARG BASE_IMAGE', 'FROM ${BASE_IMAGE} AS tool', "COPY <<'P' /t/package.json", '{}', 'P', 'RUN npm ci', 'FROM ${BASE_IMAGE}', 'COPY --from=tool /t/dist /opt/t', 'USER app'].join('\n');
+    expect(lintDockerfile(staged)).toEqual([]);
   });
 });
 

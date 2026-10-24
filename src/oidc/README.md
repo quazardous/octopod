@@ -26,8 +26,8 @@ from the project's containers, so a token's `iss` matches on both sides.
 | `/<issuer>/userinfo` | the access token's claims |
 | `/<issuer>/logout` | back to `post_logout_redirect_uri` |
 | `/health` | `{ ok: true }` |
-| `/admin` | the admin page: the users |
-| `/admin/api/users[/<name>]` | `GET`, `PUT` (`{ claims, password?, issuers? }`), `DELETE`, with `Authorization: Bearer <admin token>` |
+| `/admin/` | the admin: the qdadm app of `oidc-admin/` when `OIDC_ADMIN_DIR` names its build, a built-in page otherwise |
+| `/admin/api/users[/<name>]` | `GET` (`{ users, total }`), `POST` (`{ sub, … }`), `PUT` (`{ claims, password?, issuers? }`), `DELETE`, with `Authorization: Bearer <admin token>` |
 
 **Users.** The provider keeps users in `OIDC_DATA/users.json`: a name, its claims, a password
 (stored as a scrypt hash, never as given) or none, and the issuers it may sign in to (all
@@ -64,4 +64,7 @@ services:
 
 The recipe's image is built from these sources: `npm run oidc:recipe` writes them, compiled,
 into `recipes/oidc/Dockerfile` (a recipe's build context is its Dockerfile alone), and a test
-fails while the two differ.
+fails while the two differ. The admin app, `oidc-admin/` (qdadm: Vue 3 and PrimeVue, its
+direct versions pinned, its lockfile kept), goes in as sources too: a first stage of the image
+runs `npm ci` and `vite build`, and only its `dist/` reaches the final image. In development:
+`cd oidc-admin && npm install --legacy-peer-deps && OIDC_URL=http://127.0.0.1:8080 npm run dev`.

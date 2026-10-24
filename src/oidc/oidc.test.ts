@@ -177,6 +177,10 @@ describe('the OIDC server', () => {
     const code = new URL(login.headers.get('location')!).searchParams.get('code')!;
     const tokens = (await (await fetch(`${base}/admi/token`, { method: 'POST', body: new URLSearchParams({ grant_type: 'authorization_code', code, client_id: 'app', redirect_uri: query.redirect_uri }) })).json()) as Record<string, string>;
     expect(claimsOf(tokens.id_token!)).toEqual(expect.objectContaining({ sub: 'ada', groups: ['admi-dev'] }));
+    // What a list's "create" sends: the name in the body.
+    expect((await admin('POST', '/users', { sub: 'carol', claims: { groups: [] } })).status).toBe(201);
+    expect((await admin('POST', '/users', { sub: 'carol' })).status).toBe(409);
+    expect(((await (await admin('GET', '/users')).json()) as { total: number }).total).toBe(3);
     expect((await admin('DELETE', '/users/bob')).status).toBe(200);
     expect((await admin('GET', '/users/bob')).status).toBe(404);
   });

@@ -1,0 +1,23 @@
+{
+  "name": "octopod-oidc-admin",
+  "private": true,
+  "type": "module",
+  "description": "The OIDC provider's admin: its users, on its admin API. A qdadm app, built into the oidc recipe's image.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@primeuix/themes": "1.2.5",
+    "@quazardous/qdadm": "2.37.0",
+    "pinia": "2.3.1",
+    "primeicons": "7.0.0",
+    "primevue": "4.5.4",
+    "vue": "3.5.26",
+    "vue-router": "4.6.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "5.2.4",
+    "vite": "6.4.1"
+  }
+}

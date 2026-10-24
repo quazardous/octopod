@@ -7,13 +7,14 @@
  *   PORT                 where it listens (8080)
  *   OIDC_DATA            where the signing key and the users are kept (/data); made on first start
  *   OIDC_ADMIN_TOKEN     the bearer token of the admin API and page (/admin); none: no admin
+ *   OIDC_ADMIN_DIR       a built admin app served at /admin/ (the qdadm one); the built-in page otherwise
  *   OIDC_OPEN_LOGIN      0 to sign in only as a user of the store; any user, any claims otherwise
  *   OIDC_PASSWORD_GRANT  1 to trade a user's name and password for tokens, with no browser
  */
 import { timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { extname, join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { newKeyPem, Provider, type AuthRequest } from './provider.js';
 import { adminPage } from './admin.js';
@@ -84,10 +85,36 @@ ${error ? `<p class="error">${escape(error)}</p>` : ''}
 
 export interface HandlerOptions {
   users: Users;
+  /** A built admin app (index.html and its assets), served at /admin/ instead of the built-in page. */
+  adminDir?: string;
   /** The admin's bearer token; none: no admin. */
   adminToken?: string;
   /** Any user with any claims, typed on the login page: today's quick role test. */
   openLogin: boolean;
+}
+
+const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.eot': 'application/vnd.ms-fontobject', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json' };
+
+/** A file of the built admin app; its index.html for /admin/ itself. Nothing outside its folder. */
+function asset(res: ServerResponse, dir: string, path: string): void {
+  if (path === '/admin') {
+    res.writeHead(301, { location: '/admin/' }).end();
+    return;
+  }
+  const root = resolve(dir);
+  const file = resolve(root, `.${decodeURIComponent(path.slice('/admin'.length)) || '/'}`);
+  const target = file === root || file === `${root}${sep}` ? join(root, 'index.html') : file;
+  if (!target.startsWith(`${root}${sep}`) || !statSync(target, { throwIfNoEntry: false })?.isFile()) {
+    send(res, 404, { error: 'not_found', error_description: path });
+    return;
+  }
+  res
+    .writeHead(200, {
+      'content-type': TYPES[extname(target)] ?? 'application/octet-stream',
+      'cache-control': target.endsWith('index.html') ? 'no-store' : 'max-age=86400',
+      'content-security-policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:",
+    })
+    .end(readFileSync(target));
 }
 
 /** Whether a request carries the admin's token: compared in constant time. */
@@ -100,9 +127,30 @@ function admitted(header: string | undefined, token: string): boolean {
 /** The admin API: the users, read and written with the admin's token. */
 async function admin(req: IncomingMessage, res: ServerResponse, path: string, options: HandlerOptions): Promise<void> {
   if (!options.adminToken) return send(res, 404, { error: 'not_found', error_description: 'no admin: OIDC_ADMIN_TOKEN is not set' });
-  if (path === '/admin' && req.method === 'GET') return send(res, 200, adminPage(), { 'content-security-policy': "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'" });
+  if (!path.startsWith('/admin/api/') && req.method === 'GET') {
+    if (options.adminDir) return asset(res, options.adminDir, path);
+    if (path === '/admin' || path === '/admin/') return send(res, 200, adminPage(), { 'content-security-policy': "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'" });
+  }
   if (!admitted(req.headers.authorization, options.adminToken)) return send(res, 401, { error: 'unauthorized', error_description: 'the admin token is needed (Authorization: Bearer …)' }, { 'www-authenticate': 'Bearer' });
-  if (path === '/admin/api/users' && req.method === 'GET') return send(res, 200, { users: options.users.all().map(shown) });
+  if (path === '/admin/api/users' && req.method === 'GET') {
+    const users = options.users.all().map(shown);
+    return send(res, 200, { users, total: users.length });
+  }
+  if (path === '/admin/api/users' && req.method === 'POST') {
+    // Made by name, as a PUT to its own path: what a list's "create" sends.
+    let input: { sub?: unknown };
+    try {
+      input = JSON.parse((await body(req)) || '{}') as { sub?: unknown };
+    } catch {
+      return send(res, 400, { error: 'invalid_request', error_description: 'the body must be JSON' });
+    }
+    const sub = typeof input.sub === 'string' ? input.sub : '';
+    if (options.users.get(sub)) return send(res, 409, { error: 'conflict', error_description: `user ${sub} exists` });
+    const next = userOf(sub, input);
+    if ('error' in next) return send(res, 400, { error: 'invalid_request', error_description: next.error });
+    options.users.put(next);
+    return send(res, 201, shown(next));
+  }
   const one = /^\/admin\/api\/users\/([^/]+)$/.exec(path);
   if (!one) return send(res, 404, { error: 'not_found', error_description: `no ${req.method} ${path}` });
   const sub = decodeURIComponent(one[1]!);
@@ -206,7 +254,8 @@ export function start(port = Number(process.env.PORT ?? 8080), dir = process.env
   const users = new Users(join(dir, 'users.json'));
   const provider = new Provider(loadKey(dir), { users, passwordGrant: ['1', 'true'].includes(process.env.OIDC_PASSWORD_GRANT ?? '') });
   const adminToken = process.env.OIDC_ADMIN_TOKEN || undefined;
-  const server = createServer(handler(provider, { users, ...(adminToken ? { adminToken } : {}), openLogin: !['0', 'false'].includes(process.env.OIDC_OPEN_LOGIN ?? '') }));
+  const adminDir = process.env.OIDC_ADMIN_DIR && statSync(join(process.env.OIDC_ADMIN_DIR, 'index.html'), { throwIfNoEntry: false }) ? process.env.OIDC_ADMIN_DIR : undefined;
+  const server = createServer(handler(provider, { users, ...(adminToken ? { adminToken } : {}), ...(adminDir ? { adminDir } : {}), openLogin: !['0', 'false'].includes(process.env.OIDC_OPEN_LOGIN ?? '') }));
   server.listen(port, () => console.log(`oidc: listening on ${port}; issuers at /<name>`));
   return server;
 }

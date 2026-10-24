@@ -54,7 +54,10 @@ export function lintDockerfile(text: string): string[] {
     if ((x.keyword === 'COPY' || x.keyword === 'ADD') && !/--from=/.test(x.args) && !/<</.test(x.args)) {
       problems.push(`line ${x.line}: ${x.keyword} ${x.args} — the build context is the Dockerfile alone: copy from a stage (--from=) or write the file inline (a heredoc)`);
     }
-    if (x.keyword === 'RUN' && PROJECT_DEPS.test(x.args)) {
+    // In the final stage only: an earlier one builds a tool of the recipe from what the
+    // Dockerfile itself holds (the project never reaches the build), and passes on only its
+    // result (COPY --from=).
+    if (x.keyword === 'RUN' && PROJECT_DEPS.test(x.args) && last && x.line > last.line) {
       problems.push(`line ${x.line}: RUN installs a project's dependencies — they are the project's, installed in the running container`);
     }
   }

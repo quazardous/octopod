@@ -1004,6 +1004,12 @@ describe.skipIf(!dockerAvailable())('the OIDC provider, seen from the browser an
       "fetch(`${process.env.OIDC_ISSUER_BASE}/admi/token`, { method: 'POST', body: new URLSearchParams({ grant_type: 'password', client_id: 'ci', username: 'ci', password: 'ci-pass' }) }).then((r) => r.json()).then((t) => console.log(JSON.parse(Buffer.from(t.id_token.split('.')[1], 'base64url')).groups.join()))",
     ]);
     expect(grant.output.trim()).toBe('admi-staff');
+    // The admin app (qdadm), built in the image, served at /admin/ with its assets.
+    const page = await get('id.idp.localhost', '/admin/');
+    expect(page.status).toBe(200);
+    const script = /src="(\/admin\/assets\/[^"]+\.js)"/.exec(page.body)?.[1];
+    expect(script, page.body).toBeTruthy();
+    expect((await get('id.idp.localhost', script!)).status).toBe(200);
   });
 });
 
