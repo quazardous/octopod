@@ -39,6 +39,10 @@ limits: { memory: 1g, cpus: "1", pids: 512 }
 # Shared by a group (`shared: true` on the service): each project of the group is a tenant,
 # with its own database and its own user, both named after it, and its own password, read
 # on the standard input. Made again on each up, alike: an existing tenant keeps its data.
+# The tenant owns, as many as it makes, the databases named `<project>_…` (`unei_test`,
+# `unei_jobs`) and `test_<project>`, `test_<project>_…` (Django's, and its parallel runs'):
+# its tests run on the real server, never on another project's data. A `_`
+# is a wildcard in a grant: escaped; a project's name has none.
 tenant:
   params: { db: "{{tenant}}", user: "{{tenant}}" }
   secret: password
@@ -53,6 +57,9 @@ tenant:
       CREATE USER IF NOT EXISTS '$TENANT'@'%' IDENTIFIED BY '$pw';
       ALTER USER '$TENANT'@'%' IDENTIFIED BY '$pw';
       GRANT ALL PRIVILEGES ON \`$TENANT\`.* TO '$TENANT'@'%';
+      GRANT ALL PRIVILEGES ON \`$TENANT\\_%\`.* TO '$TENANT'@'%';
+      GRANT ALL PRIVILEGES ON \`test\\_$TENANT\`.* TO '$TENANT'@'%';
+      GRANT ALL PRIVILEGES ON \`test\\_$TENANT\\_%\`.* TO '$TENANT'@'%';
       SQL
   # The project's actions on the group's server (octopod run db shell, in the project): as
   # its own user, on its own database — the actions below read these names.

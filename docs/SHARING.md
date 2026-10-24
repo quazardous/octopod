@@ -54,6 +54,21 @@ A service that becomes shared leaves its former data where it was, in the projec
 still there. octopod does not move a database's data by itself: dump it from the former
 server (a copy of the project, or before switching), then `octopod run db load dump.sql`.
 
+## Tests on the shared server
+
+A project owns, on the group's server, the database named after it and every database whose
+name starts with `<project>_` or `test_<project>`: `shop`, `shop_test`, `shop_jobs`,
+`test_shop`, `test_shop_2` — as many as it makes, with nothing to declare. Its tests create, use and
+drop theirs there, on the real server; another project's are out of their reach (a
+project's name has no `_`: `shop_…` is never `shop-admin`'s).
+
+- **Rails** (`<base>_test`) and **Symfony** (`_test`) fall under it as they are.
+- **Django** names its test database `test_<base>`, and `test_<base>_1`, `_2`… with
+  `--parallel`: the project's too, so `manage.py test` runs with nothing to change.
+- **Postgres** cannot allow a database by its name: a project's role may create databases
+  (it owns those it creates, and never connects to another project's), and octopod makes
+  `<project>_test` for it.
+
 ## The project's database, in the group's server
 
 The project's actions on a shared database stay the project's: `octopod run db shell`,

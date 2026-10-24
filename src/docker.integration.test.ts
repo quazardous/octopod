@@ -1308,6 +1308,21 @@ describe.skipIf(!dockerAvailable())("a group's shared database (real docker)", {
     expect(await dump('ga')).not.toContain('`mine`');
   });
 
+  it("lets a project make its test databases on the group's server, named after it, and no other's", async () => {
+    const sql = (name: string, text: string) => writeFile(join(base, name), text).then(() => join(base, name));
+    // <project>_… and Django's test_<project>: made, used, dropped.
+    const own = await sql('own.sql', 'CREATE DATABASE ga_test; CREATE TABLE ga_test.t (x INT); DROP DATABASE ga_test; CREATE DATABASE ga_jobs; DROP DATABASE ga_jobs; CREATE DATABASE test_ga; CREATE DATABASE test_ga_2; DROP DATABASE test_ga; DROP DATABASE test_ga_2;\n');
+    const made = await octopod.runAction('ga', 'db', 'load', { input: own, confirm: true });
+    expect(made.ok, made.stderr).toBe(true);
+    // Another project's prefix, or any other name: refused.
+    for (const name of ['gb_test', 'test_gb', 'test_gb_1', 'other']) {
+      const theirs = await sql(`${name}.sql`, `CREATE DATABASE ${name};\n`);
+      const refused = await octopod.runAction('ga', 'db', 'load', { input: theirs, confirm: true });
+      expect(refused.ok, name).toBe(false);
+      expect(refused.stderr).toMatch(/1044|denied/i);
+    }
+  });
+
   it("takes away a project's own server once the group's replaces it", async () => {
     const root = join(base, 'gc');
     await mkdir(join(root, 'node_modules'), { recursive: true });
