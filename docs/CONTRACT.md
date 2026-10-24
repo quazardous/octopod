@@ -188,8 +188,8 @@ workspace: .               # the folder a recipe's workspace mounts; the project
   gets the provider's `exports` as variables. The built-in ones: `sql` (`postgres`,
   `mariadb`: `url`), `mysql` (`mariadb`: `host`, `port`, `user`, `password`, `db`),
   `redis` (`redis` and `valkey`: `url`), `memcached` (`url`), `mongodb` (`url`), `smtp`
-  (`mailpit`: `url`). `php-app`, `node-app` and `python-app` require each of them optionally (`DATABASE_URL`, `REDIS_URL`,
-  `MEMCACHED_URL`, `MONGODB_URL`, `MAILER_DSN` and `SMTP_URL`); `phpmyadmin` requires
+  (`mailpit`: `url`), `oidc` (`oidc`: `issuer_base`). `php-app`, `node-app` and `python-app` require each of them optionally (`DATABASE_URL`, `REDIS_URL`,
+  `MEMCACHED_URL`, `MONGODB_URL`, `MAILER_DSN` and `SMTP_URL`, `OIDC_ISSUER_BASE`); `phpmyadmin` requires
   `mysql`, `mongo-express` requires `mongodb`. Two providers of one capability a service
   requires is an error: name the one you mean in a recipe of your own.
 - **A shell like a machine's.** An app recipe with `home: true` (`node-app`, `php-app`,
@@ -205,6 +205,14 @@ workspace: .               # the folder a recipe's workspace mounts; the project
   - `workdir: /my-app` mounts the project there instead of the recipe's workspace (`/app`):
     a project keeps the paths it has. It is passed to the build as `WORKSPACE` (php-app
     serves its docroot from it).
+- **A service's address.** `{{url}}` in a recipe's `env`, `exports`, `command` or health is a
+  routed service's address at the edge (`http://id.demo.localhost`, with `:<port>` when
+  the edge is not on 80), empty for a service not routed: the same URL from the host's
+  browser and from the project's containers.
+- **The `oidc` recipe** runs octopod's own OpenID Connect provider (`src/oidc`): any first
+  path segment is an issuer (`<issuer_base>/admi`), named after the address the request
+  came to; its login page takes a user name and the claims to sign. Any client id, any
+  client secret: a development provider. Its signing key is kept in `.octopod/data/<service>-keys`.
 - **The host, in an env.** A recipe's `env` (and a requirement's) may read `{{host.os}}`
   (`linux`, `windows`, `macos`) and `{{host.poll}}` — `true` where a change made on the host
   raises no file event in a container (Docker Desktop on Windows), empty elsewhere. An env

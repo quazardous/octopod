@@ -32,7 +32,8 @@
     "prepare": "npm run build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "check:leaks": "scripts/check-leaks.sh"
+    "check:leaks": "scripts/check-leaks.sh",
+    "oidc:recipe": "node scripts/oidc-dockerfile.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.4",

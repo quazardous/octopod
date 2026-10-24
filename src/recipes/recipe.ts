@@ -82,7 +82,8 @@ export const RecipeSchema = z
     params: z.record(Ident, ParamSpecSchema).default({}),
     /**
      * Structural variables only (where to listen, which mode); `{{params.x}}`, `{{secrets.x}}`,
-     * `{{service}}`, and `{{host.os}}`/`{{host.poll}}` — an entry rendered empty is left out.
+     * `{{service}}`, `{{url}}` (a routed service's address at the edge), and
+     * `{{host.os}}`/`{{host.poll}}` — an entry rendered empty is left out.
      */
     env: z.record(z.string().min(1), z.string().max(2_000)).default({}),
     /** Capabilities this recipe satisfies, e.g. `sql`. */

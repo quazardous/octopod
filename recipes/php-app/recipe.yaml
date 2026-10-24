@@ -43,5 +43,8 @@ requires:
   - capability: smtp
     env: { MAILER_DSN: "{{provider.url}}", SMTP_URL: "{{provider.url}}" }
     optional: true
+  - capability: oidc
+    env: { OIDC_ISSUER_BASE: "{{provider.issuer_base}}" }
+    optional: true
 tmpfs: [/tmp]
 limits: { memory: 2g, cpus: "2", pids: 1024 }

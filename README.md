@@ -29,8 +29,8 @@ the whole machine.
   `.octopod/data`, created as you. A service that runs or writes there as root is reported.
 - **Or no compose file at all.** A project can name recipes instead: apps (`node-app`,
   `php-app`, `python-app`), databases (`postgres`, `mariadb`, `mongodb`), `redis`, `valkey`, `memcached`,
-  `mailpit`, admins (`phpmyadmin`, `mongo-express`) and tools (`php-cli`), each handing
-  its address to the apps.
+  `mailpit`, an OpenID Connect provider (`oidc`), admins (`phpmyadmin`, `mongo-express`)
+  and tools (`php-cli`), each handing its address to the apps.
 
 octopod is only infrastructure: Traefik and Docker composition. It knows nothing about
 what runs in your containers, and adds no variable to the services of your own compose
@@ -132,6 +132,19 @@ services:
       worker: { command: php bin/console messenger:consume async }
       seed:   { command: php bin/console app:seed, autostart: false }   # octopod program start app/seed
 ```
+
+An app that signs in with OpenID Connect gets a local provider, octopod's own: any path is
+an issuer, and its login page takes a user name and the claims to put in the tokens
+(`groups`, `email`), so each role is tried without accounts to manage:
+
+```yaml
+services:
+  app: { recipe: python-app }   # OIDC_ISSUER_BASE=http://id.shop.localhost
+  id:  { recipe: oidc }         # issuers at http://id.shop.localhost/<name>
+```
+
+The issuer's URL is the same for the browser and for the app's container: a project's
+containers reach its hosts through the edge.
 
 A Django app on MariaDB names the driver it compiles (mysqlclient has no Linux wheel):
 `app: { recipe: python-app, drivers: [mysql] }` adds a compiler and the MariaDB client's

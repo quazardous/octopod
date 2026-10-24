@@ -487,6 +487,7 @@ export class Octopod {
           workspace: declaration.workspace ?? declaration.root,
           owner: currentOwner(),
           secrets: kept,
+          edgePort: await this.edgePort({ choose: false }).catch(() => undefined),
           ...(declaration.instance ? { instance: declaration.instance } : {}),
           ...(keepSecrets ? {} : { secretFactory: () => '‹generated›' }),
         }),

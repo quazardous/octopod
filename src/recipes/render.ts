@@ -47,6 +47,8 @@ export interface RenderOptions {
   instance?: number;
   /** The machine octopod runs on, for `{{host.x}}` in a recipe's env; this one by default. */
   hostOs?: HostOs;
+  /** The port the edge is published on, in a routed service's `{{url}}`: 80 by default. */
+  edgePort?: number;
 }
 
 export type HostOs = 'linux' | 'windows' | 'macos';
@@ -216,8 +218,16 @@ export function programsConfig(programs: Record<string, ProgramSpec>, directory?
   return `${lines.join('\n')}\n`;
 }
 
-function scopes(r: Resolved) {
-  return { service: r.name, recipe: r.entry.id, params: r.params, secrets: r.secrets };
+/**
+ * What a recipe's templates read of a service. `{{url}}`: its address at the edge, for a
+ * routed service — the same from the host's browser and from the project's containers.
+ */
+function scopes(r: Resolved, options: RenderOptions) {
+  const route = r.entry.recipe.route;
+  const routed = route !== undefined && r.request.route !== false;
+  const port = options.edgePort && options.edgePort !== 80 ? `:${options.edgePort}` : '';
+  const url = routed ? `http://${route === true ? '' : `${route.subdomain}.`}${options.project}.localhost${port}` : '';
+  return { service: r.name, recipe: r.entry.id, params: r.params, secrets: r.secrets, url };
 }
 
 export function renderServices(options: RenderOptions): Rendered {
@@ -275,7 +285,7 @@ export function renderServices(options: RenderOptions): Rendered {
   for (const r of resolved) {
     const recipe: Recipe = r.entry.recipe;
     const host = hostScope(options.hostOs ?? hostOsOf());
-    const env = present(renderMap(recipe.env, { ...scopes(r), host }, `${r.name}.env`));
+    const env = present(renderMap(recipe.env, { ...scopes(r, options), host }, `${r.name}.env`));
     const waits: { service: string; healthy: boolean }[] = [];
     for (const requirement of recipe.requires) {
       const providers = resolved.filter((o) => o.name !== r.name && o.entry.recipe.provides.includes(requirement.capability));
@@ -285,8 +295,8 @@ export function renderServices(options: RenderOptions): Rendered {
       }
       if (providers.length > 1) throw new RenderError(`service '${r.name}': '${requirement.capability}' is provided by ${providers.map((p) => p.name).join(' and ')}`);
       const provider = providers[0];
-      const exported = renderMap(provider.entry.recipe.exports, scopes(provider), `${provider.name}.exports`);
-      Object.assign(env, present(renderMap(requirement.env, { ...scopes(r), provider: exported, host }, `${r.name}.requires.${requirement.capability}`)));
+      const exported = renderMap(provider.entry.recipe.exports, scopes(provider, options), `${provider.name}.exports`);
+      Object.assign(env, present(renderMap(requirement.env, { ...scopes(r, options), provider: exported, host }, `${r.name}.requires.${requirement.capability}`)));
       // What it requires is there: it starts once its provider is ready — healthy when the
       // provider can say so, started otherwise — not before, to fail on a refused connection.
       if (!waits.some((w) => w.service === provider.name)) waits.push({ service: provider.name, healthy: Boolean(provider.entry.recipe.health) });
@@ -307,7 +317,7 @@ export function renderServices(options: RenderOptions): Rendered {
     } else {
       service.image = image;
     }
-    if (recipe.command) service.command = recipe.command.map((c, i) => render(c, scopes(r), `${r.name}.command[${i}]`));
+    if (recipe.command) service.command = recipe.command.map((c, i) => render(c, scopes(r, options), `${r.name}.command[${i}]`));
     if (Object.keys(env).length > 0) service.environment = env;
     // Working on the project's files: as the operator, so they stay theirs.
     if (recipe.workspace && options.owner) service.user = options.owner;
@@ -358,7 +368,7 @@ export function renderServices(options: RenderOptions): Rendered {
     if (mounts.length > 0) service.volumes = mounts;
     if (recipe.health) {
       service.healthcheck = {
-        test: recipe.health.test.map((t, i) => render(t, scopes(r), `${r.name}.health.test[${i}]`)),
+        test: recipe.health.test.map((t, i) => render(t, scopes(r, options), `${r.name}.health.test[${i}]`)),
         interval: `${Math.max(1, Math.round(recipe.health.intervalMs / 1000))}s`,
         retries: recipe.health.retries,
       };

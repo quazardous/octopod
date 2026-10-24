@@ -931,3 +931,54 @@ describe.skipIf(!dockerAvailable())('a Python project made of recipes (real dock
     expect(mysql.ok).toBe(true);
   });
 });
+
+describe.skipIf(!dockerAvailable())('the OIDC provider, seen from the browser and from the app (real docker)', { timeout: 600_000 }, () => {
+  let base: string;
+  let root: string;
+  let octopod: Octopod;
+
+  beforeAll(async () => {
+    base = await mkdtemp(join(tmpdir(), 'octopod-oidc-'));
+    root = join(base, 'idp');
+    await mkdir(root);
+    await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'idp', scripts: { dev: 'node -e "require(\'node:http\').createServer((q, r) => r.end(\'app\')).listen(3000)"' } }));
+    await mkdir(join(root, 'node_modules'));
+    // The code flow, run inside the app: every URL is the issuer's public one.
+    await writeFile(
+      join(root, 'flow.mjs'),
+      [
+        "const issuer = `${process.env.OIDC_ISSUER_BASE}/admi`;",
+        "const meta = await (await fetch(`${issuer}/.well-known/openid-configuration`)).json();",
+        "const login = await fetch(meta.authorization_endpoint, { method: 'POST', redirect: 'manual', body: new URLSearchParams({ response_type: 'code', client_id: 'app', redirect_uri: 'http://idp.localhost/cb', scope: 'openid', username: 'ada', claims: '{\"groups\":[\"admi-dev\"]}' }) });",
+        "const code = new URL(login.headers.get('location')).searchParams.get('code');",
+        "const tokens = await (await fetch(meta.token_endpoint, { method: 'POST', body: new URLSearchParams({ grant_type: 'authorization_code', code, client_id: 'app', redirect_uri: 'http://idp.localhost/cb' }) })).json();",
+        "const id = JSON.parse(Buffer.from(tokens.id_token.split('.')[1], 'base64url').toString());",
+        "console.log(JSON.stringify({ issuer: meta.issuer, iss: id.iss, sub: id.sub, groups: id.groups }));",
+        '',
+      ].join('\n'),
+    );
+    await writeFile(join(root, 'octopod.yaml'), 'services:\n  app: { recipe: node-app }\n  id: { recipe: oidc }\n');
+    octopod = new Octopod({ stateDir: join(base, 'state'), instance: INSTANCE, ports: [PORT] });
+    await octopod.register(root);
+  }, 600_000);
+
+  afterAll(async () => {
+    await octopod.unregister('idp').catch(() => undefined);
+    await octopod.edgeDown();
+    await rm(base, { recursive: true, force: true });
+  }, 600_000);
+
+  it('names one issuer on both sides, and signs the claims the login gave', async () => {
+    await octopod.up('idp');
+    await eventually('id.idp.localhost', 200, '/admi/.well-known/openid-configuration');
+    // As a browser asks: its Host carries the edge's port.
+    const fromHost = await get(`id.idp.localhost:${PORT}`, '/admi/.well-known/openid-configuration');
+    const issuer = `http://id.idp.localhost:${PORT}/admi`;
+    expect(JSON.parse(fromHost.body).issuer).toBe(issuer);
+    const flow = await octopod.exec('idp', 'app', ['node', 'flow.mjs'], { timeoutMs: 60_000 });
+    expect(flow.ok, flow.output).toBe(true);
+    expect(JSON.parse(flow.output.trim().split('\n').pop()!)).toEqual({ issuer, iss: issuer, sub: 'ada', groups: ['admi-dev'] });
+    // Its key is kept in the project, the operator's.
+    expect((await stat(join(root, '.octopod', 'data', 'id-keys', 'signing-key.pem'))).uid).toBe(process.getuid?.());
+  });
+});

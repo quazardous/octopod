@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The `oidc` recipe: a local OpenID Connect provider, octopod's own (`src/oidc`, no dependency). Any path is an issuer (`http://id.<project>.localhost/<name>`); its login page takes a user name and the claims to sign (`groups`, `email`…); discovery, JWKS, the code flow with PKCE, tokens and userinfo. Apps get `OIDC_ISSUER_BASE`, the same URL for the browser and the app.
+- `{{url}}` in a recipe: a routed service's address at the edge.
+
 - A project's exposed containers reach the project's own hosts at the URLs a browser uses: `http://api.demo.localhost` (or `:8480`) from inside the project goes through the edge, as it does from the host. The edge is now an alias for each of the project's hosts on its edge network, and listens inside on the port it is published on. Useful for an identity provider's issuer, or an app that calls its own API by its public address.
 
 ## [0.5.1] - 2026-10-23

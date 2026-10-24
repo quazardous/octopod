@@ -159,7 +159,7 @@ describe('a recipe\'s Dockerfile, checked', () => {
 describe('the built-in recipes', () => {
   it('load, and install none of a project\'s dependencies in an image — system packages and extensions make the environment', async () => {
     const book = await loadRecipes([BUILTIN_RECIPES]);
-    expect([...book.recipes.keys()].sort()).toEqual(['mailpit', 'mariadb', 'memcached', 'mongo-express', 'mongodb', 'node-app', 'php-app', 'php-cli', 'phpmyadmin', 'postgres', 'python-app', 'redis', 'valkey', 'whoami']);
+    expect([...book.recipes.keys()].sort()).toEqual(['mailpit', 'mariadb', 'memcached', 'mongo-express', 'mongodb', 'node-app', 'oidc', 'php-app', 'php-cli', 'phpmyadmin', 'postgres', 'python-app', 'redis', 'valkey', 'whoami']);
     for (const id of await readdir(BUILTIN_RECIPES)) {
       const dockerfile = await readFile(join(BUILTIN_RECIPES, id, 'Dockerfile'), 'utf8').catch(() => '');
       if (dockerfile) expect(lintDockerfile(dockerfile), id).toEqual([]);
@@ -299,6 +299,23 @@ describe('the built-in recipes', () => {
     expect(routes).toEqual({ api: '', jobs: undefined, cache: undefined });
     expect(out.compose.services.cache.depends_on).toBeUndefined();
     expect(api.depends_on).toEqual({ cache: { condition: 'service_healthy' } });
+  });
+
+  it('wires the OIDC provider: its address at the edge, the same for the browser and the app', async () => {
+    const book = await loadRecipes([BUILTIN_RECIPES]);
+    const env = (edgePort?: number) =>
+      renderServices({ project: 'shop', book, services: { app: { recipe: 'python-app' }, id: { recipe: 'oidc' } }, workspace: '/p', owner: '1:1', ...(edgePort ? { edgePort } : {}) }).compose.services.app.environment as Record<string, string>;
+    expect(env().OIDC_ISSUER_BASE).toBe('http://id.shop.localhost');
+    expect(env(8480).OIDC_ISSUER_BASE).toBe('http://id.shop.localhost:8480');
+    const out = renderServices({ project: 'shop', book, services: { id: { recipe: 'oidc' } }, workspace: '/p', owner: '1:1' });
+    expect(out.services[0]).toEqual(expect.objectContaining({ route: 'id', port: 8080 }));
+  });
+
+  it('keeps the OIDC recipe\'s Dockerfile what src/oidc compiles to (npm run oidc:recipe)', async () => {
+    const script = new URL('../../scripts/oidc-dockerfile.mjs', import.meta.url).href;
+    const { render } = (await import(script)) as { render: () => string };
+    const book = await loadRecipes([BUILTIN_RECIPES]);
+    expect(book.recipes.get('oidc')?.dockerfile).toBe(render());
   });
 
   it("builds python-app with a driver's build needs only when the project names it", async () => {

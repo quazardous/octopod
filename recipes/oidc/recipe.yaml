@@ -1,0 +1,25 @@
+# A local OpenID Connect provider, octopod's own (src/oidc): any path is an issuer
+# (http://id.<project>.localhost/<name>), its login page takes a user name and the claims
+# to put in the tokens (groups, email…). For development: any client, no secret to keep.
+# Its address goes to whoever requires `oidc` (OIDC_ISSUER_BASE): the same from the
+# browser and from the project's containers, so a token's `iss` matches on both sides.
+title: OIDC provider
+summary: A local OpenID Connect provider at http://id.<project>.localhost/<issuer> — any issuer name, a login page that takes a user and its claims.
+image: node:22-bookworm-slim
+unpinned: true
+build: true
+provides: [oidc]
+exports:
+  issuer_base: "{{url}}"
+port: 8080
+route: { subdomain: id }
+profiles: [dev]
+# The signing key: kept, so the tokens and the apps' cached keys outlive a restart.
+volumes:
+  - { name: keys, path: /data }
+health:
+  test: [CMD, node, -e, "fetch('http://127.0.0.1:8080/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+  intervalMs: 2000
+  retries: 30
+readOnly: true
+limits: { memory: 256m, cpus: "1", pids: 128 }
