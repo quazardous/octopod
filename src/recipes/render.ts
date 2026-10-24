@@ -131,6 +131,10 @@ export interface RenderedService {
   info?: true;
   /** The project's services it is wired to (its requirements' providers). */
   uses?: string[];
+  /** The names of the variables it gets, each with the service it comes from (none: its recipe's own). */
+  gets?: { name: string; from?: string }[];
+  /** A service the group runs: its server, and the project's tenancy in it. */
+  sharedAs?: { project: string; server: string; tenant?: string; params: Record<string, ParamValue> };
 }
 
 /** A project's tenant in a shared service: the command that makes it, its name, its secret. */
@@ -395,12 +399,15 @@ export function renderServices(options: RenderOptions): Rendered {
         volumes: [],
         ephemeral: [],
         shared: true,
+        sharedAs: { project: options.shared.project, server: shared[r.name].server, ...(recipe.tenant?.command ? { tenant: options.shared.tenant, params: tenantParams(r, options) } : { params: {} }) },
         ...(Object.keys(actions).length > 0 ? { actions } : {}),
       });
       continue;
     }
     const host = hostScope(options.hostOs ?? hostOsOf());
     const env = present(renderMap(recipe.env, { ...scopes(r, options), host }, `${r.name}.env`));
+    // The names it gets, and from which service: what an agent reads instead of guessing.
+    const gets: { name: string; from?: string }[] = Object.keys(env).map((name) => ({ name }));
     const waits: { service: string; healthy: boolean }[] = [];
     const uses: string[] = [];
     let reachesShared = false;
@@ -413,7 +420,13 @@ export function renderServices(options: RenderOptions): Rendered {
       if (providers.length > 1) throw new RenderError(`service '${r.name}': '${requirement.capability}' is provided by ${providers.map((p) => p.name).join(' and ')}`);
       const provider = providers[0];
       const exported = renderMap(provider.entry.recipe.exports, scopes(provider, options), `${provider.name}.exports`);
-      Object.assign(env, present(renderMap(requirement.env, { ...scopes(r, options), provider: exported, host }, `${r.name}.requires.${requirement.capability}`)));
+      const given = present(renderMap(requirement.env, { ...scopes(r, options), provider: exported, host }, `${r.name}.requires.${requirement.capability}`));
+      Object.assign(env, given);
+      for (const name of Object.keys(given)) {
+        const i = gets.findIndex((g) => g.name === name);
+        if (i >= 0) gets.splice(i, 1);
+        gets.push({ name, from: provider.name });
+      }
       // The group's: reached over the group's network, started by the group, not waited on here.
       if (provider.request.shared) {
         reachesShared = true;
@@ -532,6 +545,7 @@ export function renderServices(options: RenderOptions): Rendered {
       ...(r.request.link ? { link: r.request.link } : recipe.route && !recipe.workspace ? { link: recipe.link } : {}),
       ...(r.actions.info ? { info: true as const } : {}),
       ...(uses.length > 0 ? { uses } : {}),
+      ...(gets.length > 0 ? { gets } : {}),
       ...(Object.keys(r.programs).length > 0 ? { programs: Object.keys(r.programs) } : {}),
       ...(recipe.supervisor ? { supervisor: recipe.supervisor.config } : {}),
       ...(recipe.tool ? { tool: true } : {}),
@@ -551,6 +565,13 @@ export function formatPlan(project: string, services: RenderedService[], workspa
   const lines = [`project ${project}`];
   for (const s of services) {
     lines.push(`+ ${s.name}  ${s.recipe}@${s.digest}`);
+    if (s.sharedAs) {
+      // The group's server: its image, params and secrets are the group's, not the project's.
+      const t = s.sharedAs;
+      lines.push(`    shared  the group's server ${t.server} (${t.project})${t.tenant ? `, as tenant ${t.tenant}: ${Object.entries(t.params).map(([k, v]) => `${k} ${v}`).join(', ')}` : ', as it is'}`);
+      if (s.actions) lines.push(`    actions ${Object.keys(s.actions).join(', ')} (octopod run ${s.name} <action>, in the group's server, as the tenant)`);
+      continue;
+    }
     lines.push(`    image   ${s.image}${s.build ? ' — built: its user named after the project, at your uid, nothing installed' : ''}`);
     const params = Object.entries(s.params);
     if (params.length > 0) lines.push(`    params  ${params.map(([k, v]) => `${k}=${v}`).join(' ')}`);
@@ -563,6 +584,7 @@ export function formatPlan(project: string, services: RenderedService[], workspa
     if (s.supervisorD) lines.push(`    runs    the programs of ${s.supervisorD} (supervised, read-only)`);
     if (s.actions) lines.push(`    actions ${Object.keys(s.actions).join(', ')} (octopod run ${s.name} <action>)`);
     if (s.tool) lines.push(`    tool    never started by up: octopod shell ${project} ${s.name} -- <command…>`);
+    if (s.gets) lines.push(`    gets    ${s.gets.map((g) => (g.from ? `${g.name} ← ${g.from}` : g.name)).join(', ')}`);
     if (s.waits) lines.push(`    waits   for ${s.waits.map((w) => `${w.service} (${w.healthy ? 'healthy' : 'started'})`).join(', ')}`);
     if (s.route !== undefined) lines.push(`    served  ${s.route ? `${s.route}.` : ''}${domain}, port ${s.port ?? 'from the image'}`);
   }

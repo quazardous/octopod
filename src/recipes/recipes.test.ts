@@ -238,6 +238,10 @@ describe('the built-in recipes', () => {
       }),
     );
     expect(env('pma')).toEqual(expect.objectContaining({ PMA_HOST: 'db', PMA_PORT: '3306', PMA_USER: 'app', PMA_PASSWORD: 's24' }));
+    // What each service gets, by name and from where — what plan and status say, never the values.
+    const gets = out.services.find((s) => s.name === 'app')!.gets!;
+    expect(gets).toEqual(expect.arrayContaining([{ name: 'DATABASE_URL', from: 'db' }, { name: 'REDIS_URL', from: 'cache' }, { name: 'MAILER_DSN', from: 'mail' }]));
+    expect(JSON.stringify(gets)).not.toContain('s24');
     expect(env('rc').REDIS_HOSTS).toBe('cache:cache:6379');
     expect(out.compose.services.rc.user).toBeUndefined();
     expect(env('me').ME_CONFIG_MONGODB_URL).toBe('mongodb://app:s24@docs:27017/app?authSource=admin');
@@ -377,6 +381,9 @@ describe('the built-in recipes', () => {
     const shared = { project: 'g-shared', network: 'n', tenant: 'shop' };
     const maria = renderServices({ project: 'shop', book, services: { db: { recipe: 'mariadb', shared: true } }, workspace: '/p', owner: '1:1', secretFactory: () => 's3cret', shared });
     expect(maria.tenancies[0]!.env).toEqual({ MARIADB_USER: 'shop', MARIADB_DATABASE: 'shop', MARIADB_PASSWORD: 's3cret' });
+    // The plan says it is the group's server, and the project's tenancy in it.
+    expect(maria.services[0]!.sharedAs).toEqual({ project: 'g-shared', server: 'mariadb-11-4', tenant: 'shop', params: expect.objectContaining({ db: 'shop', user: 'shop' }) });
+    expect(formatPlan('shop', maria.services, '/p')).toMatch(/shared {2}the group's server mariadb-11-4 \(g-shared\), as tenant shop: .*db shop, user shop/);
     expect(Object.keys(maria.services[0]!.actions ?? {})).toEqual(['shell', 'dump', 'load', 'reset']);
     // The secret is the environment's, never in what the plan shows.
     expect(JSON.stringify(maria.services)).not.toContain('s3cret');

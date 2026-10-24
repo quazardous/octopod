@@ -103,6 +103,8 @@ export interface KnownService {
   uses?: string[];
   /** It has an `info` action: the console's page of what runs in it (`GET …/info`). */
   info?: boolean;
+  /** The names of the variables it gets, each with the service it comes from: never the values. */
+  env?: { name: string; from?: string }[];
   /** The service it is the admin of (phpMyAdmin of a MariaDB): the console draws the two as one. */
   admin?: string;
 }
@@ -114,6 +116,8 @@ export interface SharedService extends KnownService {
   server: string;
   /** The group's stack that runs it (`<group>-shared`): where its logs are. */
   stack: string;
+  /** Its address at the edge, when it is routed (the inbox, the provider). */
+  url?: string;
   state: string;
   health?: string;
 }
@@ -1478,6 +1482,7 @@ export class Octopod {
         recipe: s.recipe,
         ...(link ? { link } : {}),
         ...(s.info ? { info: true } : {}),
+        ...(s.gets ? { env: s.gets } : {}),
         ...(s.app ? { app: true } : {}),
         ...(s.app && s.uses ? { uses: s.uses } : {}),
       });
@@ -1509,11 +1514,13 @@ export class Octopod {
     const localOf = new Map(shared.map(([local, s]) => [s.server, local]));
     return shared.map(([local, s]) => {
       const row = stack?.services.find((x) => x.service === s.server);
+      const url = stack?.routes.find((r) => r.service === s.server)?.url;
       const admin = row?.admin ? localOf.get(row.admin) : undefined;
       return {
         service: local,
         server: s.server,
         stack: project,
+        ...(url ? { url } : {}),
         state: row?.state ?? 'absent',
         ...(row?.health ? { health: row.health } : {}),
         recipe: s.recipe,

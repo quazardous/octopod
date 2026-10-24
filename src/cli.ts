@@ -27,9 +27,10 @@
  *
  * `--json` prints the API's JSON; otherwise a short human summary.
  */
+import { helpText } from './help.js';
 import { spawn } from 'node:child_process';
 import { closeSync, existsSync, openSync, read as readFs } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { dockerEnv } from './docker.js';
 import { DECLARATION_FILE, loadDeclaration } from './declaration.js';
 import { listen } from './api.js';
@@ -60,7 +61,10 @@ function print(value: unknown, json: boolean): void {
       console.log(`  [${s.state}${s.health ? `, ${s.health}` : ''}] ${s.service}`);
       for (const g of s.programs ?? []) console.log(`      ${g.program}: ${g.state.toLowerCase()}`);
     }
-    for (const s of (p as ProjectStatus).shared ?? []) console.log(`  [${s.state}${s.health ? `, ${s.health}` : ''}] ${s.service} — group ${p.group ?? 'default'}'s ${s.server}`);
+    for (const s of (p as ProjectStatus).shared ?? []) {
+      const where = [...new Set([s.url, s.link].filter(Boolean))].join(', ');
+      console.log(`  [${s.state}${s.health ? `, ${s.health}` : ''}] ${s.service} — group ${p.group ?? 'default'}'s ${s.server}${where ? ` · ${where}` : ''}`);
+    }
     for (const w of (p as ProjectStatus).warnings ?? []) console.log(`  ! ${w}`);
   }
 }
@@ -108,6 +112,10 @@ async function projectName(args: string[]): Promise<string> {
 async function main(argv: string[]): Promise<void> {
   const json = argv.includes('--json');
   const [command, ...rest] = argv.filter((a) => a !== '--json');
+  if (command === 'help' || command === '--help' || command === '-h' || rest.includes('--help')) {
+    console.log(helpText(command === 'help' || command === '--help' || command === '-h' ? rest[0] : command));
+    return;
+  }
   // The socket `serve` listens on is the one the edge's console relays to.
   const socket = flag(rest, '--socket');
   const octopod = new Octopod(socket ? { socket: resolve(socket) } : {});
@@ -408,7 +416,7 @@ async function main(argv: string[]): Promise<void> {
       return;
     }
     default:
-      console.log(`usage: ${basename(process.argv[1] ?? 'octopod')} edge up|down|status | register [dir] | list | up|down|status|logs [project] | unregister <project> | shell [project] [service] | console code|revoke | serve | setup | version  [--json]`);
+      console.log(helpText(command));
       if (command) process.exitCode = 2;
   }
 }

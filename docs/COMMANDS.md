@@ -1,7 +1,8 @@
 # Commands
 
 Commands run in a project's folder act on that project; elsewhere, name it
-(`octopod status demo`). All but `shell` take `--json`: the same answers as the API, for a
+(`octopod status demo`). `octopod help [command]` (or `--help`) gives each one's usage and
+flags. All but `shell` take `--json`: the same answers as the API, for a
 program. What each answer holds is in [CONTRACT.md](./CONTRACT.md).
 
 ## A project
