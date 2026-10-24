@@ -338,3 +338,19 @@ a.deco:hover { background: var(--code); text-decoration: none; }
 .deco-icon.warn { background: var(--warn); }
 .deco-icon.bad { background: var(--bad); }
 a.deco:hover .deco-icon { background: var(--accent); }
+
+/* The icons' tooltip: placed by the script, over everything. */
+.tip {
+  position: absolute;
+  z-index: 50;
+  max-width: 320px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  background: var(--logs-bg);
+  color: var(--logs-text);
+  font-size: 12px;
+  line-height: 1.45;
+  box-shadow: var(--shadow-up);
+  pointer-events: none;
+}
+.tip-head { font-weight: 600; }

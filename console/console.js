@@ -245,8 +245,32 @@ function serviceTone(s) {
 function decoration(s, project) {
   const icon = el('span', { class: `deco-icon ${serviceTone(s)}` });
   icon.style.setProperty('--icon', `url("/v1/recipes/${encodeURIComponent(s.recipe)}/icon?project=${encodeURIComponent(project)}")`);
-  const title = `${s.service} · ${s.recipe} · ${s.state}${s.health ? `, ${s.health}` : ''}`;
-  return s.link ? el('a', { class: 'deco', href: s.link, target: '_blank', rel: 'noreferrer', title }, icon) : el('span', { class: 'deco', title }, icon);
+  const tip = [`${s.service} · ${s.recipe}`, `${s.state}${s.health ? `, ${s.health}` : ''}`, s.link ? `opens ${s.link.replace(/^http:\/\//, '')}` : null].filter(Boolean);
+  const node = s.link
+    ? el('a', { class: 'deco', href: s.link, target: '_blank', rel: 'noreferrer', 'aria-label': tip.join(', ') }, icon)
+    : el('span', { class: 'deco', 'aria-label': tip.join(', ') }, icon);
+  node.addEventListener('mouseenter', () => showTip(node, tip));
+  node.addEventListener('mouseleave', hideTip);
+  node.addEventListener('focus', () => showTip(node, tip));
+  node.addEventListener('blur', hideTip);
+  return node;
+}
+
+/** One tooltip for the page, laid over everything: a tile clips what overflows it. */
+function showTip(anchor, lines) {
+  hideTip();
+  const tip = el('div', { class: 'tip', role: 'tooltip' }, lines.map((l, i) => el('div', { class: i === 0 ? 'tip-head' : '' }, l)));
+  document.body.append(tip);
+  const a = anchor.getBoundingClientRect();
+  const t = tip.getBoundingClientRect();
+  const left = Math.max(8, Math.min(a.left + a.width / 2 - t.width / 2, window.innerWidth - t.width - 8));
+  const top = a.bottom + 6 + t.height > window.innerHeight ? a.top - t.height - 6 : a.bottom + 6;
+  tip.style.setProperty('left', `${left + window.scrollX}px`);
+  tip.style.setProperty('top', `${top + window.scrollY}px`);
+}
+
+function hideTip() {
+  for (const t of document.querySelectorAll('.tip')) t.remove();
 }
 
 /** A project's known services, apps first: what the stack is, at a glance. */
@@ -486,6 +510,8 @@ function renderDetail(projects) {
 }
 
 function render({ edge, projects }) {
+  // The nodes a tooltip points at are about to be replaced.
+  hideTip();
   const edgeNode = $('edge');
   edgeNode.textContent = edge.running ? `edge on 127.0.0.1:${edge.port}` : 'edge stopped';
   edgeNode.className = `pill ${edge.running ? 'ok' : 'bad'}`;

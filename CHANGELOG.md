@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- The console draws a project's known services as small icons of their software (an envelope for mailpit), in their state's colour, on its tile, its instances and its page; a click opens what each serves: the OIDC admin, the mail inbox, and for a database, the admin wired to it (phpMyAdmin, mongo-express). Their URLs are no longer listed beside the app's. A recipe names its picture (`icon:`, an SVG of its folder) and where it leads (`link:`); `status` gives each service its `recipe`, `link` and `app`; `GET /v1/recipes/:id/icon` serves the picture.
+- The console draws a project's known services as small icons of their software (an envelope for mailpit), in their state's colour, on its tile, its instances and its page; a click opens what each serves: the OIDC admin, the mail inbox, and for a database, the admin wired to it (phpMyAdmin, mongo-express). Their URLs are no longer listed beside the app's; a tooltip on each says which service, its recipe, its state and what it opens. A recipe names its picture (`icon:`, an SVG of its folder) and where it leads (`link:`); `status` gives each service its `recipe`, `link` and `app`; `GET /v1/recipes/:id/icon` serves the picture.
 
 ### Fixed
 
