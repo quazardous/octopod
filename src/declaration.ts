@@ -71,7 +71,7 @@ export interface Exposure {
   service: string;
   /** Declared: it wins. Absent: octopod finds it in the compose file or the image. */
   port?: number;
-  /** The full host name, e.g. api.demo.localhost. */
+  /** The full host name, e.g. api.demo.octopod.localhost. */
   host: string;
 }
 

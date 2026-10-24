@@ -607,7 +607,7 @@ export class Octopod {
 
   /**
    * The edge on a project's edge network, under each of the project's hosts as an alias:
-   * Docker's DNS answers `api.demo.localhost` with the edge there, so the project's routed
+   * Docker's DNS answers `api.demo.octopod.localhost` with the edge there, so the project's routed
    * containers reach their own hosts at the URLs a browser uses. Its own hosts only, on its
    * own network. Reconnected when the hosts changed: Docker sets aliases at connection.
    */
