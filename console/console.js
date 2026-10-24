@@ -238,17 +238,26 @@ function serviceTone(s) {
 }
 
 /**
- * A known service as a small icon of its software, in its state's colour; its link opens what
- * it serves (an admin, an inbox; a database, its admin). Set through the CSSOM: the page's
- * policy forbids inline styles.
+ * A known service as a small icon of its software, in its colours; a stopped one greyed, one in
+ * trouble marked with a dot. Its link opens what it serves (an admin, an inbox; a database, its
+ * admin, which it stands for: `admins`). Set through the CSSOM: the page's policy forbids
+ * inline styles.
  */
-function decoration(s, project) {
-  const icon = el('span', { class: `deco-icon ${serviceTone(s)}` });
+function decoration(s, project, admins = []) {
+  let tone = serviceTone(s);
+  if (tone === 'ok' && admins.some((a) => serviceTone(a) !== 'ok')) tone = 'warn';
+  const icon = el('span', { class: 'deco-icon' });
   icon.style.setProperty('--icon', `url("/v1/recipes/${encodeURIComponent(s.recipe)}/icon?project=${encodeURIComponent(project)}")`);
-  const tip = [`${s.service} · ${s.recipe}`, `${s.state}${s.health ? `, ${s.health}` : ''}`, s.link ? `opens ${s.link.replace(/^http:\/\//, '')}` : null].filter(Boolean);
+  const said = (x) => `${x.state}${x.health ? `, ${x.health}` : ''}`;
+  const tip = [
+    `${s.service} · ${s.recipe}`,
+    said(s),
+    ...admins.map((a) => `${a.service} · ${a.recipe}: ${said(a)}`),
+    s.link ? `opens ${s.link.replace(/^http:\/\//, '')}` : null,
+  ].filter(Boolean);
   const node = s.link
-    ? el('a', { class: 'deco', href: s.link, target: '_blank', rel: 'noreferrer', 'aria-label': tip.join(', ') }, icon)
-    : el('span', { class: 'deco', 'aria-label': tip.join(', ') }, icon);
+    ? el('a', { class: `deco ${tone}`, href: s.link, target: '_blank', rel: 'noreferrer', 'aria-label': tip.join(', ') }, icon)
+    : el('span', { class: `deco ${tone}`, 'aria-label': tip.join(', ') }, icon);
   node.addEventListener('mouseenter', () => showTip(node, tip));
   node.addEventListener('mouseleave', hideTip);
   node.addEventListener('focus', () => showTip(node, tip));
@@ -273,10 +282,22 @@ function hideTip() {
   for (const t of document.querySelectorAll('.tip')) t.remove();
 }
 
-/** A project's known services, apps first: what the stack is, at a glance. */
+/**
+ * A project's known services, apps first: what the stack is, at a glance. A database's admin
+ * is not drawn apart: the database leads to it (same link, no route of its own), and stands
+ * for it.
+ */
 function decorations(p, project) {
   const known = (p.services || []).filter((s) => s.recipe).sort((a, b) => Number(Boolean(b.app)) - Number(Boolean(a.app)) || a.service.localeCompare(b.service));
-  return known.length ? el('div', { class: 'decos' }, known.map((s) => decoration(s, project))) : null;
+  const routed = new Set((p.routes || []).map((r) => r.service));
+  const admins = new Map();
+  const shown = known.filter((s) => {
+    const owner = s.link && known.find((d) => d !== s && d.link === s.link && !routed.has(d.service));
+    if (!owner) return true;
+    admins.set(owner, [...(admins.get(owner) || []), s]);
+    return false;
+  });
+  return shown.length ? el('div', { class: 'decos' }, shown.map((s) => decoration(s, project, admins.get(s)))) : null;
 }
 
 /** The routes worth listing: an app's, or a service octopod knows nothing of; a known one is its icon. */

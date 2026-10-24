@@ -8,8 +8,9 @@ tile, a dot per instance. A project's page has its instances, the state and heal
 service and its programs, what octopod warns about, and the logs, which it refreshes.
 
 A project's known services show as small icons of their software (an envelope for the mail
-catcher), in their state's colour: a click opens what each serves — the OIDC admin, the
-mail inbox, and for a database the admin wired to it. Only the app's URLs are listed.
+catcher), in its colours: greyed when stopped, with a dot when in trouble. A click opens what
+each serves — the OIDC admin, the mail inbox, and for a database the admin wired to it, which
+its icon stands for. Only the app's URLs are listed.
 
 It brings a project up or down; Down asks for a second click. The rest (`restart`, `exec`,
 `run`, removing volumes) stays on the command line. It links to Traefik's dashboard at

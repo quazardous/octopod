@@ -303,7 +303,7 @@ function sharedNetworks(services: string[], networks: Record<string, string>, al
 
 /** A service with no picture of its own: a box. */
 const GENERIC_ICON =
-  '<svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><title>Service</title><path fill="none" stroke="black" stroke-width="2" stroke-linejoin="round" d="M12 2.5 21 7v10l-9 4.5L3 17V7z M3 7l9 4.5L21 7 M12 11.5v10"/></svg>';
+  '<svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><title>Service</title><path fill="none" stroke="rgb(100,116,139)" stroke-width="2" stroke-linejoin="round" d="M12 2.5 21 7v10l-9 4.5L3 17V7z M3 7l9 4.5L21 7 M12 11.5v10"/></svg>';
 
 export class Octopod {
   readonly stateDir: string;

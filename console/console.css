@@ -323,21 +323,25 @@ ul.programs {
 }
 ul.programs li { white-space: nowrap; }
 
-/* A known service: its software's icon, in its state's colour (grey when stopped). */
+/* A known service: its software's icon in its colours; greyed when stopped, a dot when in trouble. */
 .decos { display: flex; flex-wrap: wrap; gap: 4px; }
-.deco { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 5px; vertical-align: middle; }
+.deco { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 5px; vertical-align: middle; }
 a.deco:hover { background: var(--code); text-decoration: none; }
-.deco-icon {
-  width: 16px;
-  height: 16px;
-  background: var(--idle);
-  -webkit-mask: var(--icon) center / contain no-repeat;
-  mask: var(--icon) center / contain no-repeat;
+.deco-icon { width: 16px; height: 16px; background: var(--icon) center / contain no-repeat; }
+.deco:not(.ok):not(.warn):not(.bad) .deco-icon { filter: grayscale(1); opacity: 0.45; }
+.deco.warn::after,
+.deco.bad::after {
+  content: '';
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1px solid var(--panel);
 }
-.deco-icon.ok { background: var(--text); }
-.deco-icon.warn { background: var(--warn); }
-.deco-icon.bad { background: var(--bad); }
-a.deco:hover .deco-icon { background: var(--accent); }
+.deco.warn::after { background: var(--warn); }
+.deco.bad::after { background: var(--bad); }
 
 /* The icons' tooltip: placed by the script, over everything. */
 .tip {
