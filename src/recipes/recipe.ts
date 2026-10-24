@@ -157,6 +157,14 @@ export const RecipeSchema = z
         params: z.record(Ident, z.string().max(200)).default({}),
         secret: Ident.optional(),
         command: z.array(z.string().max(4_000)).min(1).max(64).optional(),
+        /**
+         * What the project's actions on it see instead of the server's own (`MARIADB_USER`,
+         * …): the tenant's names, and its secret as `{{secret}}`. Given through the
+         * environment of `docker exec`, never on a command line.
+         */
+        env: z.record(z.string().regex(/^[A-Z_][A-Z0-9_]*$/), z.string().max(400)).default({}),
+        /** Actions that differ for a tenant (a reset with no right to create a database). */
+        actions: z.record(Ident, ActionSchema).default({}),
       })
       .strict()
       .optional(),

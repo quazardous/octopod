@@ -137,6 +137,8 @@ export interface Tenancy {
   command: string[];
   /** Given on the command's standard input. */
   secret?: string;
+  /** What the project's actions on the shared service see: the tenant's names and secret. */
+  env?: Record<string, string>;
 }
 
 export interface Rendered {
@@ -360,16 +362,38 @@ export function renderServices(options: RenderOptions): Rendered {
       // The group runs it; the project only says what it asks for, and makes its tenancy.
       const defaults = Object.fromEntries(Object.entries(recipe.params).flatMap(([k, spec]) => (spec.type !== 'secret' && spec.default !== undefined ? [[k, spec.default]] : [])));
       shared[r.name] = { server: serverName(r.entry.id, r.params, defaults, Object.keys(recipe.tenant?.params ?? {})), recipe: r.entry.id, params: r.params };
+      let actions = r.actions;
       if (recipe.tenant?.command) {
         const scope = { service: r.name, tenant: options.shared.tenant, params: tenantParams(r, options) };
+        const secret = recipe.tenant.secret ? r.secrets[recipe.tenant.secret] : undefined;
+        const env = renderMap(recipe.tenant.env, { ...scope, secret: secret ?? '' }, `${r.name}.tenant.env`);
         tenancies.push({
           service: r.name,
           tenant: options.shared.tenant,
           command: recipe.tenant.command.map((c, i) => render(c, scope, `${r.name}.tenant.command[${i}]`)),
-          ...(recipe.tenant.secret ? { secret: r.secrets[recipe.tenant.secret] } : {}),
+          ...(secret !== undefined ? { secret } : {}),
+          ...(Object.keys(env).length > 0 ? { env } : {}),
         });
+        // The project's actions on its tenancy: the recipe's, those a tenant does otherwise, the project's own.
+        actions = { ...r.actions };
+        for (const [action, spec] of Object.entries(recipe.tenant.actions)) {
+          if (r.request.actions?.[action]) continue;
+          actions[action] = { ...spec, command: spec.command.map((c, i) => render(c, { service: r.name, recipe: r.entry.id, params: r.params }, `${r.name}.tenant.actions.${action}.command[${i}]`)) };
+        }
       }
-      described.push({ name: r.name, recipe: r.entry.id, digest: r.entry.digest, image: render(recipe.image, { params: r.params }, `${r.name}.image`), build: recipe.build, params: r.params, secrets: Object.keys(r.secrets), volumes: [], ephemeral: [], shared: true });
+      described.push({
+        name: r.name,
+        recipe: r.entry.id,
+        digest: r.entry.digest,
+        image: render(recipe.image, { params: r.params }, `${r.name}.image`),
+        build: recipe.build,
+        params: r.params,
+        secrets: Object.keys(r.secrets),
+        volumes: [],
+        ephemeral: [],
+        shared: true,
+        ...(Object.keys(actions).length > 0 ? { actions } : {}),
+      });
       continue;
     }
     const host = hostScope(options.hostOs ?? hostOsOf());

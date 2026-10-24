@@ -158,7 +158,7 @@ async function main(argv: string[]): Promise<void> {
         for (const a of actions) console.log(`${a.action.padEnd(12)} ${a.summary ?? ''}${a.confirm ? `  (${a.confirm})` : ''}`);
         return;
       }
-      const { argv, spec } = await octopod.actionCommand(project, service, action, { instance: instanceOf(rest), tty: Boolean(process.stdin.isTTY && process.stdout.isTTY) });
+      const { argv, spec, env } = await octopod.actionCommand(project, service, action, { instance: instanceOf(rest), tty: Boolean(process.stdin.isTTY && process.stdout.isTTY) });
       if (file && !spec.input) throw new Error(`${service}/${action} reads no input: redirect its output instead (> file)`);
       if (spec.input && !file && process.stdin.isTTY) throw new Error(`${service}/${action} reads its input: give a file, or pipe it`);
       if (spec.confirm && !rest.includes('--yes')) {
@@ -167,7 +167,7 @@ async function main(argv: string[]): Promise<void> {
         }
       }
       const input = file ? openSync(resolve(file), 'r') : 'inherit';
-      const child = spawn(argv[0], argv.slice(1), { stdio: [input, 'inherit', 'inherit'], env: { ...dockerEnv(), ...(process.env.TERM ? { TERM: process.env.TERM } : {}) } });
+      const child = spawn(argv[0], argv.slice(1), { stdio: [input, 'inherit', 'inherit'], env: { ...dockerEnv(), ...(process.env.TERM ? { TERM: process.env.TERM } : {}), ...env } });
       process.exitCode = await new Promise<number>((done, fail) => {
         child.once('error', fail);
         child.once('exit', (code, signal) => done(code ?? (signal ? 128 : 1)));

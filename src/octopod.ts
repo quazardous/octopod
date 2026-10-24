@@ -109,8 +109,10 @@ export interface KnownService {
 /** A server of the group this project uses, under the project's own name for it. */
 export interface SharedService extends KnownService {
   service: string;
-  /** The group's server it is (`mariadb-11-4`), in `<group>-shared`. */
+  /** The group's server it is (`mariadb-11-4`), in `stack`. */
   server: string;
+  /** The group's stack that runs it (`<group>-shared`): where its logs are. */
+  stack: string;
   state: string;
   health?: string;
 }
@@ -328,6 +330,21 @@ function sharedNetworks(services: string[], networks: Record<string, string>, al
 /** A service with no picture of its own: a box. */
 const GENERIC_ICON =
   '<svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><title>Service</title><path fill="none" stroke="rgb(100,116,139)" stroke-width="2" stroke-linejoin="round" d="M12 2.5 21 7v10l-9 4.5L3 17V7z M3 7l9 4.5L21 7 M12 11.5v10"/></svg>';
+
+/**
+ * A file written only when its content changes — a project is rendered at each read, and
+ * rewriting it each time races with whoever reads it — whole or not at all, in `mode`.
+ */
+async function writeIfChanged(file: string, content: string, mode?: number): Promise<void> {
+  const before = await readFile(file, 'utf8').catch(() => undefined);
+  if (before === content) {
+    if (mode !== undefined) await chmod(file, mode).catch(() => undefined);
+    return;
+  }
+  const tmp = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
+  await writeFile(tmp, content, mode === undefined ? {} : { mode });
+  await rename(tmp, file);
+}
 
 export class Octopod {
   readonly stateDir: string;
@@ -651,18 +668,32 @@ export class Octopod {
     if (!asDeclared.services) return asDeclared;
     // Which services the group runs, as the project or the machine says: settled first.
     const declaration = settleSharing(asDeclared, await this.shareDefault());
-    const { rendered } = await this.render(declaration, write);
+    let { rendered } = await this.render(declaration, write);
     const dir = join(declaration.root, '.octopod');
     const composeFile = join(dir, `recipes.${declaration.project}.json`);
     if (write) {
-      // A service gone from this rendering keeps its secrets: its data may still need them.
-      await this.writeSecret(join('projects', declaration.project, 'secrets.json'), { ...(await this.readSecrets(declaration.project)), ...rendered.secrets });
+      // Every read of a project renders it (status, logs, the console's refresh): its secrets
+      // are written only when one is new, and a secret kept is never replaced — not by this
+      // rendering, nor by another process's that made a new one at the same moment. A
+      // service gone from this rendering keeps its secrets too: its data may still need them.
+      const file = join('projects', declaration.project, 'secrets.json');
+      const kept = await this.readSecrets(declaration.project);
+      const merged: Record<string, Record<string, string>> = { ...kept };
+      for (const [service, values] of Object.entries(rendered.secrets)) merged[service] = { ...values, ...kept[service] };
+      if (JSON.stringify(merged) !== JSON.stringify(kept)) {
+        await this.writeSecret(file, merged);
+        // Another process kept other values first: render with those.
+        if (Object.entries(rendered.secrets).some(([service, values]) => Object.entries(values).some(([k, v]) => merged[service][k] !== v))) {
+          ({ rendered } = await this.render(declaration, write));
+        }
+      }
       await mkdir(dir, { recursive: true });
       await writeFile(join(dir, '.gitignore'), '*\n', { flag: 'wx' }).catch(() => undefined);
-      await writeFile(composeFile, JSON.stringify(rendered.compose, null, 2) + '\n');
+      // The compose file carries the secrets in its environment: the operator's alone.
+      await writeIfChanged(composeFile, JSON.stringify(rendered.compose, null, 2) + '\n', 0o600);
       for (const [path, content] of Object.entries(rendered.files)) {
         await mkdir(join(declaration.root, dirname(path)), { recursive: true });
-        await writeFile(join(declaration.root, path), content);
+        await writeIfChanged(join(declaration.root, path), content);
       }
       // A kept home in .octopod/, created as the operator: docker would create it as root.
       for (const service of rendered.services) {
@@ -1381,6 +1412,7 @@ export class Octopod {
       return {
         service: local,
         server: s.server,
+        stack: project,
         state: row?.state ?? 'absent',
         ...(row?.health ? { health: row.health } : {}),
         recipe: s.recipe,
@@ -1459,7 +1491,12 @@ export class Octopod {
    * The docker command that runs an action, and what it is: for the CLI, which gives it the
    * terminal or a file. In the running service; a tool's, in a one-off container.
    */
-  async actionCommand(name: string, service: string, action: string, options: { instance?: number; tty?: boolean } = {}): Promise<{ argv: string[]; spec: ActionInfo }> {
+  async actionCommand(
+    name: string,
+    service: string,
+    action: string,
+    options: { instance?: number; tty?: boolean } = {},
+  ): Promise<{ argv: string[]; spec: ActionInfo; env: Record<string, string> }> {
     const instance = options.instance ?? 1;
     const declaration = await this.declaration(name, instance);
     const made = (await this.recipeServices(declaration)).find((s) => s.name === service);
@@ -1470,7 +1507,18 @@ export class Octopod {
     }
     const tty = options.tty && spec.tty ? [] : ['-T'];
     let argv: string[];
-    if (made.tool) {
+    let env: Record<string, string> = {};
+    if (made.shared && declaration.shareGroup && declaration.sharedServices?.[service]) {
+      // The group's server, as the project's tenant: its own account, on its own database.
+      // The tenant's names and password reach the action through docker's environment
+      // (`-e NAME` takes the value from it), never on a command line.
+      const stack = this.sharedOf(declaration.shareGroup).project;
+      const server = declaration.sharedServices[service].server;
+      const state = (await this.status(stack)).services.find((s) => s.service === server)?.state;
+      if (state !== 'running') throw new OctopodError(`${service} is group ${declaration.shareGroup}'s ${server}, which is ${state ?? 'not created'}: \`octopod up\` starts it`);
+      env = declaration.tenancies?.find((t) => t.service === service)?.env ?? {};
+      argv = ['docker', ...this.composeArgs(await this.declaration(stack), true), 'exec', ...tty, ...Object.keys(env).flatMap((k) => ['-e', k]), server, ...spec.command];
+    } else if (made.tool) {
       argv = ['docker', ...this.composeArgs(declaration, true), 'run', '--rm', '--no-deps', ...tty, '--label', 'traefik.enable=false', '--entrypoint', spec.command[0], service, ...spec.command.slice(1)];
     } else {
       const state = (await this.status(name, instance)).services.find((s) => s.service === service)?.state;
@@ -1478,7 +1526,7 @@ export class Octopod {
       argv = ['docker', ...this.composeArgs(declaration, true), 'exec', ...tty, service, ...spec.command];
     }
     const info: ActionInfo = { service, action, input: spec.input, tty: spec.tty, ...(spec.summary ? { summary: spec.summary } : {}), ...(spec.confirm ? { confirm: spec.confirm } : {}) };
-    return { argv, spec: info };
+    return { argv, spec: info, env };
   }
 
   /**
@@ -1492,12 +1540,12 @@ export class Octopod {
     action: string,
     options: { instance?: number; input?: string; output?: string; confirm?: boolean } = {},
   ): Promise<{ ok: boolean; code: number; stderr: string }> {
-    const { argv, spec } = await this.actionCommand(name, service, action, { instance: options.instance, tty: false });
+    const { argv, spec, env } = await this.actionCommand(name, service, action, { instance: options.instance, tty: false });
     if (spec.tty) throw new OctopodError(`${service}/${action} is interactive: \`octopod run\` in a terminal`);
     if (spec.confirm && !options.confirm) throw new OctopodError(`${service}/${action} ${spec.confirm}: confirm it`);
     if (spec.input && !options.input) throw new OctopodError(`${service}/${action} reads its input: give a file`);
     if (!this.docker.pipe) throw new OctopodError('this docker runner cannot stream');
-    const result = await this.docker.pipe(argv.slice(1), { ...(spec.input ? { stdin: options.input } : {}), ...(options.output ? { stdout: options.output } : {}) });
+    const result = await this.docker.pipe(argv.slice(1), { ...(spec.input ? { stdin: options.input } : {}), ...(options.output ? { stdout: options.output } : {}), env });
     return { ok: result.code === 0, ...result };
   }
 

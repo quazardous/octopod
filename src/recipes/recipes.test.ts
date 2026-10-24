@@ -372,6 +372,20 @@ describe('the built-in recipes', () => {
     expect(() => renderServices({ project: 'shop', book, services: { db: { recipe: 'mariadb', shared: true } }, workspace: '/p' })).toThrow(/shared needs the project's group/);
   });
 
+  it("gives a shared database's actions to the project, as its tenant", async () => {
+    const book = await loadRecipes([BUILTIN_RECIPES]);
+    const shared = { project: 'g-shared', network: 'n', tenant: 'shop' };
+    const maria = renderServices({ project: 'shop', book, services: { db: { recipe: 'mariadb', shared: true } }, workspace: '/p', owner: '1:1', secretFactory: () => 's3cret', shared });
+    expect(maria.tenancies[0]!.env).toEqual({ MARIADB_USER: 'shop', MARIADB_DATABASE: 'shop', MARIADB_PASSWORD: 's3cret' });
+    expect(Object.keys(maria.services[0]!.actions ?? {})).toEqual(['shell', 'dump', 'load', 'reset']);
+    // The secret is the environment's, never in what the plan shows.
+    expect(JSON.stringify(maria.services)).not.toContain('s3cret');
+    const pg = renderServices({ project: 'shop', book, services: { db: { recipe: 'postgres', shared: true } }, workspace: '/p', owner: '1:1', shared });
+    expect(pg.tenancies[0]!.env).toEqual({ POSTGRES_USER: 'shop', POSTGRES_DB: 'shop' });
+    // A tenant may not create a database: its reset empties the one it owns.
+    expect(pg.services[0]!.actions!.reset!.command.join(' ')).toContain('DROP SCHEMA public CASCADE');
+  });
+
   it('wires the OIDC provider: its address at the edge, the same for the browser and the app', async () => {
     const book = await loadRecipes([BUILTIN_RECIPES]);
     const env = (edgePort?: number) =>

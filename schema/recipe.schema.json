@@ -410,6 +410,60 @@
             "type": "string",
             "maxLength": 4000
           }
+        },
+        "env": {
+          "default": {},
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[A-Z_][A-Z0-9_]*$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 400
+          }
+        },
+        "actions": {
+          "default": {},
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,30}$"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "command": {
+                "minItems": 1,
+                "maxItems": 64,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 4000
+                }
+              },
+              "summary": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "input": {
+                "default": false,
+                "type": "boolean"
+              },
+              "tty": {
+                "default": false,
+                "type": "boolean"
+              },
+              "confirm": {
+                "type": "string",
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "command"
+            ],
+            "additionalProperties": false
+          }
         }
       },
       "additionalProperties": false

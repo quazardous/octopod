@@ -499,9 +499,10 @@ function servicesTable(p, base, instance) {
         el(
           'td',
           { class: 'actions' },
-          s.state === 'not created' || s.state === 'tool' || s.server
+          s.state === 'not created' || s.state === 'tool'
             ? null
-            : el('button', { type: 'button', onclick: () => openLogs({ project: base, instance, service: s.service }) }, 'Logs'),
+            : // A server of the group logs in the group's stack.
+              el('button', { type: 'button', onclick: () => openLogs(s.server ? { project: s.stack, instance: 1, service: s.server } : { project: base, instance, service: s.service }) }, 'Logs'),
         ),
       ),
     );

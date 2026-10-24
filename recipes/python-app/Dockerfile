@@ -13,10 +13,11 @@ ARG DRIVERS=""
 
 COPY --from=uv /uv /uvx /usr/local/bin/
 # supervisord runs the programs; git is what uv needs for a git dependency. A driver's
-# build needs (a compiler, its client's headers) only when the project names it.
+# build needs (a compiler, its client's headers) only when the project names it, and its
+# command-line client (what manage.py dbshell runs).
 RUN set -e; packages="supervisor git"; \
  for driver in $DRIVERS; do case "$driver" in \
-   mysql) packages="$packages gcc libc6-dev pkg-config libmariadb-dev" ;; \
+   mysql) packages="$packages gcc libc6-dev pkg-config libmariadb-dev mariadb-client" ;; \
    *) echo "unknown driver: $driver" >&2; exit 1 ;; \
  esac; done; \
  apt-get update \

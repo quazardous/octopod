@@ -48,6 +48,17 @@ tenant:
       SELECT format('CREATE DATABASE %I OWNER %I', :'t', :'t') WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = :'t') \gexec
       SELECT format('REVOKE CONNECT ON DATABASE %I FROM PUBLIC', :'t') \gexec
       SQL
+  # The project's actions on the group's server (octopod run db shell, in the project): as
+  # its own role, on its own database, over the trusted local socket.
+  env:
+    POSTGRES_USER: "{{params.user}}"
+    POSTGRES_DB: "{{params.db}}"
+  actions:
+    # A tenant may not create a database: its reset empties the one it owns.
+    reset:
+      summary: empties the database (its public schema dropped and made again)
+      confirm: deletes everything in the database
+      command: [sh, -c, 'exec psql -U "$POSTGRES_USER" -v ON_ERROR_STOP=1 -q "$POSTGRES_DB" -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"']
 # `octopod run <service> <action>`: over the container's local socket, which the image
 # trusts; the names are read from its environment.
 actions:

@@ -1189,6 +1189,24 @@ describe.skipIf(!dockerAvailable())("a group's shared database (real docker)", {
     expect((await stat(join(base, 'state', 'groups', 'gtest', '.octopod', 'data', 'mariadb-11-4-data'))).uid).toBe(process.getuid?.());
   });
 
+  it("runs a project's database actions in the group's server, on its own database alone", async () => {
+    const sql = join(base, 'seed.sql');
+    await writeFile(sql, 'CREATE TABLE mine (x INT); INSERT INTO mine VALUES (42);\n');
+    await expect(octopod.runAction('ga', 'db', 'load', { input: sql })).rejects.toThrow(/confirm/);
+    expect((await octopod.runAction('ga', 'db', 'load', { input: sql, confirm: true })).ok).toBe(true);
+    const dump = async (name: string) => {
+      const file = join(base, `${name}.sql`);
+      const r = await octopod.runAction(name, 'db', 'dump', { output: file });
+      expect(r.ok, r.stderr).toBe(true);
+      return readFile(file, 'utf8');
+    };
+    // Its own account on its own database: the dump names it, and the other's sees nothing of it.
+    expect(await dump('ga')).toMatch(/CREATE TABLE `mine`[\s\S]*INSERT INTO `mine` VALUES\s*\(42\)/);
+    expect(await dump('gb')).not.toContain('`mine`');
+    expect((await octopod.runAction('ga', 'db', 'reset', { confirm: true })).ok).toBe(true);
+    expect(await dump('ga')).not.toContain('`mine`');
+  });
+
   it("takes away a project's own server once the group's replaces it", async () => {
     const root = join(base, 'gc');
     await mkdir(join(root, 'node_modules'), { recursive: true });

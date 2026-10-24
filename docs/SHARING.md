@@ -53,4 +53,10 @@ A service that becomes shared leaves its former data where it was, in the projec
 still there. octopod does not move a database's data by itself: dump it from the former
 server (a copy of the project, or before switching), then `octopod run db load dump.sql`.
 
+## The project's database, in the group's server
+
+The project's actions on a shared database stay the project's: `octopod run db shell`,
+`dump`, `load`, `reset`, in the project's folder, act in the group's server as the project's
+own user, on its own database — the others' are out of its reach. In the group's stack
+(`<group>-shared`), the server's actions are its own account's.
 How a recipe is shared (`tenant:` in `recipe.yaml`): [CONTRACT.md](./CONTRACT.md).

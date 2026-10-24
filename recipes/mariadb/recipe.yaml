@@ -54,6 +54,12 @@ tenant:
       ALTER USER '$TENANT'@'%' IDENTIFIED BY '$pw';
       GRANT ALL PRIVILEGES ON \`$TENANT\`.* TO '$TENANT'@'%';
       SQL
+  # The project's actions on the group's server (octopod run db shell, in the project): as
+  # its own user, on its own database — the actions below read these names.
+  env:
+    MARIADB_USER: "{{params.user}}"
+    MARIADB_DATABASE: "{{params.db}}"
+    MARIADB_PASSWORD: "{{secret}}"
 # `octopod run <service> <action>`: the credentials are read in the container, from its
 # environment; the password goes through MYSQL_PWD, never a command line.
 actions:

@@ -258,6 +258,13 @@ workspace: .               # the folder a recipe's workspace mounts; the project
     project its own database and user, granted on that database alone: the app's
     `DATABASE_URL` is the same shape as unshared. A recipe without `tenant:` (`mailpit`,
     `phpmyadmin`, `oidc`) is shared as it is.
+  - A shared service keeps its actions in the project: `octopod run db shell|dump|load|reset`
+    runs the recipe's action in the group's server, with `tenant.env` in its environment
+    instead of the server's own (`MARIADB_USER`, `MARIADB_DATABASE`, `MARIADB_PASSWORD`:
+    the project's names, and its secret as `{{secret}}`), given through docker's
+    environment (`exec -e NAME`), never on a command line. `tenant.actions` replaces the
+    actions a tenant does otherwise (postgres's `reset` empties the database it owns: a
+    tenant may not create one).
 - **The `oidc` recipe** runs octopod's own OpenID Connect provider (`src/oidc`): any first
   path segment is an issuer (`<issuer_base>/admi`), named after the address the request
   came to; its login page takes a user name and the claims to sign. Any client id, any
@@ -354,7 +361,7 @@ first time, kept after), and answers only a request that carries that token in t
 | POST | `/v1/edge/up` · `/v1/edge/down` | | `{ running, port, dashboard, console }` |
 | GET | `/v1/projects?group=&tag=` | | `Project[]` — every registered project, or those of a group, or carrying a tag; a group's shared services (`<group>-shared`) are listed with `sharedOf: <group>`: not a project, the console shows them in the projects that use them |
 | POST | `/v1/projects` | `{ root }` | `Project` (registered from `root/octopod.yaml`) |
-| GET | `/v1/projects/:name` | | `ProjectStatus`; each of its `services` made of a recipe carries `recipe` (its id), `link` (where the console's icon leads: its route at the recipe's `link:`, or for a database the route of the admin wired to it) `app` (it works on the project's files), for an app `uses` (its own services it is wired to), for an admin `admin` (the service it administers: the console draws the two as one), `info` (it has an `info` action: `GET …/info`). `shared`: the group's servers the project uses, `{ service, server, state, health?, recipe, link?, admin? }` — `service` its own name for it, `server` the group's (`mariadb-11-4`) |
+| GET | `/v1/projects/:name` | | `ProjectStatus`; each of its `services` made of a recipe carries `recipe` (its id), `link` (where the console's icon leads: its route at the recipe's `link:`, or for a database the route of the admin wired to it) `app` (it works on the project's files), for an app `uses` (its own services it is wired to), for an admin `admin` (the service it administers: the console draws the two as one), `info` (it has an `info` action: `GET …/info`). `shared`: the group's servers the project uses, `{ service, server, stack, state, health?, recipe, link?, admin? }` — `service` its own name for it, `server` the group's (`mariadb-11-4`), `stack` the group's stack that runs it (`<group>-shared`: its logs are there) |
 | POST | `/v1/projects/:name/up` · `/down` | `{ volumes?: boolean, instance? }` for down, `{ instance? }` for up | `ProjectStatus` — the only POSTs the console's relay lets through, with `X-Octopod-Console: 1`; a down with `volumes: true` and that header is refused (403) |
 | POST | `/v1/projects/:name/restart` | `{ service? }` | `ProjectStatus` |
 | POST | `/v1/projects/:name/exec` | `{ service, argv: string[], timeoutMs? }` | `{ ok, mode, output, truncated }` — argv, never a shell string built by octopod; output bounded; a failure says how it ended (exit code, timeout). `mode: "run"` when the service was not running (stopped, restarting in a loop): the command ran in a one-off container of it (same image, mounts, user, network), kept out of the edge's routes |

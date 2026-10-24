@@ -9,12 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A project's shared database keeps its actions: `octopod run db shell|dump|load|reset` in the project acts in the group's server as the project's own user, on its own database (`tenant.env` and `tenant.actions` in `recipe.yaml`), its password through docker's environment. `octopod_run` gets it too. `python-app` with `drivers: [mysql]` has the `mariadb` client, for `manage.py dbshell`.
 - `octopod mcp`: an MCP server on stdio for coding agents, on the same operations as the CLI. Eight tools: `octopod_status`, `octopod_logs`, `octopod_plan`, `octopod_exec` (an argv, never a shell string), `octopod_run`, `octopod_up` (a long build answers "still running" and goes on), `octopod_down`, `octopod_restart`; the destructive ones ask for `confirm`, and secrets, shells and the edge are not offered. The project is the one declared in the agent's folder. `octopod setup --mcp` registers it with Claude Code; `version` lists the feature `mcp`.
 - An app's icon in the console opens its info page, a phpinfo of what runs in it: for `python-app` its Python, venv, `sys.path`, packages, environment and programs; for `php-app` the real `php -i`; for `node-app` its versions and `npm ls`. It is the recipe's `info` action (`octopod run app info`, `GET /v1/projects/:name/info`), the project's secrets masked. `link:` on a service in `octopod.yaml` leads its icon elsewhere: a path on its route (`/__debug__/`), or a URL.
 - A recipe can name an admin octopod runs beside its service when the project names none (`admin:` in `recipe.yaml`): `redis` and `valkey` come with Redis Commander (`<service>-admin`, at `http://redis.<project>.localhost`), so the console's icon of every cache opens its keys. A group's shared Redis gets its own, in the group's stack. Run `octopod up` on a project to add it.
 
 ### Fixed
 
+- A project's secrets were written again at each read of it (every `status`, every refresh of the console), racing with an `up` that read them: they are now written only when one is new, and a secret kept is never replaced. The compose file octopod renders, which holds them, is the operator's alone (0600) and written only when it changes.
+- The console's table of a project's containers now has the Logs of the group's servers it uses (read in `<group>-shared`); `status` gives each of them its `stack`.
 - A database could be locked out by new passwords: a service out of the declaration for one `up` lost its secrets, and a secrets file octopod could not read was taken for none; either way the next `up` made new ones while the data kept the old. A service's secrets are now kept while it is away, a secrets file that cannot be read stops the `up` instead, and octopod's state files are written whole or not at all.
 
 ## [0.6.1] - 2026-10-24

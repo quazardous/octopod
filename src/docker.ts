@@ -22,6 +22,8 @@ export interface PipeOptions {
   /** A file the command's output is written to, created 0600; discarded otherwise. */
   stdout?: string;
   timeoutMs?: number;
+  /** Variables docker itself gets, for `-e NAME` to pass on: a secret off the command line. */
+  env?: Record<string, string>;
 }
 
 export interface Docker {
@@ -96,7 +98,7 @@ export function cliDocker(binary = 'docker'): Docker {
       if (input) await new Promise<void>((ok, fail) => input.once('open', () => ok()).once('error', fail));
       const output = options.stdout ? createWriteStream(options.stdout, { mode: 0o600 }) : undefined;
       if (output) await new Promise<void>((ok, fail) => output.once('open', () => ok()).once('error', fail));
-      const child = spawn(binary, args, { stdio: [input ? 'pipe' : 'ignore', output ? 'pipe' : 'ignore', 'pipe'], env: dockerEnv() });
+      const child = spawn(binary, args, { stdio: [input ? 'pipe' : 'ignore', output ? 'pipe' : 'ignore', 'pipe'], env: { ...dockerEnv(), ...options.env } });
       if (input) input.pipe(child.stdin!);
       if (output) child.stdout!.pipe(output);
       let stderr = '';
