@@ -196,6 +196,36 @@ details.group > .gallery { margin-bottom: 8px; }
 .tile.bad::before { background: var(--bad); }
 .tile:hover { box-shadow: var(--shadow-up); transform: translateY(-2px); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
 .tile:focus-within { border-color: var(--accent); }
+/* A project run more than once: sheets behind the tile, one per other instance (two at most). */
+.tile.stacked {
+  --sheets: 4px 4px 0 -1px var(--panel), 4px 4px 0 0 var(--line);
+  overflow: visible;
+  margin: 0 8px 8px 0;
+  box-shadow: var(--shadow), var(--sheets);
+}
+.tile.stacked.deep { --sheets: 4px 4px 0 -1px var(--panel), 4px 4px 0 0 var(--line), 8px 8px 0 -1px var(--panel), 8px 8px 0 0 var(--line); }
+.tile.stacked:hover { box-shadow: var(--shadow-up), var(--sheets); }
+.tile.stacked::before { border-radius: var(--radius) var(--radius) 0 0; }
+.pile { display: inline-flex; align-items: center; gap: 0; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.pile .dot { margin-right: 3px; }
+
+/* A project's page, run more than once: its instances, the shown one marked. */
+.instances { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 12px; }
+.chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-size: 13px;
+}
+.chip.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.chip-name { font-weight: 600; color: var(--text); white-space: nowrap; }
+.chip-name:hover { text-decoration: none; color: var(--accent); }
+.chip .mono { font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tile-head { display: flex; align-items: center; gap: 8px; }
 .tile-name { min-width: 0; font-weight: 600; font-size: 14px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tile-name:hover { text-decoration: none; color: var(--accent); }

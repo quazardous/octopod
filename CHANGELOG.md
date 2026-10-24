@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - JSON Schemas of `octopod.yaml` and `recipe.yaml` (`schema/`, in the package too), for an editor's completion: `# yaml-language-server: $schema=…`. A key octopod does not know is refused, as before, and the message now says a newer octopod may know it.
 - A project's exposed containers reach the project's own hosts at the URLs a browser uses: `http://api.demo.localhost` (or `:8480`) from inside the project goes through the edge, as it does from the host. The edge is now an alias for each of the project's hosts on its edge network, and listens inside on the port it is published on. Useful for an identity provider's issuer, or an app that calls its own API by its public address.
 
+### Changed
+
+- The console shows a project run more than once as one stacked tile, a dot per instance with its state and `×N`; its page opens on a strip of its instances (state, address, Up/Down), the one shown below marked, instead of cards nested under the first.
+
 ### Fixed
 
 - The user service retries without limit, every 5 seconds: octopod living on a disk mounted after the session starts (an encrypted home folder) no longer leaves it failed after five quick tries. Run `octopod setup` once to rewrite the unit.

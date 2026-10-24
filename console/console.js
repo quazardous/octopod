@@ -374,13 +374,20 @@ function tile(p) {
   const href = pageOf(p.name);
   const facts = p.problem
     ? null
-    : [`${running}/${services.length} running`, warnings ? `${warnings} warning${warnings > 1 ? 's' : ''}` : null, instances ? `+${instances} instance${instances > 1 ? 's' : ''}` : null]
-        .filter(Boolean)
-        .join(' · ');
+    : [`${running}/${services.length} running`, warnings ? `${warnings} warning${warnings > 1 ? 's' : ''}` : null].filter(Boolean).join(' · ');
+  // A project run more than once is one tile, a pile: a dot per instance tells each one's state.
+  const pile = instances
+    ? el(
+        'span',
+        { class: 'pile', title: `${instances + 1} instances` },
+        [p, ...p.others].map((x) => el('span', { class: `dot ${projectTone(x).tone}`, title: `${x.name}: ${projectTone(x).label}` })),
+        `×${instances + 1}`,
+      )
+    : null;
   return el(
     'article',
     {
-      class: `tile ${tone}`,
+      class: `tile ${tone}${instances ? ' stacked' : ''}${instances > 1 ? ' deep' : ''}`,
       'data-name': p.name,
       // The whole tile opens the page; its links (routes) and its button keep their own.
       onclick: (e) => {
@@ -392,6 +399,7 @@ function tile(p) {
       { class: 'tile-head' },
       el('a', { href, class: 'tile-name' }, p.name),
       el('span', { class: `pill ${tone}` }, label),
+      pile,
       el('span', { class: 'spacer' }),
       // Down when anything runs, up otherwise: the page has both.
       actButton(p.name, 1, label === 'down' || p.problem ? 'up' : 'down'),
@@ -400,6 +408,32 @@ function tile(p) {
     p.problem ? el('p', { class: 'problem' }, p.problem) : el('p', { class: 'tile-facts muted' }, facts, warnings ? el('span', { class: 'dot warn tile-alert' }) : null),
     el('div', { class: 'tile-routes' }, (p.routes || []).map((r) => el('a', { href: r.url, target: '_blank', rel: 'noreferrer' }, r.url.replace(/^http:\/\//, '')))),
     (p.tags || []).length ? el('div', { class: 'tile-tags' }, p.tags.map((t) => el('span', { class: 'tag' }, `#${t}`))) : null,
+  );
+}
+
+/**
+ * A project run more than once: one chip per instance, the first included, each with its
+ * state, its address and its Up/Down; the chip shown below is the selected one.
+ */
+function instanceStrip(base, selected) {
+  const all = [base, ...(base.others || [])];
+  if (all.length < 2) return null;
+  return el(
+    'nav',
+    { class: 'instances', 'aria-label': 'Instances' },
+    all.map((x) => {
+      const n = x.instance || 1;
+      const { tone, label } = projectTone(x);
+      const route = (x.routes || [])[0];
+      return el(
+        'div',
+        { class: `chip${n === selected ? ' selected' : ''}` },
+        el('a', { href: pageOf(base.name, n), class: 'chip-name', 'aria-current': n === selected ? 'page' : null }, el('span', { class: `dot ${tone}` }), x.name),
+        el('span', { class: `pill ${tone}` }, label),
+        route ? el('a', { href: route.url, target: '_blank', rel: 'noreferrer', class: 'mono' }, route.url.replace(/^http:\/\//, '')) : null,
+        actButton(base.name, n, label === 'down' || x.problem ? 'up' : 'down'),
+      );
+    }),
   );
 }
 
@@ -414,7 +448,7 @@ function renderDetail(projects) {
     $('summary').textContent = '';
     return;
   }
-  $('projects').replaceChildren(back, card(instance > 1 ? { ...p, others: [] } : p, project));
+  $('projects').replaceChildren(back, instanceStrip(base, instance), card({ ...p, others: [] }, project));
   $('summary').textContent = [base.group ? `group ${base.group}` : '', instance > 1 ? `instance ${instance} of ${project}` : ''].filter(Boolean).join(' · ');
   // The page opens on its logs, every service's; closed, they stay closed on this page.
   const key = `${project}#${instance}`;
