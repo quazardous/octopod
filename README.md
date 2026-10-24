@@ -15,7 +15,8 @@ project repeats the same traps in its own compose file. octopod does that part o
 the whole machine.
 
 - **One edge for every project.** A single Traefik on loopback serves each project at
-  `http://<project>.octopod.localhost` (and `http://<name>.<project>.octopod.localhost`). No DNS, no
+  `http://<project>.octopod.localhost` (and `http://<name>.<project>.octopod.localhost`; in a group,
+  `http://<project>.group-<group>.octopod.localhost` — [every address](./docs/PROJECTS.md#addresses)). No DNS, no
   `/etc/hosts`, no certificates: `*.localhost` resolves to your machine, and browsers treat
   it as a secure context.
 - **Projects stay plain.** A project keeps its own compose file and adds a small

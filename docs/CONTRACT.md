@@ -98,8 +98,8 @@ Rules, checked when the project is registered and every time it is brought up:
 - **Instances**: a project can run more than once — the `-1` of `<project>-<service>-1`.
   Instance 1 is the project itself; instance N (`--instance N`, `instance` in the API)
   is the same folder and compose files under the name `<project>-N`: its own containers
-  (`<project>-N-<service>-1`), its own edge network, `<project>-N.localhost` (and
-  `api.<project>-N.localhost`), and its data in `.octopod/data/N/`. `status` of the project
+  (`<project>-N-<service>-1`), its own edge network, `<project>-N.octopod.localhost` (and
+  `api.<project>-N.octopod.localhost`; in a group, under `group-<group>.octopod.localhost`), and its data in `.octopod/data/N/`. `status` of the project
   lists its other instances up; `down --instance N` stops that one alone; `unregister`
   stops them all. A project cannot run twice when its compose fixes a `container_name`
   or publishes a fixed host port, or when `<project>-N` is itself a registered project:
