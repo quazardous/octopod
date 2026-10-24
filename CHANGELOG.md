@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-24
+
 ### Added
 
 - The console draws a project's known services as small icons of their software (an envelope for mailpit), in their state's colour, on its tile, its instances and its page; a click opens what each serves: the OIDC admin, the mail inbox, and for a database, the admin wired to it (phpMyAdmin, mongo-express). Their URLs are no longer listed beside the app's; a tooltip on each says which service, its recipe, its state and what it opens. A recipe names its picture (`icon:`, an SVG of its folder) and where it leads (`link:`); `status` gives each service its `recipe`, `link` and `app`; `GET /v1/recipes/:id/icon` serves the picture.
@@ -186,7 +188,8 @@ The first preview: tested on Linux with Docker.
 - Traefik's dashboard and the console answer only from the host: a project's containers, which reach the edge over their edge network, get a 403.
 - `octopod` and `traefik` can no longer be project names: they are the edge's own hosts.
 
-[Unreleased]: https://github.com/quazardous/octopod/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/quazardous/octopod/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/quazardous/octopod/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/quazardous/octopod/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/quazardous/octopod/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/quazardous/octopod/compare/v0.4.0...v0.5.0
