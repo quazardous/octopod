@@ -4,16 +4,24 @@
  * request came to (its Host, behind the edge), so it is the same for a browser on the host
  * and for a container of the project that reaches the same host.
  *
- *   PORT        where it listens (8080)
- *   OIDC_DATA   where the signing key is kept (/data); made on first start
+ *   PORT                 where it listens (8080)
+ *   OIDC_DATA            where the signing key and the users are kept (/data); made on first start
+ *   OIDC_ADMIN_TOKEN     the bearer token of the admin API and page (/admin); none: no admin
+ *   OIDC_OPEN_LOGIN      0 to sign in only as a user of the store; any user, any claims otherwise
+ *   OIDC_PASSWORD_GRANT  1 to trade a user's name and password for tokens, with no browser
  */
+import { timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { newKeyPem, Provider, type AuthRequest } from './provider.js';
+import { adminPage } from './admin.js';
+import { passwordMatches, shown, userOf, Users, type User } from './users.js';
 
 const ISSUER = /^\/([a-z0-9][a-z0-9-]{0,62})(\/.*)?$/;
+/** First segments that are the provider's own, not issuers. */
+const RESERVED = ['admin', 'health'];
 /** What the login page passes back, beside the user name and claims. */
 const REQUEST_FIELDS = ['response_type', 'client_id', 'redirect_uri', 'scope', 'state', 'nonce', 'code_challenge', 'code_challenge_method'];
 
@@ -25,13 +33,17 @@ function send(res: ServerResponse, status: number, body: unknown, headers: Recor
   res.writeHead(status, { 'content-type': type, 'cache-control': 'no-store', ...headers }).end(text);
 }
 
-async function form(req: IncomingMessage): Promise<Record<string, string>> {
+async function body(req: IncomingMessage): Promise<string> {
   let raw = '';
   for await (const chunk of req) {
     raw += chunk;
     if (raw.length > 64_000) throw new Error('request too large');
   }
-  return Object.fromEntries(new URLSearchParams(raw));
+  return raw;
+}
+
+async function form(req: IncomingMessage): Promise<Record<string, string>> {
+  return Object.fromEntries(new URLSearchParams(await body(req)));
 }
 
 /** The client id of a `client_secret_basic` Authorization header; the secret is not checked. */
@@ -41,26 +53,86 @@ function basicClientId(header: string | undefined): string | undefined {
   return decodeURIComponent(Buffer.from(value, 'base64').toString().split(':')[0] ?? '');
 }
 
-function loginPage(issuer: string, query: Record<string, string>, error = ''): string {
+function loginPage(issuer: string, query: Record<string, string>, users: User[], open: boolean, error = ''): string {
   const hidden = REQUEST_FIELDS.filter((f) => query[f]).map((f) => `<input type="hidden" name="${f}" value="${escape(query[f]!)}">`).join('');
+  // The store's users: one click for a user without a password, its password otherwise.
+  const known = users.length
+    ? `<h2>Users</h2>${users
+        .map((u) =>
+          u.password
+            ? `<form method="post" class="user">${hidden}<input type="hidden" name="as" value="${escape(u.sub)}"><b>${escape(u.sub)}</b> <input type="password" name="password" placeholder="password" aria-label="${escape(u.sub)}'s password" required> <button>Sign in</button></form>`
+            : `<form method="post" class="user">${hidden}<input type="hidden" name="as" value="${escape(u.sub)}"><button>Sign in as ${escape(u.sub)}</button> <small>${escape(JSON.stringify(u.claims))}</small></form>`,
+        )
+        .join('')}`
+    : '';
+  if (!open) {
+    return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Sign in</title>
+<style>body{font:15px system-ui;max-width:32rem;margin:3rem auto;padding:0 1rem}.user{margin:.6rem 0}.error{color:#b00}small{color:#666}</style>
+<h1>Sign in</h1><p><small>${escape(issuer)}</small></p>${error ? `<p class="error">${escape(error)}</p>` : ''}${known || '<p>No user may sign in here yet: add one in the admin.</p>'}`;
+  }
   return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>Sign in</title>
-<style>body{font:15px system-ui;max-width:28rem;margin:3rem auto;padding:0 1rem}label{display:block;margin:1rem 0 .3rem}input,textarea{width:100%;box-sizing:border-box;font:inherit;padding:.4rem}textarea{font-family:monospace;height:7rem}button{margin-top:1rem;padding:.5rem 1.2rem;font:inherit}.error{color:#b00}small{color:#666}</style>
+<style>body{font:15px system-ui;max-width:28rem;margin:3rem auto;padding:0 1rem}label{display:block;margin:1rem 0 .3rem}input,textarea{width:100%;box-sizing:border-box;font:inherit;padding:.4rem}textarea{font-family:monospace;height:7rem}button{margin-top:1rem;padding:.5rem 1.2rem;font:inherit}.error{color:#b00}small{color:#666}.user input{width:auto}.user button{margin-top:0}</style>
 <h1>Sign in</h1>
 <p><small>${escape(issuer)} — a development provider: any user, the claims you write.</small></p>
 ${error ? `<p class="error">${escape(error)}</p>` : ''}
 <form method="post">${hidden}
 <label for="username">User</label><input id="username" name="username" value="${escape(query.username ?? 'dev')}" required>
 <label for="claims">Claims (JSON)</label><textarea id="claims" name="claims">${escape(query.claims ?? '{\n  "email": "dev@example.test",\n  "groups": []\n}')}</textarea>
-<button type="submit">Sign in</button></form>`;
+<button type="submit">Sign in</button></form>${known}`;
 }
 
-export function handler(provider: Provider) {
+export interface HandlerOptions {
+  users: Users;
+  /** The admin's bearer token; none: no admin. */
+  adminToken?: string;
+  /** Any user with any claims, typed on the login page: today's quick role test. */
+  openLogin: boolean;
+}
+
+/** Whether a request carries the admin's token: compared in constant time. */
+function admitted(header: string | undefined, token: string): boolean {
+  const given = Buffer.from(/^Bearer\s+(\S+)$/i.exec(header ?? '')?.[1] ?? '');
+  const want = Buffer.from(token);
+  return given.length === want.length && timingSafeEqual(given, want);
+}
+
+/** The admin API: the users, read and written with the admin's token. */
+async function admin(req: IncomingMessage, res: ServerResponse, path: string, options: HandlerOptions): Promise<void> {
+  if (!options.adminToken) return send(res, 404, { error: 'not_found', error_description: 'no admin: OIDC_ADMIN_TOKEN is not set' });
+  if (path === '/admin' && req.method === 'GET') return send(res, 200, adminPage(), { 'content-security-policy': "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'" });
+  if (!admitted(req.headers.authorization, options.adminToken)) return send(res, 401, { error: 'unauthorized', error_description: 'the admin token is needed (Authorization: Bearer …)' }, { 'www-authenticate': 'Bearer' });
+  if (path === '/admin/api/users' && req.method === 'GET') return send(res, 200, { users: options.users.all().map(shown) });
+  const one = /^\/admin\/api\/users\/([^/]+)$/.exec(path);
+  if (!one) return send(res, 404, { error: 'not_found', error_description: `no ${req.method} ${path}` });
+  const sub = decodeURIComponent(one[1]!);
+  const user = options.users.get(sub);
+  if (req.method === 'GET') return user ? send(res, 200, shown(user)) : send(res, 404, { error: 'not_found', error_description: `no user ${sub}` });
+  if (req.method === 'DELETE') return options.users.delete(sub) ? send(res, 200, { deleted: sub }) : send(res, 404, { error: 'not_found', error_description: `no user ${sub}` });
+  if (req.method === 'PUT') {
+    let input: unknown;
+    try {
+      input = JSON.parse((await body(req)) || '{}');
+    } catch {
+      return send(res, 400, { error: 'invalid_request', error_description: 'the body must be JSON' });
+    }
+    const next = userOf(sub, input, user);
+    if ('error' in next) return send(res, 400, { error: 'invalid_request', error_description: next.error });
+    options.users.put(next);
+    return send(res, user ? 200 : 201, shown(next));
+  }
+  return send(res, 405, { error: 'method_not_allowed', error_description: `${req.method} on a user: GET, PUT or DELETE` });
+}
+
+export function handler(provider: Provider, options: HandlerOptions) {
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const url = new URL(req.url ?? '/', 'http://local');
     if (url.pathname === '/health') return send(res, 200, { ok: true });
+    if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) {
+      return admin(req, res, url.pathname, options).catch((e: Error) => send(res, 400, { error: 'invalid_request', error_description: e.message }));
+    }
     const match = ISSUER.exec(url.pathname);
-    if (!match) return send(res, 404, { error: 'not_found', error_description: 'an issuer is a path: /<name>/.well-known/openid-configuration' });
+    if (!match || RESERVED.includes(match[1]!)) return send(res, 404, { error: 'not_found', error_description: 'an issuer is a path: /<name>/.well-known/openid-configuration' });
     const proto = String(req.headers['x-forwarded-proto'] ?? 'http').split(',')[0];
     const issuer = `${proto}://${req.headers.host}/${match[1]}`;
     const path = match[2] ?? '';
@@ -71,21 +143,30 @@ export function handler(provider: Provider) {
       if (path === '/authorize' && req.method === 'GET') {
         const request = provider.authorizeRequest(issuer, query);
         if ('error' in request) return send(res, 400, { error: 'invalid_request', error_description: request.error });
-        return send(res, 200, loginPage(issuer, query));
+        return send(res, 200, loginPage(issuer, query, options.users.of(match[1]!), options.openLogin));
       }
       if (path === '/authorize' && req.method === 'POST') {
         const fields = await form(req);
         const request = provider.authorizeRequest(issuer, fields);
         if ('error' in request) return send(res, 400, { error: 'invalid_request', error_description: request.error });
+        const users = options.users.of(match[1]!);
+        const page = (error: string) => send(res, 400, loginPage(issuer, fields, users, options.openLogin, error));
+        if (fields.as !== undefined) {
+          // A user of the store: its claims, and its password when it has one.
+          const user = users.find((u) => u.sub === fields.as);
+          if (!user || (user.password && !passwordMatches(user.password, fields.password ?? ''))) return page('Wrong user or password.');
+          return send(res, 302, '', { location: provider.issueCode(request as AuthRequest, { sub: user.sub, claims: user.claims }) });
+        }
+        if (!options.openLogin) return page('Sign in as one of the users.');
         let claims: unknown;
         try {
           claims = JSON.parse(fields.claims || '{}');
         } catch {
           claims = undefined;
         }
-        if (!claims || typeof claims !== 'object' || Array.isArray(claims)) return send(res, 400, loginPage(issuer, fields, 'The claims must be a JSON object.'));
+        if (!claims || typeof claims !== 'object' || Array.isArray(claims)) return page('The claims must be a JSON object.');
         const sub = (fields.username ?? '').trim();
-        if (!sub) return send(res, 400, loginPage(issuer, fields, 'A user name is needed.'));
+        if (!sub) return page('A user name is needed.');
         return send(res, 302, '', { location: provider.issueCode(request as AuthRequest, { sub, claims: claims as Record<string, unknown> }) });
       }
       if (path === '/token' && req.method === 'POST') {
@@ -122,7 +203,10 @@ export function loadKey(dir: string): string {
 }
 
 export function start(port = Number(process.env.PORT ?? 8080), dir = process.env.OIDC_DATA ?? '/data'): Server {
-  const server = createServer(handler(new Provider(loadKey(dir))));
+  const users = new Users(join(dir, 'users.json'));
+  const provider = new Provider(loadKey(dir), { users, passwordGrant: ['1', 'true'].includes(process.env.OIDC_PASSWORD_GRANT ?? '') });
+  const adminToken = process.env.OIDC_ADMIN_TOKEN || undefined;
+  const server = createServer(handler(provider, { users, ...(adminToken ? { adminToken } : {}), openLogin: !['0', 'false'].includes(process.env.OIDC_OPEN_LOGIN ?? '') }));
   server.listen(port, () => console.log(`oidc: listening on ${port}; issuers at /<name>`));
   return server;
 }

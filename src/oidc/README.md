@@ -5,7 +5,8 @@ the `oidc` recipe, so a project that signs in with OIDC (Authentik, Keycloak, Go
 Entra in production) has a provider in development without installing one, and without a
 login bypass in its code.
 
-It is a tool of its own: `provider.ts` is the protocol, `server.ts` puts it on HTTP. Today
+It is a tool of its own: `provider.ts` is the protocol, `users.ts` the users it keeps,
+`server.ts` puts it on HTTP, `admin.ts` is its admin page. Today
 it is a development provider; nothing in it stops it from growing into a real one (accounts,
 registered clients, consent).
 
@@ -21,12 +22,20 @@ from the project's containers, so a token's `iss` matches on both sides.
 | `/<issuer>/.well-known/openid-configuration` | discovery |
 | `/<issuer>/jwks` | the public key (RS256) |
 | `/<issuer>/authorize` | the authorization code flow, PKCE (`S256`, `plain`) optional; GET shows the login page |
-| `/<issuer>/token` | `authorization_code` |
+| `/<issuer>/token` | `authorization_code`; `client_credentials`; `password` when it is on |
 | `/<issuer>/userinfo` | the access token's claims |
 | `/<issuer>/logout` | back to `post_logout_redirect_uri` |
 | `/health` | `{ ok: true }` |
+| `/admin` | the admin page: the users |
+| `/admin/api/users[/<name>]` | `GET`, `PUT` (`{ claims, password?, issuers? }`), `DELETE`, with `Authorization: Bearer <admin token>` |
 
-The login page takes a user name (the `sub`) and the claims to sign, as JSON:
+**Users.** The provider keeps users in `OIDC_DATA/users.json`: a name, its claims, a password
+(stored as a scrypt hash, never as given) or none, and the issuers it may sign in to (all
+when none are named). The login page lists them: one click for a user without a password,
+its password otherwise. `password` grant (`OIDC_PASSWORD_GRANT=1`): a CI's tests trade a
+user's name and password for tokens, with no browser; only users with a password.
+
+**Open login** (on unless `OIDC_OPEN_LOGIN=0`): the login page also takes any user name (the `sub`) and the claims to sign, as JSON:
 `{"groups": ["admi-dev"], "email": "ada@example.test"}`. Each role is tried by typing it.
 Claims the provider sets itself (`iss`, `aud`, `exp`, `nonce`…) cannot be replaced.
 
@@ -37,8 +46,10 @@ redirect URI, its PKCE verifier), and a code is used once, within a minute. Toke
 ## Running it
 
 ```sh
-PORT=8080 OIDC_DATA=/data node server.js
+PORT=8080 OIDC_DATA=/data OIDC_ADMIN_TOKEN=… node server.js
 ```
+
+Without `OIDC_ADMIN_TOKEN` there is no admin: its page and API answer 404.
 
 The signing key is made in `OIDC_DATA` on first start (`signing-key.pem`, `0600`) and kept:
 tokens, and the keys the apps cached, outlive a restart.

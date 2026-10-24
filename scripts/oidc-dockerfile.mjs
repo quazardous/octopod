@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
 const root = new URL('..', import.meta.url);
-const FILES = ['provider', 'server'];
+const FILES = ['users', 'admin', 'provider', 'server'];
 
 export function render() {
   const js = (name) =>

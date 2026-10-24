@@ -236,7 +236,10 @@ workspace: .               # the folder a recipe's workspace mounts; the project
 - **The `oidc` recipe** runs octopod's own OpenID Connect provider (`src/oidc`): any first
   path segment is an issuer (`<issuer_base>/admi`), named after the address the request
   came to; its login page takes a user name and the claims to sign. Any client id, any
-  client secret: a development provider. Its signing key is kept in `.octopod/data/<service>-keys`.
+  client secret: a development provider. It keeps users (claims, a password as a scrypt
+  hash), managed at `/admin` and its API with the service's `admin-token` secret
+  (`octopod secrets`); params `password-grant` (a CI signs in with no browser) and
+  `open-login: false` (only the admin's users). Its signing key is kept in `.octopod/data/<service>-keys`.
 - **The host, in an env.** A recipe's `env` (and a requirement's) may read `{{host.os}}`
   (`linux`, `windows`, `macos`) and `{{host.poll}}` — `true` where a change made on the host
   raises no file event in a container (Docker Desktop on Windows), empty elsewhere. An env

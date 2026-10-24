@@ -969,7 +969,7 @@ describe.skipIf(!dockerAvailable())('the OIDC provider, seen from the browser an
         '',
       ].join('\n'),
     );
-    await writeFile(join(root, 'octopod.yaml'), 'services:\n  app: { recipe: node-app }\n  id: { recipe: oidc }\n');
+    await writeFile(join(root, 'octopod.yaml'), 'services:\n  app: { recipe: node-app }\n  id: { recipe: oidc, password-grant: true }\n');
     octopod = new Octopod({ stateDir: join(base, 'state'), instance: INSTANCE, ports: [PORT] });
     await octopod.register(root);
   }, 600_000);
@@ -992,6 +992,18 @@ describe.skipIf(!dockerAvailable())('the OIDC provider, seen from the browser an
     expect(JSON.parse(flow.output.trim().split('\n').pop()!)).toEqual({ issuer, iss: issuer, sub: 'ada', groups: ['admi-dev'] });
     // Its key is kept in the project, the operator's.
     expect((await stat(join(root, '.octopod', 'data', 'id-keys', 'signing-key.pem'))).uid).toBe(process.getuid?.());
+  });
+
+  it('takes a user from the host through its admin, and lets a CI in the app sign in with its password', async () => {
+    const token = (await octopod.secrets('idp')).find((s) => s.service === 'id' && s.name === 'admin-token')!.value;
+    const put = await get('id.idp.localhost', '/admin/api/users/ci', 'PUT', { Authorization: `Bearer ${token}` }, 5000, JSON.stringify({ claims: { groups: ['admi-staff'] }, password: 'ci-pass' }));
+    expect(put.status, put.body).toBe(201);
+    const grant = await octopod.exec('idp', 'app', [
+      'node',
+      '-e',
+      "fetch(`${process.env.OIDC_ISSUER_BASE}/admi/token`, { method: 'POST', body: new URLSearchParams({ grant_type: 'password', client_id: 'ci', username: 'ci', password: 'ci-pass' }) }).then((r) => r.json()).then((t) => console.log(JSON.parse(Buffer.from(t.id_token.split('.')[1], 'base64url')).groups.join()))",
+    ]);
+    expect(grant.output.trim()).toBe('admi-staff');
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createHash, createPublicKey, verify } from 'node:crypto';
-import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
@@ -49,7 +49,7 @@ describe('the OIDC provider', () => {
 
   it('holds a PKCE client to its verifier, and lets a code and a token expire', () => {
     let clock = 1_000_000_000_000;
-    const provider = new Provider(pem, () => clock);
+    const provider = new Provider(pem, { now: () => clock });
     const verifier = 'v'.repeat(50);
     const auth = provider.authorizeRequest(issuer, { ...request, code_challenge: b64url(createHash('sha256').update(verifier).digest()), code_challenge_method: 'S256' });
     if ('error' in auth) throw new Error(auth.error);
@@ -81,7 +81,11 @@ describe('the OIDC server', () => {
 
   beforeAll(async () => {
     dir = await mkdtemp(join(tmpdir(), 'octopod-oidc-'));
+    process.env.OIDC_ADMIN_TOKEN = 'admin-t0ken';
+    process.env.OIDC_PASSWORD_GRANT = 'true';
     server = start(0, dir);
+    delete process.env.OIDC_ADMIN_TOKEN;
+    delete process.env.OIDC_PASSWORD_GRANT;
     await new Promise((r) => server.once('listening', r));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   });
@@ -132,5 +136,48 @@ describe('the OIDC server', () => {
     expect(await bad.text()).toContain('must be a JSON object');
     expect((await fetch(`${base}/`)).status).toBe(404);
     expect((await fetch(`${base}/health`)).status).toBe(200);
+  });
+
+  const admin = (method: string, path: string, payload?: unknown, token = 'admin-t0ken') =>
+    fetch(`${base}/admin/api${path}`, { method, headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, ...(payload ? { body: JSON.stringify(payload) } : {}) });
+
+  it('keeps users through its admin API, behind its token, never showing a password', async () => {
+    expect((await admin('GET', '/users', undefined, 'wrong')).status).toBe(401);
+    expect((await admin('PUT', '/users/ada', { claims: { groups: ['admi-dev'] }, password: 'pa55' })).status).toBe(201);
+    expect((await admin('PUT', '/users/bob', { claims: { groups: ['admi-viewer'] }, issuers: ['google'] })).status).toBe(201);
+    expect((await admin('PUT', '/users/bad name', {})).status).toBe(400);
+    const { users } = (await (await admin('GET', '/users')).json()) as { users: Record<string, unknown>[] };
+    expect(users).toEqual([
+      { sub: 'ada', claims: { groups: ['admi-dev'] }, password: true },
+      { sub: 'bob', claims: { groups: ['admi-viewer'] }, password: false, issuers: ['google'] },
+    ]);
+    expect(await readFile(join(dir, 'users.json'), 'utf8')).not.toContain('pa55');
+    expect((await fetch(`${base}/admin`)).status).toBe(200);
+  });
+
+  it('trades a user\'s password for tokens, with no browser, and refuses a wrong one', async () => {
+    const grant = (password: string) =>
+      fetch(`${base}/admi/token`, { method: 'POST', body: new URLSearchParams({ grant_type: 'password', client_id: 'ci', username: 'ada', password }) });
+    expect((await grant('nope')).status).toBe(400);
+    const ok = await grant('pa55');
+    expect(ok.status).toBe(200);
+    expect(claimsOf(((await ok.json()) as Record<string, string>).id_token!)).toEqual(expect.objectContaining({ sub: 'ada', groups: ['admi-dev'], aud: 'ci' }));
+    // bob is google's alone, and has no password: neither signs him in here.
+    expect((await fetch(`${base}/admi/token`, { method: 'POST', body: new URLSearchParams({ grant_type: 'password', client_id: 'ci', username: 'bob', password: '' }) })).status).toBe(400);
+  });
+
+  it('signs a user of the store in from the login page, with its claims', async () => {
+    const query = { response_type: 'code', client_id: 'app', redirect_uri: 'http://demo.localhost/cb', scope: 'openid' };
+    const page = await (await fetch(`${base}/admi/authorize?${new URLSearchParams(query)}`)).text();
+    expect(page).toContain('ada');
+    expect(page).not.toContain('Sign in as bob');
+    const wrong = await fetch(`${base}/admi/authorize`, { method: 'POST', redirect: 'manual', body: new URLSearchParams({ ...query, as: 'ada', password: 'x' }) });
+    expect(wrong.status).toBe(400);
+    const login = await fetch(`${base}/admi/authorize`, { method: 'POST', redirect: 'manual', body: new URLSearchParams({ ...query, as: 'ada', password: 'pa55' }) });
+    const code = new URL(login.headers.get('location')!).searchParams.get('code')!;
+    const tokens = (await (await fetch(`${base}/admi/token`, { method: 'POST', body: new URLSearchParams({ grant_type: 'authorization_code', code, client_id: 'app', redirect_uri: query.redirect_uri }) })).json()) as Record<string, string>;
+    expect(claimsOf(tokens.id_token!)).toEqual(expect.objectContaining({ sub: 'ada', groups: ['admi-dev'] }));
+    expect((await admin('DELETE', '/users/bob')).status).toBe(200);
+    expect((await admin('GET', '/users/bob')).status).toBe(404);
   });
 });

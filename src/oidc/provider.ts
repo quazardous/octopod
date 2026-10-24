@@ -8,6 +8,7 @@
  * page that takes a user name and its claims, for development.
  */
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, sign, verify, type KeyObject } from 'node:crypto';
+import { passwordMatches, type Users } from './users.js';
 
 /** How long a code waits to be exchanged, and how long a token lasts. */
 export const CODE_MS = 60_000;
@@ -45,16 +46,29 @@ function failure(status: number, error: string, description: string): Answer {
   return { status, body: { error, error_description: description } };
 }
 
+export interface ProviderOptions {
+  now?: () => number;
+  /** Who may sign in with a password (the `password` grant), and on the login page. */
+  users?: Users;
+  /**
+   * The `password` grant: a client trades a user's name and password for tokens, with no
+   * browser — what a CI's tests do against a development provider. Off unless asked.
+   */
+  passwordGrant?: boolean;
+}
+
 export class Provider {
   private readonly key: KeyObject;
   private readonly publicKey: KeyObject;
   readonly kid: string;
   private readonly codes = new Map<string, { request: AuthRequest; login: Login; expires: number; authTime: number }>();
+  private readonly now: () => number;
 
   constructor(
     keyPem: string,
-    private readonly now: () => number = Date.now,
+    private readonly options: ProviderOptions = {},
   ) {
+    this.now = options.now ?? Date.now;
     this.key = createPrivateKey(keyPem);
     this.publicKey = createPublicKey(this.key);
     const { n, e } = this.publicKey.export({ format: 'jwk' });
@@ -71,7 +85,7 @@ export class Provider {
       jwks_uri: `${issuer}/jwks`,
       end_session_endpoint: `${issuer}/logout`,
       response_types_supported: ['code'],
-      grant_types_supported: ['authorization_code'],
+      grant_types_supported: ['authorization_code', 'client_credentials', ...(this.options.passwordGrant ? ['password'] : [])],
       subject_types_supported: ['public'],
       id_token_signing_alg_values_supported: ['RS256'],
       scopes_supported: ['openid', 'profile', 'email', 'groups'],
@@ -121,12 +135,29 @@ export class Provider {
    * client is the redirect URI and the code it holds, as a development provider needs.
    */
   token(issuer: string, form: Record<string, string | undefined>, basicClientId?: string): Answer {
-    if (form.grant_type !== 'authorization_code') return failure(400, 'unsupported_grant_type', 'only authorization_code');
+    const clientId = basicClientId ?? form.client_id;
+    if (form.grant_type === 'client_credentials') {
+      // A service for itself: an access token whose subject is the client.
+      if (!clientId) return failure(400, 'invalid_client', 'client_id is missing');
+      const iat = Math.floor(this.now() / 1000);
+      const scope = form.scope ?? '';
+      return { status: 200, body: { access_token: this.sign({ iss: issuer, sub: clientId, aud: clientId, client_id: clientId, scope, iat, exp: iat + TOKEN_S }), token_type: 'Bearer', expires_in: TOKEN_S, scope } };
+    }
+    if (form.grant_type === 'password') {
+      if (!this.options.passwordGrant) return failure(400, 'unsupported_grant_type', 'the password grant is off (OIDC_PASSWORD_GRANT=1 turns it on)');
+      if (!clientId) return failure(400, 'invalid_client', 'client_id is missing');
+      const issuerName = new URL(issuer).pathname.slice(1);
+      const user = this.options.users?.of(issuerName).find((u) => u.sub === form.username);
+      // A user without a password signs in on the page only: the grant needs one.
+      if (!user?.password || !passwordMatches(user.password, form.password ?? '')) return failure(400, 'invalid_grant', 'wrong user name or password');
+      const scope = form.scope ?? 'openid';
+      return { status: 200, body: this.tokens(issuer, clientId, { sub: user.sub, claims: user.claims }, scope, Math.floor(this.now() / 1000)) };
+    }
+    if (form.grant_type !== 'authorization_code') return failure(400, 'unsupported_grant_type', 'authorization_code, client_credentials, or password when it is on');
     const entry = form.code ? this.codes.get(form.code) : undefined;
     if (form.code) this.codes.delete(form.code);
     if (!entry || entry.expires <= this.now() || entry.request.issuer !== issuer) return failure(400, 'invalid_grant', 'unknown, used or expired code');
     const { request, login } = entry;
-    const clientId = basicClientId ?? form.client_id;
     if (clientId !== request.clientId) return failure(400, 'invalid_grant', 'the code was issued to another client');
     if (form.redirect_uri !== request.redirectUri) return failure(400, 'invalid_grant', 'redirect_uri differs from the authorization request');
     if (request.codeChallenge) {
@@ -134,12 +165,17 @@ export class Provider {
       const derived = request.codeChallengeMethod === 'S256' ? b64url(createHash('sha256').update(verifier).digest()) : verifier;
       if (!verifier || derived !== request.codeChallenge) return failure(400, 'invalid_grant', 'code_verifier does not match the code_challenge');
     }
+    return { status: 200, body: this.tokens(issuer, request.clientId, login, request.scope, entry.authTime, request.nonce) };
+  }
+
+  /** An ID token and an access token for a login: the claims it carries, never over the provider's own. */
+  private tokens(issuer: string, clientId: string, login: Login, scope: string, authTime: number, nonce?: string): Record<string, unknown> {
     const iat = Math.floor(this.now() / 1000);
     const claims = Object.fromEntries(Object.entries(login.claims).filter(([k]) => !RESERVED.includes(k) && k !== 'sub'));
     const common = { iss: issuer, sub: login.sub, iat, exp: iat + TOKEN_S };
-    const idToken = this.sign({ preferred_username: login.sub, name: login.sub, ...claims, ...common, aud: request.clientId, auth_time: entry.authTime, ...(request.nonce ? { nonce: request.nonce } : {}) });
-    const accessToken = this.sign({ ...claims, ...common, aud: request.clientId, client_id: request.clientId, scope: request.scope });
-    return { status: 200, body: { access_token: accessToken, token_type: 'Bearer', expires_in: TOKEN_S, id_token: idToken, scope: request.scope } };
+    const idToken = this.sign({ preferred_username: login.sub, name: login.sub, ...claims, ...common, aud: clientId, auth_time: authTime, ...(nonce ? { nonce } : {}) });
+    const accessToken = this.sign({ ...claims, ...common, aud: clientId, client_id: clientId, scope });
+    return { access_token: accessToken, token_type: 'Bearer', expires_in: TOKEN_S, id_token: idToken, scope };
   }
 
   /** The claims of the access token a request carries. */
