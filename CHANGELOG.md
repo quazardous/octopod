@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - A project's tests run on the group's shared database: it owns, as many as it makes, the databases named `<project>_…` (`shop_test`, `shop_jobs`) and `test_<project>`, `test_<project>_…` (Django's, parallel runs included), made, used and dropped there, and no other project's. On postgres, its role may create databases, and `<project>_test` is made. Run `octopod up` on the project once to get the grants.
 
+### Changed
+
+- The OIDC provider's sign-in and signed-out pages carry a hazard-tape banner, "Development sign-in — not a real identity provider": nobody who lands on them, or sees a screenshot, takes them for a real login. Run `octopod up` on a project to rebuild its provider.
+
 ## [0.7.0] - 2026-10-24
 
 After upgrading, every address is under `octopod.localhost` (see **Breaking** below): run `octopod edge up`, then `octopod up` in each project, and update what an app keeps of its own address (`ALLOWED_HOSTS`, CSRF origins, OIDC redirect URIs). `octopod up` once also rebuilds an `oidc` provider (its open admin, its groups) and adds Redis Commander beside a project's redis.

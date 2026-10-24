@@ -173,6 +173,7 @@ describe('the OIDC server', () => {
     const page = await (await fetch(`${base}/admi/authorize?${new URLSearchParams(query)}`)).text();
     expect(page).toContain('ada');
     expect(page).not.toContain('Sign in as bob');
+    expect(page).toContain('not a real identity provider');
     const wrong = await fetch(`${base}/admi/authorize`, { method: 'POST', redirect: 'manual', body: new URLSearchParams({ ...query, as: 'ada', password: 'x' }) });
     expect(wrong.status).toBe(400);
     const login = await fetch(`${base}/admi/authorize`, { method: 'POST', redirect: 'manual', body: new URLSearchParams({ ...query, as: 'ada', password: 'pa55' }) });
