@@ -28,7 +28,7 @@ export const CONTRACT = 1;
  * What this octopod adds to contract 1, by name: a client checks for the feature it needs,
  * since an older octopod speaks contract 1 too without it. Absent before 0.2.0: none.
  */
-export const FEATURES = ['secrets'];
+export const FEATURES = ['secrets', 'mcp'];
 
 export async function version(): Promise<{ version: string; contract: number; features: string[] }> {
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };

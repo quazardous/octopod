@@ -135,7 +135,7 @@ describe.skipIf(process.platform === 'win32')('the API', () => {
 
   it('says its version and the contract it speaks, from package.json', async () => {
     const { version } = JSON.parse(await readFile(join(import.meta.dirname, '..', 'package.json'), 'utf8')) as { version: string };
-    expect((await call('GET', '/v1/version')).json).toEqual({ version, contract: 1, features: ['secrets'] });
+    expect((await call('GET', '/v1/version')).json).toEqual({ version, contract: 1, features: ['secrets', 'mcp'] });
   });
 
   it('reports the edge as stopped when nothing runs', async () => {

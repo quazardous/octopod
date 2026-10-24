@@ -43,6 +43,21 @@ octopod uninstall [--purge]   # service, projects, edge, extension away; data st
 octopod version
 ```
 
+## For a coding agent
+
+```sh
+octopod setup --mcp           # registers `octopod mcp` with Claude Code, for every folder
+```
+
+`octopod mcp` is an MCP server on stdio: the project is the one declared in the agent's
+folder (the nearest `octopod.yaml` up the tree), or the one a tool names. Its tools:
+`octopod_status`, `octopod_logs` (with a `match`), `octopod_plan`, `octopod_exec` (an argv,
+never a shell string), `octopod_run` (a service's action; load and reset need `confirm`),
+`octopod_up` (a long build answers "still running" and goes on), `octopod_down` (`volumes`
+needs `confirm`), `octopod_restart`. Secrets, shells and the edge are not offered: they stay
+the human's. Another client registers the same command: `octopod mcp`, run in the project's
+folder.
+
 ## The API
 
 The same operations are an HTTP API on a unix socket (`octopod serve`, which the user

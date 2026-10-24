@@ -410,7 +410,7 @@ The CLI speaks the same operations and prints the same JSON with `--json`:
 `octopod shell [project] [service] [--instance N] [--root] [--oneshot] [-- command…]` (a
 shell in a running service, as its user — or root — in its working directory; bash when
 the image has it; `--oneshot` for a service that is not running; CLI only: it needs a
-terminal), `octopod setup [--no-service] [--no-edge] [--gnome-extension]` (Docker checked, the API as a
+terminal), `octopod mcp` (an MCP server on stdio: see below), `octopod setup [--no-service] [--no-edge] [--gnome-extension] [--mcp]` (`--mcp`: `octopod mcp` registered with Claude Code at user scope; Docker checked, the API as a
 systemd user service, the edge started; with `--gnome-extension`, the GNOME Shell extension
 installed in the user's extensions folder — a view of the edge and the projects that reads
 the API on its socket and runs the CLI, enabled the first time, refreshed after), `octopod serve [--socket path]` (the API, and the console's data; under a supervisor —
@@ -419,6 +419,27 @@ with code 75 once octopod's code, version or built-in recipes changed on disk an
 for 3 s, and is started again onto the new code; run by hand, it only says to restart it; `setup.sh` installs it
 as the `octopod` systemd user service; on Windows the tray runs it). `OCTOPOD_STATE_DIR`, `OCTOPOD_INSTANCE` and `OCTOPOD_PORTS` select
 another instance (tests, a second edge).
+
+## The MCP server
+
+`octopod mcp` serves the operations a coding agent needs as MCP tools, over stdio, in the
+same process as the CLI. The project is the one declared in the server's working folder or
+above it, or the one a tool's `project` names; `instance` picks instance N. The tools, their
+names and parameters part of the contract (feature `mcp`):
+
+| Tool | Parameters | What it does |
+|---|---|---|
+| `octopod_status` | `project?`, `instance?`, `all?` | `{ edge, project }` (`ProjectStatus`, plus `up: "still running"` while an up goes on), or `{ edge, projects }` with `all` |
+| `octopod_logs` | `project?`, `instance?`, `service?`, `tail?` (≤ 2000), `match?` | the last lines, those containing `match` (any case), bounded |
+| `octopod_plan` | `project?`, `instance?` | what `up` would run, as `octopod plan` says it |
+| `octopod_exec` | `project?`, `instance?`, `service`, `argv: string[]`, `timeoutMs?` | as `POST …/exec`, output bounded to 64 KiB |
+| `octopod_run` | `project?`, `instance?`, `service`, `action`, `input?`, `output?`, `confirm?` | as `POST …/run`: files by absolute path; without `output`, the output returned, bounded; an action with `confirm` in its recipe needs `confirm: true` |
+| `octopod_up` | `project?`, `instance?` | registers the folder's project if needed, then up; past 60 s it answers that the up is still running, and it goes on |
+| `octopod_down` | `project?`, `instance?`, `volumes?`, `confirm?` | `volumes: true` needs `confirm: true` |
+| `octopod_restart` | `project?`, `instance?`, `service` | one service |
+
+A tool's failure is a result with `isError`, its message said for the agent. Not offered:
+secrets, a shell, register and unregister, the edge.
 
 ## Schemas
 
@@ -436,6 +457,7 @@ and refuses to run below the version it needs. What it may rely on, from 0.1.0:
   contract 1. An older octopod speaks contract 1 without them, and has no `features`
   field — none. Check for the feature you use, not for a version number:
   - `secrets` (0.2.0): `octopod secrets <project> [--instance N] --json` → `{ values }`.
+  - `mcp` (0.7.0): `octopod mcp`, the MCP server and its tools.
 - **The CLI, with `--json`**: `version`, `register <dir>`, `plan <dir>`, `recipes`,
   `up <project>`, `status <project>`, `restart <project> --service <s>`,
   `exec <project> <service> --timeout <ms> -- <argv…>` (its answer's `mode` included),

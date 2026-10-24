@@ -6,8 +6,11 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cp, mkdtemp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { basename, join } from 'node:path';
 import type { Server } from 'node:http';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { listen } from './api.js';
 import { Octopod, prepareSocketDir } from './octopod.js';
 
@@ -817,6 +820,58 @@ describe.skipIf(!dockerAvailable())('the service recipes, together (real docker)
     expect(rc.status).toBe(200);
     const keys = await get('redis.stack.localhost', `/apiv2/keys/${encodeURIComponent('R:cache:6379:0')}/${encodeURIComponent('greeting:hello')}`);
     expect(keys.body).toContain('greeting:hello');
+  });
+});
+
+describe.skipIf(!dockerAvailable())('octopod mcp, as a coding agent runs it (real docker)', { timeout: 300_000 }, () => {
+  let base: string;
+  let root: string;
+  let client: Client;
+  let octopod: Octopod;
+
+  beforeAll(async () => {
+    base = await mkdtemp(join(tmpdir(), 'octopod-mcp-'));
+    root = await project(base, 'agentic', 80);
+    octopod = new Octopod({ stateDir: join(base, 'state'), instance: INSTANCE, ports: [PORT] });
+    // The command the agent's client spawns, in the project's folder: stdout is the protocol.
+    const env = Object.fromEntries(Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined));
+    client = new Client({ name: 'test', version: '1' });
+    await client.connect(
+      new StdioClientTransport({
+        command: process.execPath,
+        args: [fileURLToPath(new URL('../bin/octopod.js', import.meta.url)), 'mcp'],
+        cwd: root,
+        env: { ...env, OCTOPOD_STATE_DIR: join(base, 'state'), OCTOPOD_INSTANCE: INSTANCE, OCTOPOD_PORTS: String(PORT) },
+        stderr: 'pipe',
+      }),
+    );
+  }, 300_000);
+
+  afterAll(async () => {
+    await client?.close();
+    await octopod.unregister('agentic').catch(() => undefined);
+    await octopod.edgeDown();
+    await rm(base, { recursive: true, force: true });
+  }, 300_000);
+
+  const call = async (name: string, args: Record<string, unknown> = {}) => {
+    const r = (await client.callTool({ name, arguments: args })) as { content: { text: string }[]; isError?: boolean };
+    return { text: r.content.map((c) => c.text).join(''), isError: Boolean(r.isError) };
+  };
+
+  it('brings the project of its folder up, says its state, and runs an argv in it', async () => {
+    const up = await call('octopod_up');
+    expect(up.isError, up.text).toBe(false);
+    expect(await octopod.names()).toContain('agentic');
+    expect((await eventually('agentic.localhost', 200)).body).toContain('Hostname');
+    const status = JSON.parse((await call('octopod_status')).text) as { project: { services: { service: string; state: string }[] } };
+    expect(status.project.services).toEqual([expect.objectContaining({ service: 'web', state: 'running' })]);
+    // whoami has no shell: an argv reaches it as it is.
+    const exec = await call('octopod_exec', { service: 'web', argv: ['/whoami', '--help'], timeoutMs: 30_000 });
+    expect(exec.text).toMatch(/Usage|port/i);
+    expect((await call('octopod_exec', { service: 'web', argv: 'ls -la' })).isError).toBe(true);
+    const down = await call('octopod_down');
+    expect(down.isError, down.text).toBe(false);
   });
 });
 

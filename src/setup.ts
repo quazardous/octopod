@@ -19,6 +19,8 @@ export interface SetupOptions {
   edge: boolean;
   /** The GNOME Shell extension: installed, when GNOME is there. */
   gnomeExtension?: boolean;
+  /** `octopod mcp` registered with Claude Code for every folder of this user. */
+  mcp?: boolean;
   log: (line: string) => void;
 }
 
@@ -52,6 +54,11 @@ RestartSec=5
 [Install]
 WantedBy=default.target
 `;
+}
+
+/** The command of `octopod mcp`: the service's, `mcp` instead of `serve`. */
+export function mcpCommand(command = serviceCommand()): string[] {
+  return [...command.slice(0, -1), 'mcp'];
 }
 
 export async function setup(octopod: Octopod, options: SetupOptions): Promise<void> {
@@ -90,6 +97,20 @@ export async function setup(octopod: Octopod, options: SetupOptions): Promise<vo
           ? '  enabled: it shows after you log out and in again (Wayland loads extensions at login)'
           : '  refreshed, enabled or not as you left it: log out and in again to load the new code',
       );
+    }
+  }
+
+  if (options.mcp) {
+    log('Registering octopod as an MCP server for coding agents');
+    // This very octopod, whatever the agent's PATH; the agent's folder names the project.
+    const add = ['mcp', 'add', '--scope', 'user', 'octopod', '--', ...mcpCommand()];
+    if (!(await works('claude', ['--version']))) {
+      log(`  ! Claude Code (claude) is not on the PATH: register it with \`claude ${add.join(' ')}\`, or the same command in your client`);
+    } else {
+      // Registered again: the command may have moved (another clone, another node).
+      await run('claude', ['mcp', 'remove', '--scope', 'user', 'octopod']).catch(() => undefined);
+      await run('claude', add);
+      log('  registered for Claude Code, every folder (claude mcp get octopod)');
     }
   }
 

@@ -9,6 +9,7 @@
  *   octopod unregister <project>
  *   octopod list
  *   octopod serve [--socket path]
+ *   octopod mcp                      (an MCP server on stdio, for coding agents)
  *   octopod shell [project] [service] [--root] [--oneshot] [-- command…]
  *   octopod secrets [project] [--instance N]
  *   octopod ps [project]
@@ -18,7 +19,7 @@
  *   octopod recipes [dir] [--check]
  *   octopod console code|revoke
  *   octopod version
- *   octopod setup [--no-service] [--no-edge] [--gnome-extension]
+ *   octopod setup [--no-service] [--no-edge] [--gnome-extension] [--mcp]
  *   octopod doctor
  *   octopod share [true | <recipe>…] [--off]
  *   octopod uninstall [--purge]
@@ -217,6 +218,7 @@ async function main(argv: string[]): Promise<void> {
         service: !rest.includes('--no-service'),
         edge: !rest.includes('--no-edge'),
         gnomeExtension: rest.includes('--gnome-extension'),
+        mcp: rest.includes('--mcp'),
         log: (l) => console.log(l),
       });
     case 'edge': {
@@ -340,6 +342,13 @@ async function main(argv: string[]): Promise<void> {
       if (!positional(rest)[0]) throw new Error('usage: octopod unregister <project>');
       await octopod.unregister(positional(rest)[0]);
       return json ? print({}, true) : console.log(`${positional(rest)[0]} unregistered`);
+    case 'mcp': {
+      // stdout is the protocol's: nothing else is written to it.
+      const { mcpServer } = await import('./mcp.js');
+      const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js');
+      await mcpServer(octopod, { cwd: process.cwd() }).connect(new StdioServerTransport());
+      return;
+    }
     case 'serve': {
       const initial = await fingerprint();
       const server = await listen(octopod, octopod.socket);

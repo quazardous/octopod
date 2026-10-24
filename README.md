@@ -64,7 +64,9 @@ octopod in the notification area: its menu lists the projects and their URLs, st
 stops them and the edge, and opens the console, whose API the tray runs. What to install
 first (WSL 2, Docker Desktop) and what differs from Linux: [docs/WINDOWS.md](./docs/WINDOWS.md). Under GNOME,
 `setup.sh` puts the same in the top bar: a GNOME Shell extension (`octopod setup
---gnome-extension`; it shows after you log out and in again).
+--gnome-extension`; it shows after you log out and in again). For a coding agent,
+`octopod setup --mcp` registers octopod's MCP server with Claude Code
+([COMMANDS.md](./docs/COMMANDS.md#for-a-coding-agent)).
 
 Then try an example:
 
