@@ -19,6 +19,8 @@
  *   octopod console code|revoke
  *   octopod version
  *   octopod setup [--no-service] [--no-edge] [--gnome-extension]
+ *   octopod doctor
+ *   octopod uninstall [--purge]
  *
  * `--json` prints the API's JSON; otherwise a short human summary.
  */
@@ -28,7 +30,7 @@ import { basename, join, resolve } from 'node:path';
 import { dockerEnv } from './docker.js';
 import { DECLARATION_FILE, loadDeclaration } from './declaration.js';
 import { listen } from './api.js';
-import { setup } from './setup.js';
+import { setup, uninstall } from './setup.js';
 import { fingerprint, RESTART_EXIT, selfWatch, supervised } from './fingerprint.js';
 import { Octopod, version, type EdgeStatus, type Project, type ProjectStatus } from './octopod.js';
 
@@ -179,6 +181,16 @@ async function main(argv: string[]): Promise<void> {
       if (secrets.length === 0) console.log(`no secret generated for ${name}`);
       return;
     }
+    case 'doctor': {
+      // What is wrong on this machine, and the command that puts each thing right; exit 1 on a problem.
+      const out = await octopod.doctor();
+      if (out.checks.some((c) => !c.ok)) process.exitCode = 1;
+      if (json) return print(out, true);
+      for (const c of out.checks) console.log(`${c.ok ? '✓' : '!'} ${c.name.padEnd(9)} ${c.detail}${c.fix ? `\n    → ${c.fix}` : ''}`);
+      return;
+    }
+    case 'uninstall':
+      return uninstall(octopod, { purge: rest.includes('--purge'), log: (l) => console.log(l) });
     case 'setup':
       return setup(octopod, {
         service: !rest.includes('--no-service'),

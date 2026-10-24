@@ -11,9 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The `oidc` recipe: a local OpenID Connect provider, octopod's own (`src/oidc`, no dependency). Any path is an issuer (`http://id.<project>.localhost/<name>`); its login page takes a user name and the claims to sign (`groups`, `email`…); discovery, JWKS, the code flow with PKCE, tokens and userinfo. Apps get `OIDC_ISSUER_BASE`, the same URL for the browser and the app.
 - `{{url}}` in a recipe: a routed service's address at the edge.
+- `octopod doctor`: Docker and compose, the platform, the edge, the console, the API, the modes of the state's secret files, and projects whose folder is gone; each problem with the command that puts it right (exit 1 when there is one).
+- `octopod uninstall [--purge]`: the user service, every project (its data left in its folder), the edge and the console, the GNOME extension, each said as it goes; the state directory stays unless `--purge`.
 - JSON Schemas of `octopod.yaml` and `recipe.yaml` (`schema/`, in the package too), for an editor's completion: `# yaml-language-server: $schema=…`. A key octopod does not know is refused, as before, and the message now says a newer octopod may know it.
-
 - A project's exposed containers reach the project's own hosts at the URLs a browser uses: `http://api.demo.localhost` (or `:8480`) from inside the project goes through the edge, as it does from the host. The edge is now an alias for each of the project's hosts on its edge network, and listens inside on the port it is published on. Useful for an identity provider's issuer, or an app that calls its own API by its public address.
+
+### Fixed
+
+- The user service retries without limit, every 5 seconds: octopod living on a disk mounted after the session starts (an encrypted home folder) no longer leaves it failed after five quick tries. Run `octopod setup` once to rewrite the unit.
 
 ## [0.5.1] - 2026-10-23
 

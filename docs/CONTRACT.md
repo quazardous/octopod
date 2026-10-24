@@ -386,7 +386,8 @@ and refuses to run below the version it needs. What it may rely on, from 0.1.0:
   `up <project>`, `status <project>`, `restart <project> --service <s>`,
   `exec <project> <service> --timeout <ms> -- <argv…>` (its answer's `mode` included),
   `logs <project> --service <s> --tail <n>`, `unregister <project>`, `edge status`,
-  `edge down`; each takes `--instance N` where the table above says so.
+  `edge down`; each takes `--instance N` where the table above says so. `doctor --json`
+  (`{ checks: [{ name, ok, detail, fix? }] }`, exit 1 on a problem).
 - **The variables** `OCTOPOD_STATE_DIR`, `OCTOPOD_INSTANCE` and `OCTOPOD_PORTS`.
 - **The recipe `node-app`**, and the convention that an app's recipe has an id ending in
   `-app`.

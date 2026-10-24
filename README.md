@@ -186,6 +186,8 @@ octopod up --instance 2       # the same project a second time, at demo-2.localh
 octopod unregister <project>
 octopod edge status           # the edge, the console and the dashboard's addresses
 octopod console code          # a code that enrolls a browser in the console; revoke signs every one out
+octopod doctor                # what is wrong on this machine, and the command that fixes each thing
+octopod uninstall [--purge]   # service, projects, edge, extension away; data stays; --purge: the state too
 octopod version
 ```
 

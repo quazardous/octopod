@@ -73,8 +73,14 @@ vulnerability.
 
 **Project isolation.** Each project has its own edge network,
 `octopod-<project>-edge`, created `internal`, and only the shared Traefik joins them all.
-A project's containers cannot reach another project's through octopod. A project serves
-only `<project>.localhost` and names under it: it cannot take another project's host.
+A project's containers do not share a network with another project's. They do reach the
+edge, though: over their edge network, under their project's own hosts (so an app reaches its
+own `api.<project>.localhost` as a browser does). **A known gap:** Traefik routes by the
+`Host` header alone, so a container that sends another project's host to the edge reaches
+that project's routed HTTP services. Closing it, so that each project's routes answer only
+the host and that project, is planned. Until then, two projects are not walled off from each
+other at HTTP. A project serves only `<project>.localhost` and names under it: it cannot
+take another project's host.
 docker gets only what it needs of octopod's own environment, so a variable of the calling
 shell never flows into a project's compose file unseen.
 
@@ -84,6 +90,10 @@ a path, only typed parameters, and the build context holds the Dockerfile alone.
 recipe from a third party (`OCTOPOD_RECIPES`, `recipes:` in `octopod.yaml`, a project's
 `.octopod/recipes/`) runs whatever its Dockerfile says: review it like code before you use
 it. `octopod plan` shows what would run, with each recipe's digest, before anything does.
+
+**The `oidc` recipe** is a development identity provider: it signs the claims typed in its
+login page for any client. It answers on loopback, behind the edge, like every project. It
+must never be what a real service trusts.
 
 **Generated secrets** (a database password, for instance) are generated once, kept in
 octopod's state directory (`$XDG_STATE_HOME/octopod`, by default `~/.local/state/octopod`)

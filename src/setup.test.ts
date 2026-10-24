@@ -12,4 +12,10 @@ describe('the user service', () => {
     expect(unit).toContain('Environment="PATH=/usr/local/bin:/usr/bin"');
     expect(unit).toContain('WantedBy=default.target');
   });
+
+  it('keeps trying, without limit: octopod may live on a disk mounted after the session starts', () => {
+    const unit = serviceUnit(['/usr/bin/node', '/o/cli.js', 'serve'], '/usr/bin');
+    expect(unit).toContain('StartLimitIntervalSec=0');
+    expect(unit).toContain('RestartSec=5');
+  });
 });

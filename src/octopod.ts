@@ -10,7 +10,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { createConnection, createServer } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative } from 'node:path';
-import { loadDeclaration, withInstance, type Declaration } from './declaration.js';
+import { DECLARATION_FILE, loadDeclaration, withInstance, type Declaration } from './declaration.js';
 import { lintDockerfile } from './recipes/lint.js';
 import { BUILTIN_RECIPES, envRecipeDirs, loadRecipes, type Shadowed } from './recipes/loader.js';
 import { BUILD_LABEL, formatPlan, PROJECT_LABEL, renderServices, TOOL_PROFILE, type RenderedService } from './recipes/render.js';
@@ -140,6 +140,14 @@ export interface EdgeStatus {
   console: string | null;
 }
 
+/** One finding of `octopod doctor`: what was checked, how it is, and what to do when it is wrong. */
+export interface DoctorCheck {
+  name: string;
+  ok: boolean;
+  detail: string;
+  fix?: string;
+}
+
 export interface OctopodOptions {
   stateDir?: string;
   /** Prefix of every name octopod creates in Docker; tests use their own. */
@@ -219,6 +227,23 @@ function envPorts(): number[] | undefined {
   if (!raw) return undefined;
   const ports = raw.split(',').map((p) => Number(p.trim()));
   return ports.every((p) => Number.isInteger(p) && p > 0 && p < 65536) ? ports : undefined;
+}
+
+/** Whether the API answers a connection there: a unix socket, or a loopback port. */
+function reachable(target: { path: string } | { host: string; port: number }): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = 'path' in target ? createConnection(target.path) : createConnection(target.port, target.host);
+    socket.setTimeout(1000);
+    socket.once('connect', () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.once('timeout', () => {
+      socket.destroy();
+      resolve(false);
+    });
+    socket.once('error', () => resolve(false));
+  });
 }
 
 /** Whether something already listens on 127.0.0.1:port. */
@@ -1172,6 +1197,63 @@ export class Octopod {
     const declaration = await this.declaration(name, instance);
     const out = await this.docker.run([...this.composeArgs(declaration, false), 'logs', '--no-color', '--tail', String(tail), ...(service ? [service] : [])]);
     return out.split('\n').filter((l) => l !== '');
+  }
+
+  /**
+   * What is wrong on this machine, and how to put it right: Docker, the edge, the console,
+   * the API, the state directory's modes, projects whose folder is gone. Reads only.
+   */
+  async doctor(): Promise<{ checks: DoctorCheck[] }> {
+    const checks: DoctorCheck[] = [];
+    const add = (name: string, ok: boolean, detail: string, fix: string): void => {
+      checks.push({ name, ok, detail, ...(ok ? {} : { fix }) });
+    };
+    const answer = (args: string[]) => this.docker.run(args).then((s) => s.trim(), () => undefined);
+    const server = await answer(['version', '--format', '{{.Server.Version}}']);
+    add('docker', !!server, server ? `Docker ${server}` : 'the daemon does not answer', 'start Docker, and check that your user may use it: docker version');
+    const compose = server ? await answer(['compose', 'version', '--short']) : undefined;
+    add('compose', !!compose, compose ? `Compose ${compose}` : 'docker compose does not answer', 'install Docker Compose v2 (the docker compose plugin)');
+    if (server) {
+      const [os = '', security = ''] = ((await answer(['info', '--format', '{{.OperatingSystem}}|{{json .SecurityOptions}}'])) ?? '').split('|');
+      const rootless = security.includes('rootless');
+      add('platform', true, `${process.platform}, ${os || 'Docker'}${rootless ? ', rootless: port 80 needs net.ipv4.ip_unprivileged_port_start, 8480 is used otherwise' : ''}`, '');
+    }
+    const edge = await this.edgeStatus();
+    add('edge', edge.running, edge.running ? `on 127.0.0.1:${edge.port}` : 'not running', 'octopod edge up');
+    if (!this.tcp) {
+      const relay = await answer(['inspect', '--format', '{{.State.Running}}', consoleContainer(this.instance)]);
+      add('console', relay === 'true', relay === 'true' ? `the relay runs (${edge.console ?? 'http://octopod.localhost'})` : 'the relay is not running', 'octopod edge up');
+    }
+    const target = this.tcp ? { host: '127.0.0.1', port: (await this.readJson<Partial<ApiTcp>>('api.json', {})).port ?? 0 } : { path: this.socket };
+    const serving = await reachable(target);
+    add('api', serving, serving ? `served (${this.tcp ? `127.0.0.1:${target.port}` : this.socket})` : 'not served: the console has no data', process.platform === 'linux' ? 'systemctl --user start octopod, or octopod serve' : 'octopod serve');
+    if (process.platform !== 'win32') {
+      const open: string[] = [];
+      for (const file of [this.path('console-access.json'), this.path('api.json'), ...(await this.names()).map((n) => this.path('projects', n, 'secrets.json'))]) {
+        const mode = await stat(file).then((s) => s.mode & 0o077, () => 0);
+        if (mode) open.push(file);
+      }
+      add('state', open.length === 0, open.length === 0 ? `${this.stateDir}: secrets readable by you alone` : `readable by others: ${open.join(', ')}`, `chmod 600 ${open.join(' ')}`);
+    }
+    const registry = await this.registry();
+    const gone: string[] = [];
+    for (const [name, root] of Object.entries(registry)) {
+      if (!(await stat(join(root, DECLARATION_FILE)).then(() => true, () => false))) gone.push(name);
+    }
+    add('projects', gone.length === 0, gone.length === 0 ? `${Object.keys(registry).length} registered, each folder in place` : `no ${DECLARATION_FILE} any more for ${gone.join(', ')}`, gone.map((n) => `octopod unregister ${n}`).join('; '));
+    return { checks };
+  }
+
+  /** Every registered project down, each of its instances too, the data left in place: for `uninstall`. */
+  async stopAll(): Promise<string[]> {
+    const stopped: string[] = [];
+    for (const name of await this.names()) {
+      for (const n of [...(await this.instances(name)), 1]) {
+        await this.down(name, { instance: n }).catch(() => undefined);
+        stopped.push(instanceName(name, n));
+      }
+    }
+    return stopped;
   }
 
   async unregister(name: string): Promise<void> {
