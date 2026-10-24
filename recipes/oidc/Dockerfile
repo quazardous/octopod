@@ -1782,7 +1782,7 @@ const kernel = new Kernel({
   },
   homeRoute: { name: 'home', component: () => import('./Home.vue') },
   primevue: { plugin: PrimeVue, theme: Aura },
-  app: { name: 'OIDC users' },
+  app: { name: 'OIDC users', shortName: 'ID' },
 })
 
 // An open admin skips its login: asked before the app starts.
