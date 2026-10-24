@@ -5,6 +5,7 @@
  * the registry of projects, each project's generated override. Nothing is written into a
  * project.
  */
+import { settleSharing, type ShareList } from './sharing.js';
 import { chmod, lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { createHash, randomBytes } from 'node:crypto';
 import { createConnection, createServer } from 'node:net';
@@ -142,8 +143,8 @@ export interface EdgeStatus {
 
 /** A declaration as `up` uses it: its recipes rendered, and what it asks of its group. */
 type Prepared = Declaration & {
-  /** The group's services it uses (`shared: true`), as it asks for them. */
-  shared?: Record<string, { recipe: string; params: Record<string, unknown> }>;
+  /** The group's services it uses, by its own name for each: which server, asked for how. */
+  sharedServices?: Record<string, { server: string; recipe: string; params: Record<string, unknown> }>;
   /** Its tenancies in them: its own database and user, made before it starts. */
   tenancies?: Tenancy[];
 };
@@ -275,7 +276,7 @@ function portTaken(port: number): Promise<boolean> {
  * The compose file that puts a group's shared services on each project's network: one
  * network per project (made here, internal), the services on all of them.
  */
-function sharedNetworks(services: string[], networks: Record<string, string>): string {
+function sharedNetworks(services: string[], networks: Record<string, string>, aliases: Record<string, Record<string, string[]>>): string {
   // Keyed by project, sorted: a project joining the group adds a network and changes none,
   // which compose would recreate under the containers attached to it.
   const members = Object.keys(networks).sort();
@@ -284,7 +285,10 @@ function sharedNetworks(services: string[], networks: Record<string, string>): s
     JSON.stringify(
       {
         networks: Object.fromEntries(members.map((m) => [key(m), { name: networks[m], internal: true }])),
-        services: Object.fromEntries(services.map((s) => [s, { networks: ['default', ...members.map(key)] }])),
+        // On a project's network, a server answers to the project's own names for it (`db`).
+        services: Object.fromEntries(
+          services.map((s) => [s, { networks: { default: {}, ...Object.fromEntries(members.map((m) => [key(m), aliases[m]?.[s] ? { aliases: aliases[m][s] } : {}])) } }]),
+        ),
       },
       null,
       2,
@@ -569,7 +573,7 @@ export class Octopod {
           owner: currentOwner(),
           secrets: kept,
           edgePort: await this.edgePort({ choose: false }).catch(() => undefined),
-          ...(declaration.group ? { shared: { project: this.sharedOf(declaration.group).project, network: this.sharedNetwork(declaration.group, declaration.project), tenant: declaration.project } } : {}),
+          ...(declaration.shareGroup ? { shared: { project: this.sharedOf(declaration.shareGroup).project, network: this.sharedNetwork(declaration.shareGroup, declaration.project), tenant: declaration.project } } : {}),
           ...(declaration.instance ? { instance: declaration.instance } : {}),
           ...(keepSecrets ? {} : { secretFactory: () => '‹generated›' }),
         }),
@@ -585,8 +589,10 @@ export class Octopod {
    * exposed unless the project exposes them itself. Secrets generated for it are kept in
    * octopod's state, never in the project.
    */
-  private async withRecipes(declaration: Declaration, write: boolean): Promise<Prepared> {
-    if (!declaration.services) return declaration;
+  private async withRecipes(asDeclared: Declaration, write: boolean): Promise<Prepared> {
+    if (!asDeclared.services) return asDeclared;
+    // Which services the group runs, as the project or the machine says: settled first.
+    const declaration = settleSharing(asDeclared, await this.shareDefault());
     const { rendered } = await this.render(declaration, write);
     const dir = join(declaration.root, '.octopod');
     const composeFile = join(dir, `recipes.${declaration.project}.json`);
@@ -616,7 +622,7 @@ export class Octopod {
     // Tools' profile is never activated: `up` leaves them alone, `compose run` starts one.
     const profiles = [...new Set(Object.values(rendered.compose.services).flatMap((svc) => (svc.profiles as string[] | undefined) ?? []))].filter((p) => p !== TOOL_PROFILE);
     const tools = rendered.services.filter((s) => s.tool).map((s) => s.name);
-    const shared = Object.keys(rendered.shared).length > 0 ? { shared: rendered.shared, tenancies: rendered.tenancies } : {};
+    const shared = Object.keys(rendered.shared).length > 0 ? { sharedServices: rendered.shared, tenancies: rendered.tenancies } : {};
     return { ...declaration, compose: [composeFile, ...declaration.compose], expose, ...(profiles.length > 0 ? { profiles } : {}), ...(tools.length > 0 ? { tools } : {}), ...shared };
   }
 
@@ -649,6 +655,7 @@ export class Octopod {
       throw new OctopodError(e.message);
     });
     if (instance > 1) declaration = withInstance(declaration, instance);
+    declaration = settleSharing(declaration, await this.shareDefault());
     const { rendered } = await this.render(declaration, false);
     return {
       project: declaration.project,
@@ -812,7 +819,7 @@ export class Octopod {
     await this.writeJson(join('projects', declaration.project, 'override.json'), override);
     await this.edgeUp();
     // The group's services first: the project's network to them, and its tenancies, must be there.
-    const sharedHosts = declaration.shared ? await this.upShared(declaration) : [];
+    const sharedHosts = declaration.sharedServices ? await this.upShared(declaration) : [];
     await this.writeJson(join('projects', declaration.project, 'hosts.json'), [...new Set([...declaration.expose.map((e) => e.host), ...sharedHosts])]);
     // compose builds an image only when it is missing: one whose recipe or build arguments
     // changed is built again here, before up recreates its container.
@@ -833,7 +840,7 @@ export class Octopod {
     // projects that use them too — this one among them, now that its network exists.
     const group = declaration.group;
     await this.writeAllowList(declaration.project, group && declaration.project === this.sharedOf(group).project ? await this.sharedMembers(group) : []);
-    if (group && declaration.shared) await this.writeAllowList(this.sharedOf(group).project, await this.sharedMembers(group));
+    if (declaration.shareGroup && declaration.sharedServices) await this.writeAllowList(this.sharedOf(declaration.shareGroup).project, await this.sharedMembers(declaration.shareGroup));
     if (instance > 1) await this.noteInstance(name, instance, true);
     return this.status(name, instance);
   }
@@ -970,7 +977,7 @@ export class Octopod {
     const tools = declaration.services ? ['--profile', TOOL_PROFILE] : [];
     await this.docker.run([...this.composeArgs(declaration, true), ...tools, 'down', ...(options.volumes ? ['--volumes'] : []), ...(options.images ? ['--rmi', 'local'] : [])]);
     if (instance > 1) await this.noteInstance(name, instance, false);
-    if (declaration.shared && declaration.group) await this.downSharedWhenIdle(declaration.group);
+    if (declaration.sharedServices && declaration.shareGroup) await this.downSharedWhenIdle(declaration.shareGroup);
     return this.status(name, instance);
   }
 
@@ -993,47 +1000,77 @@ export class Octopod {
     return `${this.instance}-${group}-shared-${project}`;
   }
 
+  /** The machine's default for `shared:` (`octopod share`): what every project shares unless it says otherwise. */
+  async shareDefault(): Promise<ShareList | undefined> {
+    return (await this.readJson<{ share?: ShareList }>('config.json', {})).share;
+  }
+
+  /** Sets the machine's default (`true`: the databases; a list of recipes), or clears it (`null`). */
+  async setShareDefault(share: ShareList | null): Promise<{ share: ShareList | null }> {
+    const config = await this.readJson<Record<string, unknown>>('config.json', {});
+    if (share === null) delete config.share;
+    else config.share = share;
+    await this.writeJson('config.json', config);
+    return { share };
+  }
+
   /**
-   * The group's shared services up, as every project of the group asks for them, then this
-   * project's tenancies made in them. Returns their hosts: the project reaches them at the
-   * browser's URLs too.
+   * The projects that use a group's shared services, each instance by its own name, with
+   * which servers each uses under which of its own names. The group's own stack is none.
+   */
+  private async membersOf(group: string): Promise<{ name: string; base: string; instance: number; shared: NonNullable<Prepared['sharedServices']> }[]> {
+    const machine = await this.shareDefault();
+    const members: { name: string; base: string; instance: number; shared: NonNullable<Prepared['sharedServices']> }[] = [];
+    for (const [name, root] of Object.entries(await this.registry())) {
+      if (name === this.sharedOf(group).project) continue;
+      const declared = await loadDeclaration(root).catch(() => undefined);
+      if (!declared) continue;
+      const settled = settleSharing(declared, machine);
+      if (settled.shareGroup !== group) continue;
+      const prepared = await this.withRecipes(settled, false).catch(() => undefined);
+      if (!prepared?.sharedServices) continue;
+      for (const n of [1, ...(await this.instances(name))]) members.push({ name: instanceName(name, n), base: name, instance: n, shared: prepared.sharedServices });
+    }
+    return members;
+  }
+
+  /** The names of the projects that use a group's shared services: who their routes answer. */
+  private async sharedMembers(group: string): Promise<string[]> {
+    return (await this.membersOf(group)).map((m) => m.name);
+  }
+
+  /**
+   * The group's shared servers up — one per recipe and way of asking (`mariadb-11-4`), each
+   * known in a project by the project's own name for it — then this project's tenancies made
+   * in them. Returns their hosts: the project reaches them at the browser's URLs too.
    */
   private async upShared(declaration: Prepared): Promise<string[]> {
-    const group = declaration.group!;
+    const group = declaration.shareGroup!;
     const { project, dir } = this.sharedOf(group);
     const registry = await this.registry();
     if (registry[project] && registry[project] !== dir) throw new OctopodError(`"${project}" is a registered project: group ${group}'s shared services need that name`);
-    // One service for the group: each project asks for it alike, or says which differs.
-    const services: Record<string, { recipe: string; params: Record<string, unknown> }> = { ...declaration.shared };
-    const askedBy: Record<string, string> = Object.fromEntries(Object.keys(services).map((s) => [s, declaration.project]));
-    for (const [name, root] of Object.entries(registry)) {
-      if (name === project || name === declaration.project) continue;
-      const other = await loadDeclaration(root).catch(() => undefined);
-      if (other?.group !== group) continue;
-      for (const [service, request] of Object.entries(other.services ?? {})) {
-        if (!request.shared) continue;
-        const asked = { recipe: request.recipe, params: request.params };
-        const known = services[service];
-        if (known && JSON.stringify(known) !== JSON.stringify(asked)) {
-          throw new OctopodError(`shared service ${service} of group ${group}: ${askedBy[service]} asks for ${JSON.stringify(known)}, ${name} for ${JSON.stringify(asked)} — one service, asked for alike`);
-        }
-        services[service] = asked;
-        askedBy[service] ??= name;
+    const members = (await this.membersOf(group)).filter((m) => m.name !== declaration.project);
+    members.push({ name: declaration.project, base: declaration.project, instance: declaration.instance ?? 1, shared: declaration.sharedServices! });
+    const servers: Record<string, { recipe: string; params: Record<string, unknown> }> = {};
+    const aliases: Record<string, Record<string, string[]>> = {};
+    for (const m of members) {
+      for (const [local, s] of Object.entries(m.shared)) {
+        servers[s.server] = { recipe: s.recipe, params: s.params };
+        ((aliases[m.name] ??= {})[s.server] ??= []).push(local);
       }
     }
     await mkdir(dir, { recursive: true });
     await writeFile(
       join(dir, DECLARATION_FILE),
-      JSON.stringify({ project, group, compose: ['network.json'], services: Object.fromEntries(Object.entries(services).map(([s, r]) => [s, { recipe: r.recipe, ...r.params }])) }, null, 2) + '\n',
+      // shared: false — the stack runs them; it shares nothing with anyone.
+      JSON.stringify({ project, group, compose: ['network.json'], services: Object.fromEntries(Object.entries(servers).map(([s, r]) => [s, { recipe: r.recipe, ...r.params, shared: false }])) }, null, 2) + '\n',
     );
-    await writeFile(
-      join(dir, 'network.json'),
-      sharedNetworks(Object.keys(services), Object.fromEntries([declaration.project, ...(await this.sharedMembers(group))].map((m) => [m, this.sharedNetwork(group, m)]))),
-    );
+    await writeFile(join(dir, 'network.json'), sharedNetworks(Object.keys(servers), Object.fromEntries(members.map((m) => [m.name, this.sharedNetwork(group, m.name)])), aliases));
     if (!registry[project]) await this.writeJson('projects.json', { ...registry, [project]: dir });
     await this.up(project);
-    // A tenancy is made in a running service, ready: healthy, when it can say so.
-    const waiting = [...new Set((declaration.tenancies ?? []).map((t) => t.service))];
+    // A tenancy is made in a running server, ready: healthy, when it can say so.
+    const serverOf = (local: string) => declaration.sharedServices![local]!.server;
+    const waiting = [...new Set((declaration.tenancies ?? []).map((t) => serverOf(t.service)))];
     for (let i = 0; waiting.length > 0; i++) {
       const status = await this.status(project);
       const ready = waiting.every((s) => status.services.some((x) => x.service === s && x.state === 'running' && (!x.health || x.health === 'healthy')));
@@ -1045,38 +1082,21 @@ export class Octopod {
     for (const t of declaration.tenancies ?? []) {
       // The secret on the command's input, never on a command line.
       await this.docker
-        .run([...this.composeArgs(stack, true), 'exec', '-T', '-e', `TENANT=${t.tenant}`, t.service, ...t.command], { input: `${t.secret ?? ''}\n`, timeoutMs: 60_000, withStderr: true })
+        .run([...this.composeArgs(stack, true), 'exec', '-T', '-e', `TENANT=${t.tenant}`, serverOf(t.service), ...t.command], { input: `${t.secret ?? ''}\n`, timeoutMs: 60_000, withStderr: true })
         .catch((e: Error) => {
-          throw new OctopodError(`${t.tenant}'s tenancy in ${project}/${t.service} failed: ${e.message}`);
+          throw new OctopodError(`${t.tenant}'s tenancy in ${project}/${serverOf(t.service)} failed: ${e.message}`);
         });
     }
     return this.readJson<string[]>(join('projects', project, 'hosts.json'), []);
   }
 
-  /** The projects of a group that use its shared services, each instance by its own name. */
-  private async sharedMembers(group: string): Promise<string[]> {
-    const members: string[] = [];
-    for (const [name, root] of Object.entries(await this.registry())) {
-      const other = await loadDeclaration(root).catch(() => undefined);
-      if (other?.group !== group || !Object.values(other.services ?? {}).some((s) => s.shared)) continue;
-      members.push(name, ...(await this.instances(name)).map((n) => instanceName(name, n)));
-    }
-    return members;
-  }
-
-  /** The group's shared services down, once no project of the group that uses them runs. */
+  /** The group's shared services down, once no project that uses them runs. */
   private async downSharedWhenIdle(group: string): Promise<void> {
     const { project } = this.sharedOf(group);
-    const registry = await this.registry();
-    if (!registry[project]) return;
-    for (const [name, root] of Object.entries(registry)) {
-      if (name === project) continue;
-      const other = await loadDeclaration(root).catch(() => undefined);
-      if (other?.group !== group || !Object.values(other.services ?? {}).some((s) => s.shared)) continue;
-      for (const n of [1, ...(await this.instances(name))]) {
-        const status = await this.status(name, n).catch(() => undefined);
-        if (status?.services.some((s) => s.state === 'running')) return;
-      }
+    if (!(await this.registry())[project]) return;
+    for (const m of await this.membersOf(group)) {
+      const status = await this.status(m.base, m.instance).catch(() => undefined);
+      if (status?.services.some((s) => s.state === 'running')) return;
     }
     await this.down(project);
   }
@@ -1103,6 +1123,7 @@ export class Octopod {
       ...(await this.foreignData(declaration)),
       ...(await this.foreignBinds(declaration)),
       ...(await this.rootWarnings(rows)),
+      ...(await this.sharedLeftovers(declaration)),
       ...failing,
     ];
     const others = instance === 1 ? await this.instances(name) : [];
@@ -1207,6 +1228,20 @@ export class Octopod {
   }
 
   /** The services made of recipes, as rendered (secrets left out): what each is. */
+  /**
+   * A service now the group's whose former data is still in the project: said, with the way
+   * over — octopod does not move a database's data on its own.
+   */
+  private async sharedLeftovers(declaration: Prepared): Promise<string[]> {
+    const out: string[] = [];
+    for (const [local, s] of Object.entries(declaration.sharedServices ?? {})) {
+      const dir = join(declaration.root, DATA_DIR, `${local}-data`);
+      if ((await readdir(dir).catch(() => [])).length === 0) continue;
+      out.push(`${local} is group ${declaration.shareGroup}'s now (${s.server}): its former data stays in ${DATA_DIR}/${local}-data — to bring it over, run the former server from it and dump, then octopod run ${local} load`);
+    }
+    return out;
+  }
+
   private async recipeServices(declaration: Declaration): Promise<RenderedService[]> {
     if (!declaration.services) return [];
     return (await this.render(declaration, false)).rendered.services;

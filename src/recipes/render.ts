@@ -6,6 +6,7 @@
  * octopod routes and binds the data, and a client with stricter needs (bushwhack) adds
  * its own compose file on top.
  */
+import { serverName } from '../sharing.js';
 import { createHash, randomBytes } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 import type { ProgramSpec } from '../declaration.js';
@@ -29,7 +30,7 @@ export interface ServiceRequest {
   /** Not routed, though the recipe would be: a worker that serves nothing over HTTP. */
   route?: false;
   /** Run once for the project's group, not by the project: see `RenderOptions.shared`. */
-  shared?: true;
+  shared?: boolean;
 }
 
 export type ParamValue = string | number | boolean;
@@ -135,8 +136,8 @@ export interface Rendered {
   services: RenderedService[];
   /** Every secret, old and new, by service — to be kept by the caller. */
   secrets: Record<string, Record<string, string>>;
-  /** The group's services this project uses (`shared: true`), as it asks for them. */
-  shared: Record<string, { recipe: string; params: Record<string, unknown> }>;
+  /** The group's services this project uses, by its own name for each: the server it is (`mariadb-11-4`), and how it is asked for. */
+  shared: Record<string, { server: string; recipe: string; params: Record<string, unknown> }>;
   /** Its tenancies in them, to make before it starts. */
   tenancies: Tenancy[];
 }
@@ -325,7 +326,8 @@ export function renderServices(options: RenderOptions): Rendered {
     if (r.request.shared) {
       if (!options.shared) throw new RenderError(`service '${r.name}': shared needs the project's group`);
       // The group runs it; the project only says what it asks for, and makes its tenancy.
-      shared[r.name] = { recipe: r.entry.id, params: r.request.params ?? {} };
+      const defaults = Object.fromEntries(Object.entries(recipe.params).flatMap(([k, spec]) => (spec.type !== 'secret' && spec.default !== undefined ? [[k, spec.default]] : [])));
+      shared[r.name] = { server: serverName(r.entry.id, r.params, defaults, Object.keys(recipe.tenant?.params ?? {})), recipe: r.entry.id, params: r.params };
       if (recipe.tenant?.command) {
         const scope = { service: r.name, tenant: options.shared.tenant, params: tenantParams(r, options) };
         tenancies.push({

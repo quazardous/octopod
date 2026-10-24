@@ -20,6 +20,7 @@
  *   octopod version
  *   octopod setup [--no-service] [--no-edge] [--gnome-extension]
  *   octopod doctor
+ *   octopod share [true | <recipe>…] [--off]
  *   octopod uninstall [--purge]
  *
  * `--json` prints the API's JSON; otherwise a short human summary.
@@ -31,6 +32,7 @@ import { dockerEnv } from './docker.js';
 import { DECLARATION_FILE, loadDeclaration } from './declaration.js';
 import { listen } from './api.js';
 import { setup, uninstall } from './setup.js';
+import { recipesOf, type ShareList } from './sharing.js';
 import { fingerprint, RESTART_EXIT, selfWatch, supervised } from './fingerprint.js';
 import { Octopod, version, type EdgeStatus, type Project, type ProjectStatus } from './octopod.js';
 
@@ -179,6 +181,24 @@ async function main(argv: string[]): Promise<void> {
       if (json) return print({ values: [...new Set(secrets.map((s) => s.value))] }, true);
       for (const s of secrets) console.log(`${s.project} ${s.service}.${s.name}`);
       if (secrets.length === 0) console.log(`no secret generated for ${name}`);
+      return;
+    }
+    case 'share': {
+      // What every project shares with its group, unless its octopod.yaml says otherwise:
+      // `true` (the databases), a list of recipes, or nothing (--off).
+      const args = positional(rest);
+      let share: ShareList | null;
+      if (rest.includes('--off')) share = (await octopod.setShareDefault(null)).share;
+      else if (args.length === 0) share = (await octopod.shareDefault()) ?? null;
+      else if (args.length === 1 && args[0] === 'true') share = (await octopod.setShareDefault(true)).share;
+      else {
+        const known = new Set((await octopod.recipes()).recipes.map((r) => r.id));
+        const unknown = args.filter((a) => !known.has(a));
+        if (unknown.length > 0) throw new Error(`no recipe ${unknown.join(', ')} (octopod recipes lists them)`);
+        share = (await octopod.setShareDefault(args)).share;
+      }
+      if (json) return print({ share }, true);
+      console.log(share === null ? 'each project keeps its own servers, unless its octopod.yaml shares them' : `every project shares with its group: ${recipesOf(share).join(', ')}${share === true ? ' (the databases)' : ''}`);
       return;
     }
     case 'doctor': {

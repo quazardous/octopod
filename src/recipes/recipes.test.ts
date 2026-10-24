@@ -323,7 +323,9 @@ describe('the built-in recipes', () => {
     expect(app.networks).toEqual(['default', 'octopod_shared']);
     expect(app.depends_on).toBeUndefined();
     expect(out.compose.networks).toEqual({ octopod_shared: { name: 'octopod-unei-shared', external: true } });
-    expect(out.shared).toEqual({ db: { recipe: 'mariadb', params: {} }, mail: { recipe: 'mailpit', params: {} } });
+    // One server per recipe and version: its name says which; the tenant's params make none.
+    expect(out.shared.db).toEqual(expect.objectContaining({ server: 'mariadb-11-4', recipe: 'mariadb' }));
+    expect(out.shared.mail).toEqual(expect.objectContaining({ server: 'mailpit', recipe: 'mailpit' }));
     expect(out.tenancies).toEqual([expect.objectContaining({ service: 'db', tenant: 'shop', secret: 's3cret' })]);
     // The secret goes on the command's input, never in it.
     expect(out.tenancies[0]!.command.join(' ')).not.toContain('s3cret');

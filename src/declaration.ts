@@ -49,12 +49,17 @@ export const DeclarationSchema = z
       .default([]),
     /** Services made of recipes: `app: { recipe: node-app }`, `db: { recipe: postgres, persist: true }`. */
     services: z
-      .record(z.string(), z.object({ recipe: z.string().min(1).max(64), programs: z.record(z.string(), Program).optional(), supervisor_d: z.string().min(1).max(400).optional(), actions: z.record(z.string(), ActionSchema).optional(), home: z.union([z.literal(true), z.string().min(1).max(400)]).optional(), route: z.literal(false).optional(), shared: z.literal(true).optional(), workdir: z.string().regex(/^\/[A-Za-z0-9._-][A-Za-z0-9._/-]*$/, 'an absolute path in the container').optional() }).catchall(z.union([z.string().max(200), z.number(), z.boolean(), z.array(z.string().max(64)).max(128)])))
+      .record(z.string(), z.object({ recipe: z.string().min(1).max(64), programs: z.record(z.string(), Program).optional(), supervisor_d: z.string().min(1).max(400).optional(), actions: z.record(z.string(), ActionSchema).optional(), home: z.union([z.literal(true), z.string().min(1).max(400)]).optional(), route: z.literal(false).optional(), shared: z.boolean().optional(), workdir: z.string().regex(/^\/[A-Za-z0-9._-][A-Za-z0-9._/-]*$/, 'an absolute path in the container').optional() }).catchall(z.union([z.string().max(200), z.number(), z.boolean(), z.array(z.string().max(64)).max(128)])))
       .optional(),
     /** More recipe folders, relative to the project; after octopod's own and OCTOPOD_RECIPES, before `.octopod/recipes/`. */
     recipes: z.array(z.string().min(1).max(400)).optional(),
     /** The folder a recipe's workspace mounts; the project's folder by default. */
     workspace: z.string().min(1).max(400).optional(),
+    /**
+     * The recipes whose services the project's group runs for it (`[mariadb, oidc]`), or
+     * `true`: the databases. The machine's own (`octopod share`) when absent.
+     */
+    shared: z.union([z.literal(true), z.array(z.string().regex(/^[a-z][a-z0-9-]{0,63}$/, 'a recipe id')).max(32)]).optional(),
     /** To find it among the others: one group (`m2m`), and free tags (`php`, `legacy`). */
     group: z.string().regex(LABEL_RE, 'must be a DNS label: a-z, 0-9 and -, at most 63').optional(),
     tags: z.array(z.string().regex(LABEL_RE, 'must be a DNS label: a-z, 0-9 and -, at most 63')).max(16).optional(),
@@ -81,13 +86,17 @@ export interface Declaration {
   /** The declared env file, absolute: passed as --env-file. */
   envFile?: string;
   /** Services made of recipes, with their parameters. */
-  services?: Record<string, { recipe: string; params: Record<string, string | number | boolean | string[]>; programs?: Record<string, ProgramSpec>; supervisorD?: string; actions?: Record<string, ActionSpec>; home?: true | string; workdir?: string; route?: false; shared?: true }>;
+  services?: Record<string, { recipe: string; params: Record<string, string | number | boolean | string[]>; programs?: Record<string, ProgramSpec>; supervisorD?: string; actions?: Record<string, ActionSpec>; home?: true | string; workdir?: string; route?: false; shared?: boolean }>;
   /** Extra recipe folders, absolute, in the order declared. */
   recipeDirs?: string[];
   /** The folder a recipe's workspace mounts, absolute. */
   workspace?: string;
   /** Its group and its tags, to find it among the others. */
   group?: string;
+  /** The recipes its group runs for it (`shared:`), or the databases. */
+  shared?: true | string[];
+  /** The group that runs its shared services: its own, or the machine's pool (settled, not declared). */
+  shareGroup?: string;
   tags?: string[];
   /** Services made of tool recipes: built by `up`, never started by it. */
   tools?: string[];
@@ -169,8 +178,6 @@ export async function loadDeclaration(root: string): Promise<Declaration> {
       return abs;
     };
     for (const [name, { recipe, programs, supervisor_d, actions, home, workdir, route, shared, ...params }] of Object.entries(parsed.data.services)) {
-      // One service for the whole group: a project with no group has nobody to share it with.
-      if (shared && !parsed.data.group) throw new DeclarationError(`${file}: services.${name}: shared needs the project's group (group: in octopod.yaml)`);
       const supervisorD = supervisor_d !== undefined ? await folder(name, 'supervisor_d', supervisor_d) : undefined;
       const homeDir = typeof home === 'string' ? await folder(name, 'home', home) : home;
       services[name] = {
@@ -182,7 +189,7 @@ export async function loadDeclaration(root: string): Promise<Declaration> {
         ...(homeDir ? { home: homeDir } : {}),
         ...(workdir ? { workdir } : {}),
         ...(route === false ? { route: false as const } : {}),
-        ...(shared ? { shared: true as const } : {}),
+        ...(shared !== undefined ? { shared } : {}),
       };
     }
   }
@@ -196,6 +203,7 @@ export async function loadDeclaration(root: string): Promise<Declaration> {
     ...(parsed.data.recipes ? { recipeDirs: parsed.data.recipes.map((d) => resolve(root, d)) } : {}),
     ...(parsed.data.workspace ? { workspace: resolve(root, parsed.data.workspace) } : {}),
     ...(parsed.data.group ? { group: parsed.data.group } : {}),
+    ...(parsed.data.shared !== undefined ? { shared: parsed.data.shared } : {}),
     ...(parsed.data.tags?.length ? { tags: [...new Set(parsed.data.tags)] } : {}),
   };
 }

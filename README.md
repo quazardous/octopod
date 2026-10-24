@@ -137,15 +137,20 @@ services:
       seed:   { command: php bin/console app:seed, autostart: false }   # octopod program start app/seed
 ```
 
-Projects of one group can share a server instead of running one each, every project with its
-own database and user on it (and one mailpit, one phpMyAdmin, one OIDC provider):
+Projects of one group can share servers instead of running one each, every project with its
+own database and user on them (and one mailpit, one OIDC provider…), one server per version:
 
 ```yaml
 group: shop
+shared: true          # the databases; or a list: [mariadb, mailpit, oidc]
 services:
   app: { recipe: php-app }
-  db:  { recipe: mariadb, shared: true }   # the group's server; DATABASE_URL is this project's database
+  db:  { recipe: mariadb }   # the group's mariadb-11-4; DATABASE_URL is this project's database
 ```
+
+`octopod share true` makes it the machine's default, for every project that says nothing
+(those without a group share the machine's pool); `shared: false` on a service keeps it to its
+project.
 
 An app that signs in with OpenID Connect gets a local provider, octopod's own: any path is
 an issuer, and its login page takes a user name and the claims to put in the tokens

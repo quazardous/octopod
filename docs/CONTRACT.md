@@ -219,16 +219,26 @@ workspace: .               # the folder a recipe's workspace mounts; the project
   routed service's address at the edge (`http://id.demo.localhost`, with `:<port>` when
   the edge is not on 80), empty for a service not routed: the same URL from the host's
   browser and from the project's containers.
-- **A group's shared services.** `shared: true` on a service of a project that has a
-  `group:` (`db: { recipe: mariadb, shared: true }`) leaves it to the group: one server for
-  all the group's projects instead of one each. octopod runs the group's shared services as
-  a project of their own, `<group>-shared`, made in its state directory
-  (`<state>/groups/<group>/`, data included: it belongs to no one project), brought up
-  before the first project that uses them and down after the last one. Every project of the
-  group asks for a shared service alike (the same recipe and params), or `up` says which
-  differ. Each project has its own network to the shared services,
-  `octopod-<group>-shared-<project>` (internal), which its services that require them join:
-  they reach them by name, and nothing of the group's other projects.
+- **A group's shared services.** A service the group runs instead of the project: one
+  server for all the group's projects instead of one each. Which ones:
+  - `shared: [mariadb, oidc]` at the top of `octopod.yaml` names recipes; `shared: true`
+    means the databases (`mariadb`, `postgres`, `mongodb`). Without it, the machine's
+    default applies: `octopod share true`, `octopod share mariadb oidc`, `octopod share
+    --off` (none, the default), kept in octopod's state.
+  - On a service, `shared: true` or `shared: false` decides for that service alone.
+  - A project with no `group:` shares with the machine's pool, the group `default`.
+
+  octopod runs a group's shared servers as a project of their own, `<group>-shared`, made in
+  its state directory (`<state>/groups/<group>/`, data included: it belongs to no one
+  project), brought up before the first project that uses them and down after the last
+  one. There is one server per recipe and way of asking: its recipe and version
+  (`mariadb-11-4`, `mariadb-10-11`) and, when other params differ from the recipe's
+  defaults, a digest of them; so projects on two versions never meet. Each project has its
+  own network to them, `octopod-<group>-shared-<project>` (internal), joined by its services
+  that require them, where each server answers to the project's own name for it (`db`): an
+  app's `DATABASE_URL` is unchanged, and nothing of the group's other projects is reachable.
+  A service made shared keeps its former data in the project's `.octopod/data`; `status`
+  says so, and octopod does not move it.
   - A recipe says how it is shared in `tenant:`: the params each project gets
     (`{{tenant}}` is the project's name) and the secret it gets its own value of; its
     `command` makes the tenancy in the running service, alike each time, with the name in

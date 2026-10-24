@@ -1025,7 +1025,7 @@ describe.skipIf(!dockerAvailable())("a group's shared database (real docker)", {
   };
   const secret = async (name: string) => (await octopod.secrets(name)).find((s) => s.service === 'db' && s.name === 'password')!.value;
   const asTenant = (user: string, password: string, db: string) =>
-    octopod.exec('gtest-shared', 'db', ['sh', '-c', `MYSQL_PWD='${password}' mariadb -u${user} -e 'SELECT 42' ${db}`], { timeoutMs: 30_000 });
+    octopod.exec('gtest-shared', 'mariadb-11-4', ['sh', '-c', `MYSQL_PWD='${password}' mariadb -u${user} -e 'SELECT 42' ${db}`], { timeoutMs: 30_000 });
 
   beforeAll(async () => {
     base = await mkdtemp(join(tmpdir(), 'octopod-group-'));
@@ -1059,7 +1059,7 @@ describe.skipIf(!dockerAvailable())("a group's shared database (real docker)", {
     const across = await octopod.exec('ga', 'app', ['node', '-e', "require('node:net').connect(3000, 'gb-app-1').on('connect', () => console.log('reached')).on('error', (e) => console.log('blocked', e.code))"]);
     expect(across.output.trim()).toMatch(/^blocked/);
     // Its data is the group's, in octopod's state, owned by the operator.
-    expect((await stat(join(base, 'state', 'groups', 'gtest', '.octopod', 'data', 'db-data'))).uid).toBe(process.getuid?.());
+    expect((await stat(join(base, 'state', 'groups', 'gtest', '.octopod', 'data', 'mariadb-11-4-data'))).uid).toBe(process.getuid?.());
   });
 
   it("takes away a project's own server once the group's replaces it", async () => {
@@ -1077,6 +1077,29 @@ describe.skipIf(!dockerAvailable())("a group's shared database (real docker)", {
     expect(docker('volume', 'ls', '--format', '{{.Name}}').split('\n')).not.toContain('gc_db-data');
     expect((await stat(join(root, '.octopod', 'data', 'db-data'))).isDirectory()).toBe(true);
     await octopod.unregister('gc');
+  });
+
+  it("shares by the machine's default, one server per version, a project without a group in the machine's pool", async () => {
+    await octopod.setShareDefault(true);
+    try {
+      for (const [name, version] of [['gd', '11.4'], ['ge', '11.4'], ['gf', '10.11']] as const) {
+        const root = join(base, name);
+        await mkdir(join(root, 'node_modules'), { recursive: true });
+        await writeFile(join(root, 'package.json'), JSON.stringify({ name, scripts: { dev: 'node -e "require(\'node:http\').createServer((q, r) => r.end(\'ok\')).listen(3000)"' } }));
+        // No group, no shared: the machine's default shares the database.
+        await writeFile(join(root, 'octopod.yaml'), `project: ${name}\nservices:\n  app: { recipe: node-app }\n  db: { recipe: mariadb, version: "${version}" }\n`);
+        await octopod.register(root);
+        await octopod.up(name);
+      }
+      const servers = (await octopod.status('default-shared')).services.map((s) => s.service).sort();
+      expect(servers).toEqual(['mariadb-10-11', 'mariadb-11-4']);
+      // gd's app still reaches its database as db, its own.
+      const reach = await octopod.exec('gd', 'app', ['node', '-e', "const u = new URL(process.env.DATABASE_URL); require('node:net').connect(3306, u.hostname).on('connect', function () { console.log(u.hostname, u.username); this.end(); })"]);
+      expect(reach.output.trim()).toBe('db gd');
+    } finally {
+      for (const name of ['gd', 'ge', 'gf', 'default-shared']) await octopod.unregister(name).catch(() => undefined);
+      await octopod.setShareDefault(null);
+    }
   });
 
   it('keeps the server while a project of the group runs, and stops it with the last one', async () => {
