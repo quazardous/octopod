@@ -29,7 +29,7 @@ the whole machine.
   `.octopod/data`, created as you. A service that runs or writes there as root is reported.
 - **Or no compose file at all.** A project can name recipes instead: apps (`node-app`,
   `php-app`, `python-app`), databases (`postgres`, `mariadb`, `mongodb`), `redis`, `valkey`, `memcached`,
-  `mailpit`, an OpenID Connect provider (`oidc`), admins (`phpmyadmin`, `mongo-express`)
+  `mailpit`, an OpenID Connect provider (`oidc`), admins (`phpmyadmin`, `mongo-express`, `redis-commander`)
   and tools (`php-cli`), each handing its address to the apps; servers shared by a group's
   projects, each walled off in its own database.
 

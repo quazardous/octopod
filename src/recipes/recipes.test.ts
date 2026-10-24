@@ -169,7 +169,7 @@ describe('a recipe\'s Dockerfile, checked', () => {
 describe('the built-in recipes', () => {
   it('load, and install none of a project\'s dependencies in an image — system packages and extensions make the environment', async () => {
     const book = await loadRecipes([BUILTIN_RECIPES]);
-    expect([...book.recipes.keys()].sort()).toEqual(['mailpit', 'mariadb', 'memcached', 'mongo-express', 'mongodb', 'node-app', 'oidc', 'php-app', 'php-cli', 'phpmyadmin', 'postgres', 'python-app', 'redis', 'valkey', 'whoami']);
+    expect([...book.recipes.keys()].sort()).toEqual(['mailpit', 'mariadb', 'memcached', 'mongo-express', 'mongodb', 'node-app', 'oidc', 'php-app', 'php-cli', 'phpmyadmin', 'postgres', 'python-app', 'redis', 'redis-commander', 'valkey', 'whoami']);
     for (const id of await readdir(BUILTIN_RECIPES)) {
       const dockerfile = await readFile(join(BUILTIN_RECIPES, id, 'Dockerfile'), 'utf8').catch(() => '');
       if (dockerfile) expect(lintDockerfile(dockerfile), id).toEqual([]);
@@ -224,6 +224,7 @@ describe('the built-in recipes', () => {
       mail: { recipe: 'mailpit' },
       pma: { recipe: 'phpmyadmin' },
       me: { recipe: 'mongo-express' },
+      rc: { recipe: 'redis-commander' },
     };
     const out = renderServices({ project: 'shop', book, services, workspace: '/p', owner: '1:1', secretFactory: (n) => `s${n}` });
     const env = (name: string) => out.compose.services[name].environment as Record<string, string>;
@@ -237,6 +238,8 @@ describe('the built-in recipes', () => {
       }),
     );
     expect(env('pma')).toEqual(expect.objectContaining({ PMA_HOST: 'db', PMA_PORT: '3306', PMA_USER: 'app', PMA_PASSWORD: 's24' }));
+    expect(env('rc').REDIS_HOSTS).toBe('cache:cache:6379');
+    expect(out.compose.services.rc.user).toBeUndefined();
     expect(env('me').ME_CONFIG_MONGODB_URL).toBe('mongodb://app:s24@docs:27017/app?authSource=admin');
     expect((out.compose.services.db.build as { args: Record<string, string> }).args.BASE_IMAGE).toBe('mariadb:10.6');
     expect((out.compose.services.docs.build as { args: Record<string, string> }).args.BASE_IMAGE).toBe('mongo:5.0');
@@ -244,7 +247,9 @@ describe('the built-in recipes', () => {
     expect(out.compose.services.cache.volumes).toBeUndefined();
     expect(out.compose.services.docs.volumes).toEqual(['docs-data:/data/db']);
     const routes = Object.fromEntries(out.services.filter((x) => x.route !== undefined).map((x) => [x.name, x.route]));
-    expect(routes).toEqual({ app: '', mail: 'mail', pma: 'pma', me: 'mongo' });
+    expect(routes).toEqual({ app: '', mail: 'mail', pma: 'pma', me: 'mongo', rc: 'redis' });
+    // An admin lends its address to what it administers: the console's icon of each leads there.
+    expect(out.services.find((x) => x.name === 'rc')?.uses).toEqual(['cache']);
     expect(out.compose.services.app.depends_on).toEqual({
       db: { condition: 'service_healthy' },
       cache: { condition: 'service_healthy' },

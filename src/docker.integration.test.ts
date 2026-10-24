@@ -701,6 +701,7 @@ describe.skipIf(!dockerAvailable())('the service recipes, together (real docker)
         '  mail: { recipe: mailpit }',
         '  pma: { recipe: phpmyadmin }',
         '  me: { recipe: mongo-express }',
+        '  rc: { recipe: redis-commander }',
         '',
       ].join('\n'),
     );
@@ -719,7 +720,7 @@ describe.skipIf(!dockerAvailable())('the service recipes, together (real docker)
     const settled = async () => {
       for (let i = 0; i < 120; i++) {
         const s = await octopod.status('stack');
-        if (s.services.length === 7 && s.services.every((x) => x.state === 'running' && (!x.health || x.health === 'healthy'))) return s;
+        if (s.services.length === 8 && s.services.every((x) => x.state === 'running' && (!x.health || x.health === 'healthy'))) return s;
         await new Promise((r) => setTimeout(r, 1000));
       }
       return octopod.status('stack');
@@ -732,6 +733,7 @@ describe.skipIf(!dockerAvailable())('the service recipes, together (real docker)
       'mail:running:healthy',
       'me:running:-',
       'pma:running:-',
+      'rc:running:healthy',
       'sessions:running:healthy',
     ]);
     expect(status.warnings ?? []).toEqual([]);
@@ -741,6 +743,8 @@ describe.skipIf(!dockerAvailable())('the service recipes, together (real docker)
     expect(known.db).toEqual(expect.objectContaining({ recipe: 'mariadb', link: `http://pma.stack.localhost:${PORT}` }));
     expect(known.docs).toEqual(expect.objectContaining({ recipe: 'mongodb', link: `http://mongo.stack.localhost:${PORT}` }));
     expect(known.mail).toEqual(expect.objectContaining({ recipe: 'mailpit', link: `http://mail.stack.localhost:${PORT}` }));
+    expect(known.cache).toEqual(expect.objectContaining({ recipe: 'redis', link: `http://redis.stack.localhost:${PORT}` }));
+    expect(known.rc).toEqual(expect.objectContaining({ admin: 'cache' }));
     for (const volume of ['db-data', 'cache-data', 'docs-data']) {
       expect((await stat(join(root, '.octopod', 'data', volume))).uid, volume).toBe(process.getuid?.());
     }
@@ -764,6 +768,13 @@ describe.skipIf(!dockerAvailable())('the service recipes, together (real docker)
     const me = await served('mongo.stack.localhost', /Mongo Express/i);
     if (me.status !== 200) console.error(await why('me'));
     expect(me.status).toBe(200);
+    // Redis Commander lists a key the project wrote.
+    await octopod.exec('stack', 'cache', ['redis-cli', 'set', 'greeting:hello', 'world']);
+    const rc = await served('redis.stack.localhost', /Redis Commander/);
+    if (rc.status !== 200) console.error(await why('rc'));
+    expect(rc.status).toBe(200);
+    const keys = await get('redis.stack.localhost', `/apiv2/keys/${encodeURIComponent('R:cache:6379:0')}/${encodeURIComponent('greeting:hello')}`);
+    expect(keys.body).toContain('greeting:hello');
   });
 });
 
