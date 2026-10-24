@@ -2697,6 +2697,12 @@ function basicClientId(header) {
 }
 /** A user's groups beside its name on the login page: which role it is, at a glance. */
 const inGroups = (u) => (u.groups?.length ? ` <small>${escape(u.groups.join(', '))}</small>` : '');
+/**
+ * Hazard tape across the top of the provider's own pages: whoever lands on them, or sees a
+ * screenshot of them, knows it stands in for a real identity provider.
+ */
+const STAND_IN_STYLE = '.stand-in{position:fixed;top:0;left:0;right:0;padding:6px 0;background:repeating-linear-gradient(-45deg,rgb(245,196,0) 0 18px,rgb(26,26,26) 18px 36px)}.stand-in div{max-width:28rem;margin:0 auto;padding:.4rem 1rem;background:rgb(245,196,0);color:rgb(26,26,26);border:2px solid rgb(26,26,26);font-weight:600;text-align:center}body{margin-top:5.5rem!important}';
+const STAND_IN = '<div class="stand-in" role="note"><div>🚧 Development sign-in — not a real identity provider</div></div>';
 function loginPage(issuer, query, users, open, error = '') {
     const hidden = REQUEST_FIELDS.filter((f) => query[f]).map((f) => `<input type="hidden" name="${f}" value="${escape(query[f])}">`).join('');
     // The store's users: one click for a user without a password, its password otherwise.
@@ -2709,12 +2715,12 @@ function loginPage(issuer, query, users, open, error = '') {
         : '';
     if (!open) {
         return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Sign in</title>
-<style>body{font:15px system-ui;max-width:32rem;margin:3rem auto;padding:0 1rem}.user{margin:.6rem 0}.error{color:#b00}small{color:#666}</style>
+<style>body{font:15px system-ui;max-width:32rem;margin:3rem auto;padding:0 1rem}.user{margin:.6rem 0}.error{color:#b00}small{color:#666}${STAND_IN_STYLE}</style>${STAND_IN}
 <h1>Sign in</h1><p><small>${escape(issuer)}</small></p>${error ? `<p class="error">${escape(error)}</p>` : ''}${known || '<p>No user may sign in here yet: add one in the admin.</p>'}`;
     }
     return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>Sign in</title>
-<style>body{font:15px system-ui;max-width:28rem;margin:3rem auto;padding:0 1rem}label{display:block;margin:1rem 0 .3rem}input,textarea{width:100%;box-sizing:border-box;font:inherit;padding:.4rem}textarea{font-family:monospace;height:7rem}button{margin-top:1rem;padding:.5rem 1.2rem;font:inherit}.error{color:#b00}small{color:#666}.user input{width:auto}.user button{margin-top:0}</style>
+<style>body{font:15px system-ui;max-width:28rem;margin:3rem auto;padding:0 1rem}label{display:block;margin:1rem 0 .3rem}input,textarea{width:100%;box-sizing:border-box;font:inherit;padding:.4rem}textarea{font-family:monospace;height:7rem}button{margin-top:1rem;padding:.5rem 1.2rem;font:inherit}.error{color:#b00}small{color:#666}.user input{width:auto}.user button{margin-top:0}${STAND_IN_STYLE}</style>${STAND_IN}
 <h1>Sign in</h1>
 <p><small>${escape(issuer)} — a development provider: any user, the claims you write.</small></p>
 ${error ? `<p class="error">${escape(error)}</p>` : ''}
@@ -2978,7 +2984,7 @@ export function handler(provider, given) {
                 const back = query.post_logout_redirect_uri;
                 if (back && /^https?:\/\//.test(back))
                     return send(res, 302, '', { location: back });
-                return send(res, 200, '<!doctype html><meta charset="utf-8"><title>Signed out</title><p>Signed out.</p>');
+                return send(res, 200, `<!doctype html><meta charset="utf-8"><title>Signed out</title><style>body{font:15px system-ui;padding:0 1rem}${STAND_IN_STYLE}</style>${STAND_IN}<p>Signed out.</p>`);
             }
             return send(res, 404, { error: 'not_found', error_description: `no ${req.method} ${path || '/'} on an issuer` });
         }
