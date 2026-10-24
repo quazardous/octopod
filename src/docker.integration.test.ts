@@ -1156,6 +1156,16 @@ describe.skipIf(!dockerAvailable())('the OIDC provider, seen from the browser an
     expect(script, page.body).toBeTruthy();
     expect((await get('id.idp.localhost', script!)).status).toBe(200);
   });
+
+  it('opens its admin with no token by default, and gives its users to octopod oidc', async () => {
+    expect(JSON.parse((await get('id.idp.localhost', '/admin/api/session')).body)).toEqual({ open: true });
+    expect((await get('id.idp.localhost', '/admin/api/users')).status).toBe(200);
+    await octopod.oidcUsers('idp', 'PUT', 'agent', { claims: { groups: ['staff'] }, password: 'p4ss' });
+    const { users } = (await octopod.oidcUsers('idp', 'GET')) as { users: { sub: string; password: boolean }[] };
+    expect(users).toEqual(expect.arrayContaining([expect.objectContaining({ sub: 'agent', password: true })]));
+    await octopod.oidcUsers('idp', 'DELETE', 'agent');
+    await expect(octopod.oidcUsers('idp', 'GET', 'agent')).rejects.toThrow(/no user agent/);
+  });
 });
 
 describe.skipIf(!dockerAvailable())("a group's shared database (real docker)", { timeout: 900_000 }, () => {

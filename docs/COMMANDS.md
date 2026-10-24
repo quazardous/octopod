@@ -28,6 +28,7 @@ octopod run db dump > dump.sql   # a service's actions: shell, dump, load, reset
 octopod ps                    # the programs of its supervised services
 octopod program start app/seed
 octopod secrets [project]     # the secrets octopod generated for it (passwords, the OIDC admin token)
+octopod oidc users            # the users of its OIDC provider; user <name> --claims … --password …; remove <name>
 ```
 
 ## The machine

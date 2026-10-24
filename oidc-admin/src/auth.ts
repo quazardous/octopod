@@ -19,6 +19,18 @@ class AdminTokenAuth extends LocalStorageSessionAuthAdapter {
     this.persist()
     return { user, token }
   }
+
+  /**
+   * An admin that asks for nothing (the recipe's default, `admin-login: false`): signed in at
+   * once, with no token to send — the API takes none then.
+   */
+  async openIfAllowed(): Promise<void> {
+    const answer = await fetch('/admin/api/session').catch(() => undefined)
+    const { open } = answer?.ok ? ((await answer.json()) as { open?: boolean }) : { open: false }
+    if (!open || this.isAuthenticated()) return
+    this.setSession('open', { id: 'admin', username: 'admin', role: 'ROLE_ADMIN' })
+    this.persist()
+  }
 }
 
 export const authAdapter = new AdminTokenAuth()

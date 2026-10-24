@@ -7,6 +7,8 @@
  *   PORT                 where it listens (8080)
  *   OIDC_DATA            where the signing key and the users are kept (/data); made on first start
  *   OIDC_ADMIN_TOKEN     the bearer token of the admin API and page (/admin); none: no admin
+ *   OIDC_ADMIN_LOGIN     0 for an admin that asks for nothing (a development provider behind the
+ *                        edge, which answers the machine alone); the token is asked for otherwise
  *   OIDC_ADMIN_DIR       a built admin app served at /admin/ (the qdadm one); the built-in page otherwise
  *   OIDC_OPEN_LOGIN      0 to sign in only as a user of the store; any user, any claims otherwise
  *   OIDC_PASSWORD_GRANT  1 to trade a user's name and password for tokens, with no browser
@@ -89,6 +91,8 @@ export interface HandlerOptions {
   adminDir?: string;
   /** The admin's bearer token; none: no admin. */
   adminToken?: string;
+  /** The admin asks for nothing: its API answers without the token (still taken). */
+  adminOpen?: boolean;
   /** Any user with any claims, typed on the login page: today's quick role test. */
   openLogin: boolean;
 }
@@ -131,7 +135,9 @@ async function admin(req: IncomingMessage, res: ServerResponse, path: string, op
     if (options.adminDir) return asset(res, options.adminDir, path);
     if (path === '/admin' || path === '/admin/') return send(res, 200, adminPage(), { 'content-security-policy': "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'" });
   }
-  if (!admitted(req.headers.authorization, options.adminToken)) return send(res, 401, { error: 'unauthorized', error_description: 'the admin token is needed (Authorization: Bearer …)' }, { 'www-authenticate': 'Bearer' });
+  // What the admin app asks before it shows its login: whether there is one.
+  if (path === '/admin/api/session' && req.method === 'GET') return send(res, 200, { open: Boolean(options.adminOpen) });
+  if (!options.adminOpen && !admitted(req.headers.authorization, options.adminToken)) return send(res, 401, { error: 'unauthorized', error_description: 'the admin token is needed (Authorization: Bearer …)' }, { 'www-authenticate': 'Bearer' });
   if (path === '/admin/api/users' && req.method === 'GET') {
     const users = options.users.all().map(shown);
     return send(res, 200, { users, total: users.length });
@@ -255,7 +261,10 @@ export function start(port = Number(process.env.PORT ?? 8080), dir = process.env
   const provider = new Provider(loadKey(dir), { users, passwordGrant: ['1', 'true'].includes(process.env.OIDC_PASSWORD_GRANT ?? '') });
   const adminToken = process.env.OIDC_ADMIN_TOKEN || undefined;
   const adminDir = process.env.OIDC_ADMIN_DIR && statSync(join(process.env.OIDC_ADMIN_DIR, 'index.html'), { throwIfNoEntry: false }) ? process.env.OIDC_ADMIN_DIR : undefined;
-  const server = createServer(handler(provider, { users, ...(adminToken ? { adminToken } : {}), ...(adminDir ? { adminDir } : {}), openLogin: !['0', 'false'].includes(process.env.OIDC_OPEN_LOGIN ?? '') }));
+  const adminOpen = ['0', 'false'].includes(process.env.OIDC_ADMIN_LOGIN ?? '');
+  const server = createServer(
+    handler(provider, { users, ...(adminToken ? { adminToken } : {}), ...(adminOpen ? { adminOpen } : {}), ...(adminDir ? { adminDir } : {}), openLogin: !['0', 'false'].includes(process.env.OIDC_OPEN_LOGIN ?? '') }),
+  );
   server.listen(port, () => console.log(`oidc: listening on ${port}; issuers at /<name>`));
   return server;
 }

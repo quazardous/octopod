@@ -28,9 +28,21 @@ recipe says `open-login: false`, takes any user name and the claims to sign:
 ## Users and the admin
 
 `http://id.<project>.localhost/admin/` is the provider's admin, a qdadm app: its users, their
-claims, a password or none, the issuers they may use. It signs in with the service's admin
-token, which `octopod secrets <project>` shows (`admin-token`). The same users are on its
-JSON API, `/admin/api/users`, with that token as a bearer token.
+claims, a password or none, the issuers they may use. It opens straight on them: a
+development provider behind the edge, which answers your machine and the project alone.
+The same users are on its JSON API, `/admin/api/users`, which asks for nothing either.
+`admin-login: true` on the service makes both ask for the service's admin token
+(`octopod secrets <project>`, `admin-token`), as a password or a bearer token.
+
+From the command line, for a person or an agent, the project's provider — its own, or its
+group's:
+
+```sh
+octopod oidc users                         # the users, their claims
+octopod oidc user ada --claims '{"groups":["staff"]}' --password p4ss   # made or changed
+octopod oidc user ada --no-password        # one-click sign-in again; --issuers a,b limits it
+octopod oidc remove ada
+```
 
 ## A CI without a browser
 
@@ -38,9 +50,7 @@ With `password-grant: true` on the recipe, a test trades a user's name and passw
 tokens:
 
 ```sh
-TOKEN=… # octopod secrets shop: the id service's admin-token
-curl -X PUT -H "Authorization: Bearer $TOKEN" -d '{"claims":{"groups":["staff"]},"password":"ci-pass"}' \
-  http://id.shop.localhost/admin/api/users/ci
+octopod oidc user shop ci --claims '{"groups":["staff"]}' --password ci-pass   # or a PUT on /admin/api/users/ci
 curl -d 'grant_type=password&client_id=ci&username=ci&password=ci-pass' http://id.shop.localhost/staff/token
 ```
 

@@ -7,8 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The console lists a group's servers on the group's page, in a table of their own with their state, address and logs, no longer in each project's table of containers.
+- The OIDC provider's admin opens with no token: its page goes straight to the users, and its API (`/admin/api/users`) answers without one — a development provider behind the edge, which answers the machine and the project alone. `admin-login: true` on the service asks for the token again. Run `octopod up` on a project with an `oidc` service to rebuild it.
+
 ### Added
 
+- `octopod oidc users|user|remove [project]`: the users of a project's OIDC provider, its own or its group's, from the command line (`--claims`, `--password`/`--no-password`, `--issuers`, `--json`), for a person or an agent.
 - A project's generated passwords are also kept beside its data, in `.octopod/secrets.<project>.json` (0600, git-ignored): a project whose octopod state was lost (another machine, `uninstall --purge`) gets them back instead of new ones its database would refuse. Where the state and the copy differ, the state's are used and `status` and `doctor` say so. A project folder you copy, zip or sync now carries its development passwords.
 - A project's shared database keeps its actions: `octopod run db shell|dump|load|reset` in the project acts in the group's server as the project's own user, on its own database (`tenant.env` and `tenant.actions` in `recipe.yaml`), its password through docker's environment. `octopod_run` gets it too. `python-app` with `drivers: [mysql]` has the `mariadb` client, for `manage.py dbshell`.
 - `octopod mcp`: an MCP server on stdio for coding agents, on the same operations as the CLI. Eight tools: `octopod_status`, `octopod_logs`, `octopod_plan`, `octopod_exec` (an argv, never a shell string), `octopod_run`, `octopod_up` (a long build answers "still running" and goes on), `octopod_down`, `octopod_restart`; the destructive ones ask for `confirm`, and secrets, shells and the edge are not offered. The project is the one declared in the agent's folder. `octopod setup --mcp` registers it with Claude Code; `version` lists the feature `mcp`.

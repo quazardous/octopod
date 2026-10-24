@@ -143,6 +143,7 @@ describe('the OIDC server', () => {
 
   it('keeps users through its admin API, behind its token, never showing a password', async () => {
     expect((await admin('GET', '/users', undefined, 'wrong')).status).toBe(401);
+    expect(await (await fetch(`${base}/admin/api/session`)).json()).toEqual({ open: false });
     expect((await admin('PUT', '/users/ada', { claims: { groups: ['admi-dev'] }, password: 'pa55' })).status).toBe(201);
     expect((await admin('PUT', '/users/bob', { claims: { groups: ['admi-viewer'] }, issuers: ['google'] })).status).toBe(201);
     expect((await admin('PUT', '/users/bad name', {})).status).toBe(400);
@@ -183,5 +184,34 @@ describe('the OIDC server', () => {
     expect(((await (await admin('GET', '/users')).json()) as { total: number }).total).toBe(3);
     expect((await admin('DELETE', '/users/bob')).status).toBe(200);
     expect((await admin('GET', '/users/bob')).status).toBe(404);
+  });
+});
+
+describe('the OIDC server with an open admin (the recipe\'s default)', () => {
+  let dir: string;
+  let server: Server;
+  let base: string;
+
+  beforeAll(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'octopod-oidc-open-'));
+    process.env.OIDC_ADMIN_TOKEN = 'admin-t0ken';
+    process.env.OIDC_ADMIN_LOGIN = 'false';
+    server = start(0, dir);
+    delete process.env.OIDC_ADMIN_TOKEN;
+    delete process.env.OIDC_ADMIN_LOGIN;
+    await new Promise((r) => server.once('listening', r));
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+  afterAll(async () => {
+    await new Promise((r) => server.close(r));
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('says it is open, and keeps users with no token, a token still taken', async () => {
+    expect(await (await fetch(`${base}/admin/api/session`)).json()).toEqual({ open: true });
+    expect((await fetch(`${base}/admin/api/users/ada`, { method: 'PUT', body: JSON.stringify({ claims: { groups: ['staff'] } }) })).status).toBe(201);
+    expect((await fetch(`${base}/admin/api/users`, { headers: { authorization: 'Bearer admin-t0ken' } })).status).toBe(200);
+    const { users } = (await (await fetch(`${base}/admin/api/users`)).json()) as { users: { sub: string }[] };
+    expect(users.map((u) => u.sub)).toEqual(['ada']);
   });
 });

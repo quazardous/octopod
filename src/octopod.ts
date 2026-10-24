@@ -8,6 +8,7 @@
 import { settleSharing, type ShareList } from './sharing.js';
 import { chmod, lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { createHash, randomBytes } from 'node:crypto';
+import { request as httpRequest } from 'node:http';
 import { createConnection, createServer } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative } from 'node:path';
@@ -1289,6 +1290,51 @@ export class Octopod {
       ...(shared.length > 0 ? { shared } : {}),
       ...(warnings.length > 0 ? { warnings } : {}),
     };
+  }
+
+  /**
+   * The users of the OIDC provider a project signs in with — its own `oidc` service, or its
+   * group's — through the provider's admin API, at its address at the edge, with its admin
+   * token: `octopod oidc`, for an agent as for a person, whether the admin asks for the token
+   * or not.
+   */
+  async oidcUsers(name: string, method: 'GET' | 'PUT' | 'DELETE', sub?: string, body?: unknown, instance = 1): Promise<unknown> {
+    const status = await this.status(name, instance);
+    const own = status.services.find((s) => s.recipe === 'oidc');
+    const shared = own ? undefined : status.shared?.find((s) => s.recipe === 'oidc');
+    if (!own && !shared) throw new OctopodError(`${name} has no OIDC provider (a service of recipe oidc, its own or its group's)`);
+    const project = shared ? shared.stack : name;
+    const service = shared ? shared.server : own!.service;
+    const route = (shared ? (await this.status(project)).routes : status.routes).find((r) => r.service === service);
+    if (!route) throw new OctopodError(`${project}/${service} has no route: is it up?`);
+    const token = (await this.secrets(project, shared ? undefined : instance)).find((s) => s.service === service && s.name === 'admin-token')?.value;
+    const url = new URL(`/admin/api/users${sub === undefined ? '' : `/${encodeURIComponent(sub)}`}`, route.url);
+    // To the edge on loopback, the host named: a *.localhost name need not resolve on the host.
+    return new Promise((resolve, reject) => {
+      const payload = body === undefined ? undefined : JSON.stringify(body);
+      const req = httpRequest(
+        { host: '127.0.0.1', port: Number(url.port || 80), path: url.pathname, method, headers: { host: url.host, ...(token ? { authorization: `Bearer ${token}` } : {}), ...(payload ? { 'content-type': 'application/json' } : {}) }, timeout: 30_000 },
+        (res) => {
+          let text = '';
+          res.setEncoding('utf8');
+          res.on('data', (c: string) => (text += c));
+          res.on('end', () => {
+            const answer = (() => {
+              try {
+                return JSON.parse(text) as { error_description?: string };
+              } catch {
+                return { error_description: text.slice(0, 200) };
+              }
+            })();
+            if ((res.statusCode ?? 500) >= 400) reject(new OctopodError(`${project}/${service}: ${answer.error_description ?? `HTTP ${res.statusCode}`}`));
+            else resolve(answer);
+          });
+        },
+      );
+      req.on('timeout', () => req.destroy(new Error('the provider did not answer in 30 s')));
+      req.on('error', (e) => reject(new OctopodError(`${project}/${service}: ${e.message}`)));
+      req.end(payload);
+    });
   }
 
   /**

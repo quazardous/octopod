@@ -14,12 +14,16 @@ provides: [oidc]
 params:
   # The admin (http://id.<project>.localhost/admin) and its API: read it with octopod secrets.
   admin-token: { type: secret, bytes: 24 }
+  # true: the admin asks for its token (octopod secrets); false: it opens on the users, its
+  # API answers without it — the edge answers the machine and the project alone.
+  admin-login: { type: bool, default: false }
   # A CI's tests sign in with a user's name and password, with no browser.
   password-grant: { type: bool, default: false }
   # Any user with any claims on the login page; false: only the users of the admin.
   open-login: { type: bool, default: true }
 env:
   OIDC_ADMIN_TOKEN: "{{secrets.admin-token}}"
+  OIDC_ADMIN_LOGIN: "{{params.admin-login}}"
   OIDC_PASSWORD_GRANT: "{{params.password-grant}}"
   OIDC_OPEN_LOGIN: "{{params.open-login}}"
 exports:

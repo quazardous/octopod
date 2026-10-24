@@ -12,6 +12,7 @@
  *   octopod mcp                      (an MCP server on stdio, for coding agents)
  *   octopod shell [project] [service] [--root] [--oneshot] [-- command…]
  *   octopod secrets [project] [--instance N]
+ *   octopod oidc users|user|remove [project] [user] [--claims JSON] [--password p | --no-password] [--issuers a,b]
  *   octopod ps [project]
  *   octopod run [project] <service> [<action> [file]] [--yes]
  *   octopod program start|stop|restart [project] <service>/<program>
@@ -64,7 +65,7 @@ function print(value: unknown, json: boolean): void {
   }
 }
 
-const VALUED = new Set(['--service', '--tail', '--socket', '--timeout', '--instance', '--group', '--tag']);
+const VALUED = new Set(['--service', '--tail', '--socket', '--timeout', '--instance', '--group', '--tag', '--claims', '--password', '--issuers']);
 
 /** `--instance N`: instance N of the project (`<project>-N`); 1, the project itself, by default. */
 function instanceOf(args: string[]): number {
@@ -173,6 +174,39 @@ async function main(argv: string[]): Promise<void> {
         child.once('exit', (code, signal) => done(code ?? (signal ? 128 : 1)));
       });
       return;
+    }
+    case 'oidc': {
+      // octopod oidc users|user|remove [project] [<sub>] [--claims JSON] [--password p | --no-password] [--issuers a,b | --all-issuers]
+      const [sub, ...names] = positional(rest);
+      const instance = instanceOf(rest);
+      if (sub === 'users') {
+        const project = names[0] ?? (await loadDeclaration(process.cwd())).project;
+        const answer = (await octopod.oidcUsers(project, 'GET', undefined, undefined, instance)) as { users: { sub: string; claims: unknown; password: boolean; issuers?: string[] }[] };
+        if (json) return print(answer, true);
+        for (const u of answer.users) console.log(`${u.sub}${u.password ? ' (password)' : ''}${u.issuers ? ` [${u.issuers.join(', ')}]` : ''}  ${JSON.stringify(u.claims)}`);
+        if (answer.users.length === 0) console.log('no user yet: octopod oidc user <name> --claims \'{"groups":["staff"]}\'');
+        return;
+      }
+      if (sub === 'user' || sub === 'remove') {
+        if (names.length === 0 || names.length > 2) throw new Error(`usage: octopod oidc ${sub} [project] <user>`);
+        const project = names.length === 2 ? names[0] : (await loadDeclaration(process.cwd())).project;
+        const user = names[names.length - 1];
+        if (sub === 'remove') {
+          const answer = await octopod.oidcUsers(project, 'DELETE', user, undefined, instance);
+          return json ? print(answer, true) : console.log(`${user} removed`);
+        }
+        const claims = flag(rest, '--claims');
+        const password = flag(rest, '--password');
+        const issuers = flag(rest, '--issuers');
+        const body = {
+          ...(claims !== undefined ? { claims: JSON.parse(claims) as unknown } : {}),
+          ...(password !== undefined ? { password } : rest.includes('--no-password') ? { password: null } : {}),
+          ...(issuers !== undefined ? { issuers: issuers.split(',').filter(Boolean) } : rest.includes('--all-issuers') ? { issuers: null } : {}),
+        };
+        const answer = await octopod.oidcUsers(project, 'PUT', user, body, instance);
+        return json ? print(answer, true) : console.log(`${user}: ${JSON.stringify(answer)}`);
+      }
+      throw new Error('usage: octopod oidc users [project] | user [project] <user> [--claims JSON] [--password p | --no-password] [--issuers a,b | --all-issuers] | remove [project] <user>');
     }
     case 'secrets': {
       // octopod secrets <project> [--instance N]: the names; with --json, the values, for a

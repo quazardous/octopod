@@ -463,9 +463,10 @@ function servicesTable(p, base, instance) {
   // An exposed service with no container yet still shows, with its route.
   for (const service of byService.keys()) if (!rows.has(service)) rows.set(service, { service, state: 'not created' });
   if (rows.size === 0) return el('p', { class: 'muted' }, 'No container: the project is down.');
-  // The group's servers it uses, after its own: their logs are the group's stack's.
+  // The group's servers it uses are the group's: on the group's page, not in the project's table.
   const group = p.group || 'default';
-  const body = [...[...rows.values()].sort((a, b) => a.service.localeCompare(b.service)), ...(p.shared || [])]
+  const body = [...rows.values()]
+    .sort((a, b) => a.service.localeCompare(b.service))
     .map((s) =>
       el(
         'tr',
@@ -625,7 +626,11 @@ function groupStack(group, members) {
     const icon = (s) => decoration(s, p.name, parts.admins.get(s), s.server ? group : '');
     for (const s of parts.shared) {
       // The group's server, named as the group knows it; a project's own name for it aside.
-      if (!servers.has(s.server)) servers.set(s.server, decoration({ ...s, service: s.server }, p.name, (parts.admins.get(s) || []).map((a) => ({ ...a, service: a.server })), group));
+      if (!servers.has(s.server)) {
+        const admins = (parts.admins.get(s) || []).map((a) => ({ ...a, service: a.server }));
+        servers.set(s.server, { server: { ...s, service: s.server }, admins, project: p.name, icon: decoration({ ...s, service: s.server }, p.name, admins, group) });
+        for (const a of admins) servers.set(a.server, { server: a, admins: [], project: p.name, hidden: true });
+      }
     }
     if (p.problem) {
       rows.push(el('div', { class: 'app-row' }, el('span', { class: 'dot bad' }), el('a', { href: pageOf(p.name), class: 'mono app-name' }, p.name), el('span', { class: 'problem' }, 'error')));
@@ -636,7 +641,8 @@ function groupStack(group, members) {
       rows.push(appRow(i === 0 ? { ...part, own: [...part.own, ...parts.loose] } : part, icon, name, pageOf(p.name)));
     });
   }
-  return { shared: [...servers.values()], rows: el('div', { class: 'stack' }, rows) };
+  const all = [...servers.values()];
+  return { shared: all.filter((x) => !x.hidden).map((x) => x.icon), servers: all, rows: el('div', { class: 'stack' }, rows) };
 }
 
 /** A group in the gallery: one tile for its projects, as one project of several apps. */
@@ -673,6 +679,29 @@ function groupTile(group, members) {
   );
 }
 
+/** The group's servers, each with its state, its address and its logs (read in its stack). */
+function sharedTable(servers, group) {
+  if (servers.length === 0) return null;
+  const rows = [...servers]
+    .sort((a, b) => a.server.server.localeCompare(b.server.server))
+    .map(({ server: s, project }) =>
+      el(
+        'tr',
+        {},
+        el('td', {}, s.recipe ? decoration({ ...s, link: s.link }, project, [], group) : null, el('span', { class: 'mono' }, ` ${s.server}`)),
+        el('td', {}, s.state, s.health ? el('span', { class: 'muted' }, ` · ${s.health}`) : null),
+        el('td', {}, s.link ? el('a', { href: s.link, target: '_blank', rel: 'noreferrer' }, s.link.replace(/^http:\/\//, '')) : null),
+        el('td', { class: 'actions' }, el('button', { type: 'button', onclick: () => openLogs({ project: s.stack, instance: 1, service: s.server }) }, 'Logs')),
+      ),
+    );
+  return el(
+    'table',
+    { class: 'services' },
+    el('thead', {}, el('tr', {}, el('th', {}, `Shared by group ${group}`), el('th', {}, 'State'), el('th', {}, 'Route'), el('th', {}))),
+    el('tbody', {}, rows),
+  );
+}
+
 /** A group's page: its view, then each of its projects as on its own page. */
 function renderGroup(projects) {
   const { group } = state.view;
@@ -700,6 +729,7 @@ function renderGroup(projects) {
     ),
     failure(key, 1),
     view.rows,
+    sharedTable(view.servers, group),
   );
   $('projects').replaceChildren(back, head, ...[...members].sort((a, b) => a.name.localeCompare(b.name)).map((p) => card({ ...p, others: [] }, p.name, false, true)));
   $('summary').textContent = `group ${group} · ${members.length} project${members.length > 1 ? 's' : ''}`;

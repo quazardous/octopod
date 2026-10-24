@@ -29,4 +29,5 @@ const kernel = new Kernel({
   app: { name: 'OIDC users' },
 })
 
-kernel.createApp().mount('#app')
+// An open admin skips its login: asked before the app starts.
+authAdapter.openIfAllowed().finally(() => kernel.createApp().mount('#app'))
