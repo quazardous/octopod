@@ -31,6 +31,8 @@ export interface ServiceRequest {
   route?: false;
   /** Run once for the project's group, not by the project: see `RenderOptions.shared`. */
   shared?: boolean;
+  /** Where the console's icon leads, as the project says: a path on its route, or a URL. */
+  link?: string;
 }
 
 export type ParamValue = string | number | boolean;
@@ -120,8 +122,10 @@ export interface RenderedService {
   shared?: true;
   /** An app: it works on the project's files (the recipe has a workspace). */
   app?: true;
-  /** Where the console's icon leads on its route (the recipe's `link`). */
+  /** Where the console's icon leads: a path on its route (the recipe's `link`, or the project's), or a URL. */
   link?: string;
+  /** It has an `info` action: what runs in it, for the console's page of it. */
+  info?: true;
   /** The project's services it is wired to (its requirements' providers). */
   uses?: string[];
 }
@@ -497,7 +501,9 @@ export function renderServices(options: RenderOptions): Rendered {
       ...(recipe.route && r.request.route !== false ? { route: recipe.route === true ? '' : recipe.route.subdomain } : {}),
       ...(waits.length > 0 ? { waits } : {}),
       ...(recipe.workspace ? { app: true as const } : {}),
-      ...(recipe.route ? { link: recipe.link } : {}),
+      // An app's address is listed beside it: its icon leads where the project says, or to its info.
+      ...(r.request.link ? { link: r.request.link } : recipe.route && !recipe.workspace ? { link: recipe.link } : {}),
+      ...(r.actions.info ? { info: true as const } : {}),
       ...(uses.length > 0 ? { uses } : {}),
       ...(Object.keys(r.programs).length > 0 ? { programs: Object.keys(r.programs) } : {}),
       ...(recipe.supervisor ? { supervisor: recipe.supervisor.config } : {}),

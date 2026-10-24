@@ -195,6 +195,11 @@ export function handler(octopod: Octopod) {
         }
         return send(res, 200, await octopod.program(name, service, program, what as 'start' | 'stop' | 'restart', instanceValue(instance)));
       }
+      if (resource === 'projects' && name && action === 'info' && method === 'GET') {
+        const service = url.searchParams.get('service');
+        if (!service) return send(res, 400, { error: '"service" is required' });
+        return send(res, 200, await octopod.info(name, service, queryInstance()));
+      }
       if (resource === 'projects' && name && action === 'logs' && method === 'GET') {
         const tail = Math.min(Math.max(Number(url.searchParams.get('tail') ?? 200) || 200, 1), 5000);
         return send(res, 200, { lines: await octopod.logs(name, url.searchParams.get('service') ?? undefined, tail, queryInstance()) });

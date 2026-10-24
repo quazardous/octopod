@@ -67,6 +67,11 @@ A database recipe names its actions: `octopod run db shell`, `octopod run db dum
 dump.sql`, `octopod run db load dump.sql`, `octopod run db reset`. The destructive ones ask
 for a confirmation (`--yes`). A project adds its own (`actions:` on a service).
 
+An app recipe has an `info` action: `octopod run app info` says what runs in it, like a
+phpinfo — for `python-app` its Python, its venv, `sys.path`, its packages, its environment
+(what looks like a secret hidden) and its programs; for `php-app` the real `php -i`; for
+`node-app` its versions and `npm ls`. In the console, the app's icon opens it.
+
 ## A driver that compiles
 
 A Django app on MariaDB names the driver it compiles (mysqlclient has no Linux wheel):

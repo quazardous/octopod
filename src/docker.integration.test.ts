@@ -497,6 +497,20 @@ describe.skipIf(!dockerAvailable())('a project made of recipes (real docker)', {
     expect(status.services).toEqual(expect.arrayContaining([expect.objectContaining({ service: 'db', state: 'running' })]));
   });
 
+  it('reads what runs in the app, its secrets masked', async () => {
+    const info = await octopod.info('delta', 'app');
+    expect(info.ok, info.text).toBe(true);
+    expect(info.text).toMatch(/^## Node$/m);
+    expect(info.text).toMatch(/^node\t\d+\./m);
+    const password = (await octopod.secrets('delta')).find((s) => s.service === 'db' && s.name === 'password')!.value;
+    expect(info.text).not.toContain(password);
+    expect(info.text).toMatch(/^DATABASE_URL\tpostgres(ql)?:\/\/app:‹secret›@db/m);
+    // Its icon leads there: an app's link is the project's to give.
+    const app = (await octopod.status('delta')).services.find((s) => s.service === 'app');
+    expect(app).toEqual(expect.objectContaining({ info: true }));
+    expect(app?.link).toBeUndefined();
+  });
+
   it('dumps its database, resets it and loads the dump back, through the recipe\'s actions', async () => {
     await roundTrip(octopod, 'delta', 'db', base);
   });
@@ -647,6 +661,14 @@ describe.skipIf(!dockerAvailable())('a PHP project made of recipes (real docker)
     const answer = await eventually('phpapp.localhost', 200);
     expect(answer.body).toBe('user=phpapp php=8.4 db=ok');
     expect((await stat(join(root, 'written.txt'))).uid).toBe(process.getuid?.());
+  });
+
+  it('reads what runs in the app: phpinfo, PHP-FPM, its programs', async () => {
+    const info = await octopod.info('phpapp', 'app');
+    expect(info.ok, info.text).toBe(true);
+    expect(info.text).toContain('## phpinfo (php -i)');
+    expect(info.text).toMatch(/PHP Version => 8\.4/);
+    expect(info.text).toMatch(/php-fpm\s+RUNNING/);
   });
 
   it('runs the project\'s programs beside php-fpm and nginx, a task only when started', async () => {
@@ -978,6 +1000,16 @@ describe.skipIf(!dockerAvailable())('a Python project made of recipes (real dock
     // drivers: [mysql] — what mysqlclient's build looks for, there.
     const mysql = await octopod.exec('pyapp', 'app', ['sh', '-c', 'pkg-config --exists libmariadb && command -v gcc']);
     expect(mysql.ok).toBe(true);
+  });
+
+  it('reads what runs in the app: its Python, its venv, its packages, its programs', async () => {
+    const info = await octopod.info('pyapp', 'app');
+    expect(info.ok, info.text).toBe(true);
+    expect(info.text).toMatch(/^executable\t\/app\/\.venv\/bin\/python$/m);
+    expect(info.text).toMatch(/^venv\tyes$/m);
+    expect(info.text).toMatch(/^## Packages \(\d+\)$/m);
+    expect(info.text).toMatch(/^REDIS_URL\tredis:\/\/cache:6379$/m);
+    expect(info.text).toMatch(/web\s+RUNNING/);
   });
 });
 

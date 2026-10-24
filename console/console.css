@@ -354,6 +354,15 @@ a.deco:hover { background: var(--code); text-decoration: none; }
 .app-row a.mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .card > .stack { margin: 8px 0; }
 
+/* A service's info page: its sections, their rows. */
+.info-section { margin: 10px 0; }
+.info-section > summary { cursor: pointer; font-weight: 600; }
+.info-table { border-collapse: collapse; width: 100%; margin: 6px 0; table-layout: fixed; }
+.info-table th, .info-table td { text-align: left; vertical-align: top; padding: 3px 8px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.info-table th { width: 30%; font-weight: 500; color: var(--muted); }
+.info-text { margin: 6px 0; padding: 8px; background: var(--code); border-radius: 6px; overflow-x: auto; white-space: pre; }
+.card-head h2 .deco { vertical-align: middle; }
+
 /* The icons' tooltip: placed by the script, over everything. */
 .tip {
   position: absolute;

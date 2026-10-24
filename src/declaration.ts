@@ -49,7 +49,7 @@ export const DeclarationSchema = z
       .default([]),
     /** Services made of recipes: `app: { recipe: node-app }`, `db: { recipe: postgres, persist: true }`. */
     services: z
-      .record(z.string(), z.object({ recipe: z.string().min(1).max(64), programs: z.record(z.string(), Program).optional(), supervisor_d: z.string().min(1).max(400).optional(), actions: z.record(z.string(), ActionSchema).optional(), home: z.union([z.literal(true), z.string().min(1).max(400)]).optional(), route: z.literal(false).optional(), shared: z.boolean().optional(), workdir: z.string().regex(/^\/[A-Za-z0-9._-][A-Za-z0-9._/-]*$/, 'an absolute path in the container').optional() }).catchall(z.union([z.string().max(200), z.number(), z.boolean(), z.array(z.string().max(64)).max(128)])))
+      .record(z.string(), z.object({ recipe: z.string().min(1).max(64), programs: z.record(z.string(), Program).optional(), supervisor_d: z.string().min(1).max(400).optional(), actions: z.record(z.string(), ActionSchema).optional(), home: z.union([z.literal(true), z.string().min(1).max(400)]).optional(), route: z.literal(false).optional(), shared: z.boolean().optional(), workdir: z.string().regex(/^\/[A-Za-z0-9._-][A-Za-z0-9._/-]*$/, 'an absolute path in the container').optional(), link: z.string().regex(/^(\/[A-Za-z0-9._~\/?=&%#-]*|https?:\/\/[^\s"'<>]+)$/, 'a path on its route, or an http(s) URL').max(400).optional() }).catchall(z.union([z.string().max(200), z.number(), z.boolean(), z.array(z.string().max(64)).max(128)])))
       .optional(),
     /** More recipe folders, relative to the project; after octopod's own and OCTOPOD_RECIPES, before `.octopod/recipes/`. */
     recipes: z.array(z.string().min(1).max(400)).optional(),
@@ -86,7 +86,7 @@ export interface Declaration {
   /** The declared env file, absolute: passed as --env-file. */
   envFile?: string;
   /** Services made of recipes, with their parameters. */
-  services?: Record<string, { recipe: string; params: Record<string, string | number | boolean | string[]>; programs?: Record<string, ProgramSpec>; supervisorD?: string; actions?: Record<string, ActionSpec>; home?: true | string; workdir?: string; route?: false; shared?: boolean }>;
+  services?: Record<string, { recipe: string; params: Record<string, string | number | boolean | string[]>; programs?: Record<string, ProgramSpec>; supervisorD?: string; actions?: Record<string, ActionSpec>; home?: true | string; workdir?: string; route?: false; shared?: boolean; link?: string }>;
   /** Extra recipe folders, absolute, in the order declared. */
   recipeDirs?: string[];
   /** The folder a recipe's workspace mounts, absolute. */
@@ -177,7 +177,7 @@ export async function loadDeclaration(root: string): Promise<Declaration> {
       if (!(await stat(abs).then((st) => st.isDirectory(), () => false))) throw new DeclarationError(`${file}: services.${service}.${key}: ${path} is not a folder of the project`);
       return abs;
     };
-    for (const [name, { recipe, programs, supervisor_d, actions, home, workdir, route, shared, ...params }] of Object.entries(parsed.data.services)) {
+    for (const [name, { recipe, programs, supervisor_d, actions, home, workdir, route, shared, link, ...params }] of Object.entries(parsed.data.services)) {
       const supervisorD = supervisor_d !== undefined ? await folder(name, 'supervisor_d', supervisor_d) : undefined;
       const homeDir = typeof home === 'string' ? await folder(name, 'home', home) : home;
       services[name] = {
@@ -190,6 +190,7 @@ export async function loadDeclaration(root: string): Promise<Declaration> {
         ...(workdir ? { workdir } : {}),
         ...(route === false ? { route: false as const } : {}),
         ...(shared !== undefined ? { shared } : {}),
+        ...(link ? { link } : {}),
       };
     }
   }

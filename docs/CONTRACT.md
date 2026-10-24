@@ -220,6 +220,13 @@ workspace: .               # the folder a recipe's workspace mounts; the project
   - `workdir: /my-app` mounts the project there instead of the recipe's workspace (`/app`):
     a project keeps the paths it has. It is passed to the build as `WORKSPACE` (php-app
     serves its docroot from it).
+- **Where the console's icon leads.** A routed recipe's icon leads to its route, at the
+  recipe's `link:` (`/admin/` for `oidc`); a database's, to the admin wired to it. An app's
+  (a recipe with a workspace: its address is listed beside it) leads to its info page: what
+  its recipe's `info` action reads in the running container — `python-app`, `php-app` and
+  `node-app` have one (the runtime, its packages, the environment, the programs; sections
+  start with `## `, a name and its value split by a tab). `link:` on a service in
+  `octopod.yaml` says otherwise: a path on its route (`/__debug__/`), or an http(s) URL.
 - **A service's address.** `{{url}}` in a recipe's `env`, `exports`, `command` or health is a
   routed service's address at the edge (`http://id.demo.localhost`, with `:<port>` when
   the edge is not on 80), empty for a service not routed: the same URL from the host's
@@ -347,11 +354,12 @@ first time, kept after), and answers only a request that carries that token in t
 | POST | `/v1/edge/up` · `/v1/edge/down` | | `{ running, port, dashboard, console }` |
 | GET | `/v1/projects?group=&tag=` | | `Project[]` — every registered project, or those of a group, or carrying a tag; a group's shared services (`<group>-shared`) are listed with `sharedOf: <group>`: not a project, the console shows them in the projects that use them |
 | POST | `/v1/projects` | `{ root }` | `Project` (registered from `root/octopod.yaml`) |
-| GET | `/v1/projects/:name` | | `ProjectStatus`; each of its `services` made of a recipe carries `recipe` (its id), `link` (where the console's icon leads: its route at the recipe's `link:`, or for a database the route of the admin wired to it) `app` (it works on the project's files), for an app `uses` (its own services it is wired to), for an admin `admin` (the service it administers: the console draws the two as one). `shared`: the group's servers the project uses, `{ service, server, state, health?, recipe, link?, admin? }` — `service` its own name for it, `server` the group's (`mariadb-11-4`) |
+| GET | `/v1/projects/:name` | | `ProjectStatus`; each of its `services` made of a recipe carries `recipe` (its id), `link` (where the console's icon leads: its route at the recipe's `link:`, or for a database the route of the admin wired to it) `app` (it works on the project's files), for an app `uses` (its own services it is wired to), for an admin `admin` (the service it administers: the console draws the two as one), `info` (it has an `info` action: `GET …/info`). `shared`: the group's servers the project uses, `{ service, server, state, health?, recipe, link?, admin? }` — `service` its own name for it, `server` the group's (`mariadb-11-4`) |
 | POST | `/v1/projects/:name/up` · `/down` | `{ volumes?: boolean, instance? }` for down, `{ instance? }` for up | `ProjectStatus` — the only POSTs the console's relay lets through, with `X-Octopod-Console: 1`; a down with `volumes: true` and that header is refused (403) |
 | POST | `/v1/projects/:name/restart` | `{ service? }` | `ProjectStatus` |
 | POST | `/v1/projects/:name/exec` | `{ service, argv: string[], timeoutMs? }` | `{ ok, mode, output, truncated }` — argv, never a shell string built by octopod; output bounded; a failure says how it ended (exit code, timeout). `mode: "run"` when the service was not running (stopped, restarting in a loop): the command ran in a one-off container of it (same image, mounts, user, network), kept out of the edge's routes |
 | GET | `/v1/projects/:name/logs?service=&tail=` | | `{ lines: string[] }` |
+| GET | `/v1/projects/:name/info?service=&instance=` | | `{ service, ok, text }` — what the service's `info` action reads in it, the project's secrets and the passwords of URLs replaced by `‹secret›` |
 | GET | `/v1/projects/:name/actions?instance=` | | `{ service, action, summary?, input, tty, confirm? }[]` |
 | POST | `/v1/projects/:name/run` | `{ service, action, input?, output?, confirm?, instance? }` | `{ ok, code, stderr }` — `input` and `output` are absolute paths: the action reads the one, writes the other (created `0600`), streamed. An interactive action is refused; one that destroys needs `confirm: true`. Refused through the console's relay, like every POST |
 | GET | `/v1/projects/:name/programs?instance=` | | `{ service, program, state, detail }[]` — every program of the running supervised services, the recipe's and the project's, as supervisord reports them (`RUNNING`, `STOPPED`, `BACKOFF`, `FATAL`, `EXITED`…) |

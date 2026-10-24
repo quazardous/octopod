@@ -13,8 +13,10 @@ A project is drawn as it is made. Each app comes with its address and the icons 
 services it uses (its cache, its database); the servers it shares with its group show once,
 at the group's level. A group's shared services are not a tile of their own. An icon is the
 software's, in its colours: greyed when stopped, with a dot when in trouble. A click opens
-what it serves — the OIDC admin, the mail inbox, and for a database the admin wired to it,
-which its icon stands for.
+what it serves — the OIDC admin, the mail inbox, a cache's keys, and for a database the
+admin wired to it, which its icon stands for. An app's icon opens its info page, a phpinfo
+of what runs in it (its runtime, packages, environment, programs), or where the project
+says (`link: /__debug__/` on the service).
 
 It brings a project, or a group's projects, up or down; Down asks for a second click. The rest (`restart`, `exec`,
 `run`, removing volumes) stays on the command line. It links to Traefik's dashboard at

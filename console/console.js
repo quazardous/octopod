@@ -26,6 +26,8 @@ const state = {
   version: '',
   /** The project page shown: { project, instance }, or null for the gallery. */
   view: null,
+  /** A service's info page, read once on arrival: { key, data } or { key, error }, or null. */
+  info: null,
   /** The page whose logs were opened on arrival. */
   logsPage: null,
   /** A project being brought up or down, by `<project>#<instance>`: 'up' or 'down'. */
@@ -42,13 +44,18 @@ const CONFIRM_MS = 4000;
 
 /** The page the address names: `#/p/<project>[/<instance>]`, `#/g/<group>`, or the gallery. */
 function route() {
-  const m = /^#\/p\/([^/]+)(?:\/(\d+))?$/.exec(location.hash);
+  const m = /^#\/p\/([^/]+)(?:\/(\d+))?(?:\/info\/([^/]+))?$/.exec(location.hash);
   const g = /^#\/g\/([^/]+)$/.exec(location.hash);
-  state.view = m ? { project: decodeURIComponent(m[1]), instance: Number(m[2] || 1) } : g ? { group: decodeURIComponent(g[1]) } : null;
+  state.view = m
+    ? { project: decodeURIComponent(m[1]), instance: Number(m[2] || 1), ...(m[3] ? { info: decodeURIComponent(m[3]) } : {}) }
+    : g
+      ? { group: decodeURIComponent(g[1]) }
+      : null;
 }
 
 const pageOf = (name, instance = 1) => `#/p/${encodeURIComponent(name)}${instance > 1 ? `/${instance}` : ''}`;
 const groupPageOf = (group) => `#/g/${encodeURIComponent(group)}`;
+const infoPageOf = (name, service, instance = 1) => `${pageOf(name, instance)}/info/${encodeURIComponent(service)}`;
 
 const $ = (id) => document.getElementById(id);
 
@@ -270,6 +277,8 @@ function serviceTone(s) {
  * inline styles.
  */
 function decoration(s, project, admins = [], groupOf = '') {
+  // An app without a link of its own opens the console's page of what runs in it.
+  const info = !s.link && s.info && !s.server ? infoPageOf(project, s.service) : null;
   let tone = serviceTone(s);
   if (tone === 'ok' && admins.some((a) => serviceTone(a) !== 'ok')) tone = 'warn';
   const icon = el('span', { class: 'deco-icon' });
@@ -280,11 +289,13 @@ function decoration(s, project, admins = [], groupOf = '') {
     said(s),
     s.server ? `shared: group ${groupOf}'s ${s.server}` : null,
     ...admins.map((a) => `${a.service} · ${a.recipe}: ${said(a)}`),
-    s.link ? `opens ${s.link.replace(/^http:\/\//, '')}` : null,
+    s.link ? `opens ${s.link.replace(/^http:\/\//, '')}` : info ? 'opens what runs in it' : null,
   ].filter(Boolean);
   const node = s.link
     ? el('a', { class: `deco ${tone}`, href: s.link, target: '_blank', rel: 'noreferrer', 'aria-label': tip.join(', ') }, icon)
-    : el('span', { class: `deco ${tone}`, 'aria-label': tip.join(', ') }, icon);
+    : info
+      ? el('a', { class: `deco ${tone}`, href: info, 'aria-label': tip.join(', ') }, icon)
+      : el('span', { class: `deco ${tone}`, 'aria-label': tip.join(', ') }, icon);
   node.addEventListener('mouseenter', () => showTip(node, tip));
   node.addEventListener('mouseleave', hideTip);
   node.addEventListener('focus', () => showTip(node, tip));
@@ -720,6 +731,85 @@ function instanceStrip(base, selected) {
   );
 }
 
+/**
+ * What runs in a service, as its recipe's `info` action reads it: read once on arrival (and
+ * on Refresh), not at each refresh of the page. Sections start with "## "; a line with a tab,
+ * or phpinfo's "a => b", is a row of a table; the rest is text.
+ */
+function renderInfo(projects) {
+  const { project, instance, info: service } = state.view;
+  const key = `${project}#${instance}#${service}`;
+  const base = projects.find((p) => p.name === project);
+  const s = base && (base.services || []).find((x) => x.service === service);
+  const fetchInfo = () => {
+    state.info = { key };
+    api(`/v1/projects/${encodeURIComponent(project)}/info?service=${encodeURIComponent(service)}${instance > 1 ? `&instance=${instance}` : ''}`).then(
+      (data) => (state.info = { key, data }),
+      (e) => (state.info = { key, error: e.message }),
+    ).then(() => state.last && render(state.last));
+  };
+  if (!state.info || state.info.key !== key) fetchInfo();
+  if (state.logs) closeLogs();
+  const back = el('a', { href: pageOf(project, instance), class: 'back' }, `← ${project}`);
+  const head = el(
+    'div',
+    { class: 'card-head' },
+    el('h2', {}, s && s.recipe ? decoration({ ...s, link: undefined, info: false }, project) : null, ` ${service}`, el('span', { class: 'muted' }, s && s.recipe ? ` · ${s.recipe}` : '')),
+    el('span', { class: 'spacer' }),
+    el('button', { type: 'button', onclick: () => (fetchInfo(), render(state.last)) }, 'Refresh'),
+  );
+  const { data, error } = state.info;
+  let body;
+  if (error) body = el('p', { class: 'problem' }, error);
+  else if (!data) body = el('p', { class: 'muted' }, 'Reading it in the container…');
+  else body = [data.ok ? null : el('p', { class: 'problem' }, 'The info action failed; what it said:'), ...infoSections(data.text)];
+  $('projects').replaceChildren(back, el('article', { class: 'card info' }, head, body));
+  $('summary').textContent = `what runs in ${project}/${service}`;
+}
+
+function infoSections(text) {
+  const sections = [];
+  let current = { title: '', lines: [] };
+  for (const line of text.split('\n')) {
+    if (line.startsWith('## ')) {
+      if (current.title || current.lines.some((l) => l.trim())) sections.push(current);
+      current = { title: line.slice(3), lines: [] };
+    } else current.lines.push(line);
+  }
+  sections.push(current);
+  return sections.flatMap(({ title, lines }) => {
+    const nodes = [];
+    let rows = [];
+    let prose = [];
+    const flush = () => {
+      if (rows.length) nodes.push(el('table', { class: 'info-table' }, el('tbody', {}, rows.map(([k, v]) => el('tr', {}, el('th', { class: 'mono' }, k), el('td', { class: 'mono' }, v))))));
+      if (prose.some((l) => l.trim())) nodes.push(el('pre', { class: 'info-text' }, prose.join('\n').replace(/^\n+|\s+$/g, '')));
+      rows = [];
+      prose = [];
+    };
+    for (const line of lines) {
+      const tab = line.indexOf('\t');
+      const arrow = line.indexOf(' => ');
+      const pair = tab > 0 ? [line.slice(0, tab), line.slice(tab + 1)] : arrow > 0 ? [line.slice(0, arrow), line.slice(arrow + 4)] : null;
+      if (pair) {
+        if (prose.some((l) => l.trim())) flush();
+        prose = [];
+        rows.push(pair);
+      } else {
+        if (rows.length && line.trim()) flush();
+        prose.push(line);
+      }
+    }
+    flush();
+    if (!title) return nodes;
+    // Open unless folded: kept across the page's refreshes, like a group.
+    const key = `info:${title}`;
+    const node = el('details', { class: 'info-section', open: !state.closed.has(key) }, el('summary', {}, title), ...nodes);
+    node.addEventListener('toggle', () => (node.open ? state.closed.delete(key) : state.closed.add(key)));
+    return node;
+  });
+}
+
 /** A project's page: everything about it, and its logs. */
 function renderDetail(projects) {
   const { project, instance } = state.view;
@@ -763,7 +853,7 @@ function render({ edge, projects }) {
     $('help').open = listed.length === 0;
   }
   $('help').hidden = Boolean(state.view);
-  if (state.view) return state.view.group ? renderGroup(projects) : renderDetail(projects);
+  if (state.view) return state.view.group ? renderGroup(projects) : state.view.info ? renderInfo(projects) : renderDetail(projects);
   state.logsPage = null;
   if (state.logs) closeLogs();
 

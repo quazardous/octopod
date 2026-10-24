@@ -52,3 +52,28 @@ requires:
     optional: true
 tmpfs: [/tmp]
 limits: { memory: 2g, cpus: "2", pids: 1024 }
+# What runs in it, read in the running container: the console's page of the app. Sections
+# start with "## ", a name and its value are split by a tab.
+actions:
+  info:
+    summary: what runs in it — Node, its versions, the project's packages, environment (the console's page of it)
+    command:
+      - sh
+      - -c
+      - |
+        node - <<'JS'
+        const os = require('node:os');
+        const hidden = /PASS|SECRET|TOKEN|KEY|CREDENTIAL/i;
+        const row = (name, value) => console.log(`${name}\t${value}`);
+        console.log('## Node');
+        row('executable', process.execPath);
+        row('platform', `${process.platform} ${process.arch} ${os.release()}`);
+        row('user', `${os.userInfo().username} (${process.getuid()}:${process.getgid()})`);
+        row('directory', process.cwd());
+        console.log('## Versions');
+        for (const [name, version] of Object.entries(process.versions)) row(name, version);
+        console.log('## Environment');
+        for (const k of Object.keys(process.env).sort()) row(k, hidden.test(k) ? '<hidden>' : process.env[k]);
+        JS
+        echo "## Packages (npm ls)"
+        npm ls --depth=0 2>&1 || true

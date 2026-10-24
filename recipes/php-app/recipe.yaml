@@ -49,3 +49,19 @@ requires:
     optional: true
 tmpfs: [/tmp]
 limits: { memory: 2g, cpus: "2", pids: 1024 }
+# What runs in it, read in the running container: the console's page of the app. Sections
+# start with "## ".
+actions:
+  info:
+    summary: what runs in it — phpinfo (php -i), PHP-FPM, composer, programs (the console's page of it)
+    command:
+      - sh
+      - -c
+      - |
+        echo "## PHP-FPM"
+        php-fpm -v 2>&1 | head -n 1
+        printf 'composer\t%s\n' "$(composer --version 2>/dev/null | head -n 1)"
+        echo "## Programs"
+        supervisorctl -c /etc/octopod/supervisord.conf status 2>&1 || true
+        echo "## phpinfo (php -i)"
+        php -i

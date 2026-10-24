@@ -318,6 +318,23 @@ describe('the built-in recipes', () => {
     expect(api.depends_on).toEqual({ cache: { condition: 'service_healthy' } });
   });
 
+  it("leads an app's icon to its info, or where the project says; an admin's to its route", async () => {
+    const book = await loadRecipes([BUILTIN_RECIPES]);
+    const out = renderServices({
+      project: 'shop',
+      book,
+      services: { app: { recipe: 'python-app' }, api: { recipe: 'node-app', link: '/docs' }, mail: { recipe: 'mailpit' } },
+      workspace: '/p',
+      owner: '1:1',
+    });
+    const of = (name: string) => out.services.find((s) => s.name === name)!;
+    expect(of('app')).toEqual(expect.objectContaining({ info: true }));
+    expect(of('app').link).toBeUndefined();
+    expect(of('api')).toEqual(expect.objectContaining({ info: true, link: '/docs' }));
+    expect(of('mail').link).toBe('/');
+    expect(of('mail').info).toBeUndefined();
+  });
+
   it('runs the admin a recipe names beside it, unless the project names one, or the service is the group\'s', async () => {
     const book = await loadRecipes([BUILTIN_RECIPES]);
     expect(Object.keys(withAdmins({ cache: { recipe: 'redis' } }, book))).toEqual(['cache', 'cache-admin']);

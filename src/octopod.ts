@@ -100,6 +100,8 @@ export interface KnownService {
   app?: boolean;
   /** An app's own services it is wired to (the group's left out): the console draws them with it. */
   uses?: string[];
+  /** It has an `info` action: the console's page of what runs in it (`GET …/info`). */
+  info?: boolean;
   /** The service it is the admin of (phpMyAdmin of a MariaDB): the console draws the two as one. */
   admin?: string;
 }
@@ -1218,6 +1220,24 @@ export class Octopod {
   }
 
   /**
+   * What runs in a service, as its recipe's `info` action reads it (the runtime, its packages,
+   * its environment): the console's page of an app. The project's secrets never show in it,
+   * nor the password of a URL.
+   */
+  async info(name: string, service: string, instance = 1): Promise<{ service: string; ok: boolean; text: string }> {
+    const declaration = await this.declaration(name, instance);
+    const made = (await this.recipeServices(declaration)).find((s) => s.name === service);
+    const spec = made?.actions?.info;
+    if (!spec) throw new OctopodError(`service "${service}" of "${name}" has no info action`);
+    const result = await this.exec(name, service, spec.command, { timeoutMs: 60_000, maxBytes: 1024 * 1024, instance });
+    const secrets = [...new Set((await this.secrets(name, instance).catch(() => [])).map((s) => s.value))].filter((v) => v.length >= 6);
+    let text = result.output;
+    for (const value of secrets) text = text.split(value).join('‹secret›');
+    text = text.replace(/(\w+:\/\/[^\s:/@]+:)[^\s@/]+@/g, '$1‹secret›@');
+    return { service, ok: result.ok, text };
+  }
+
+  /**
    * The services whose main process runs as root, read where it cannot be wrong: the running
    * process itself (its uid in /proc), whatever the image's USER or the compose file's
    * `user:` said — and a database whose image starts as root and drops to its own user is
@@ -1320,9 +1340,12 @@ export class Octopod {
     const out = new Map<string, KnownService>();
     for (const s of made) {
       const url = urlOf(s.name);
+      // The project's link may be a URL of its own; a path is on the service's route.
+      const link = s.link && /^https?:\/\//.test(s.link) ? s.link : url && s.link ? `${url}${s.link === '/' ? '' : s.link}` : undefined;
       out.set(s.name, {
         recipe: s.recipe,
-        ...(url && s.link ? { link: `${url}${s.link === '/' ? '' : s.link}` } : {}),
+        ...(link ? { link } : {}),
+        ...(s.info ? { info: true } : {}),
         ...(s.app ? { app: true } : {}),
         ...(s.app && s.uses ? { uses: s.uses } : {}),
       });
