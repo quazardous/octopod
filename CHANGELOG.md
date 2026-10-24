@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-24
+
+After upgrading, run `octopod up` once in each project: its routes then answer only your machine and its own containers (until then they keep their old labels), and its containers reach its own hosts. `octopod setup` once too: the user service now retries without limit.
+
 ### Added
 
 - The `oidc` recipe: a local OpenID Connect provider, octopod's own (`src/oidc`, no dependency). Any path is an issuer (`http://id.<project>.localhost/<name>`); its login page takes a user name and the claims to sign (`groups`, `email`…); discovery, JWKS, the code flow with PKCE, tokens and userinfo. Apps get `OIDC_ISSUER_BASE`, the same URL for the browser and the app.
@@ -21,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The README is short now; the documentation is in `docs/`, one subject a file: your project, recipes, sharing servers, OpenID Connect, the console, the commands.
+- `recipes --check` holds its rule against installing a project's dependencies to the final stage: an earlier stage builds a tool of the recipe from the Dockerfile's own files, and passes on only its result.
 - **Breaking:** a project's routes answer only the host and the project's own containers. A container of another project that sends this project's host to the edge now gets a 403; before, it was served. Run `octopod up` on each project once after upgrading: until then its routes keep answering everyone. Projects that must talk to each other share a network in their compose files (docs/PATTERNS.md), or a group's shared services.
 - The console shows a project run more than once as one stacked tile, a dot per instance with its state and `×N`; its page opens on a strip of its instances (state, address, Up/Down), the one shown below marked, instead of cards nested under the first.
 
@@ -172,7 +178,8 @@ The first preview: tested on Linux with Docker.
 - Traefik's dashboard and the console answer only from the host: a project's containers, which reach the edge over their edge network, get a 403.
 - `octopod` and `traefik` can no longer be project names: they are the edge's own hosts.
 
-[Unreleased]: https://github.com/quazardous/octopod/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/quazardous/octopod/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/quazardous/octopod/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/quazardous/octopod/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/quazardous/octopod/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/quazardous/octopod/compare/v0.3.3...v0.4.0
