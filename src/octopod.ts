@@ -16,7 +16,7 @@ import { BUILTIN_RECIPES, envRecipeDirs, loadRecipes, type Shadowed } from './re
 import { BUILD_LABEL, formatPlan, PROJECT_LABEL, renderServices, SHARED_NETWORK, TOOL_PROFILE, type RenderedService, type Tenancy } from './recipes/render.js';
 import { ConsoleAccess } from './consoleAccess.js';
 import { cliDocker, composeUp, DockerError, type Docker } from './docker.js';
-import { bindSources, choosePort, composePorts, CONSOLE_HOST, consoleContainer, consoleNginxConfig, DASHBOARD_HOST, DATA_DIR, dataVolumes, duplicationBlockers, edgeCompose, edgeContainer, imagePorts, localOnlyConfig, projectOverride, traefikConfig, type ComposeService, type ComposeVolume, type ResolvedPort } from './generate.js';
+import { bindSources, choosePort, projectAllowConfig, composePorts, CONSOLE_HOST, consoleContainer, consoleNginxConfig, DASHBOARD_HOST, DATA_DIR, dataVolumes, duplicationBlockers, edgeCompose, edgeContainer, imagePorts, localOnlyConfig, projectOverride, traefikConfig, type ComposeService, type ComposeVolume, type ResolvedPort } from './generate.js';
 import { edgeNetwork, fullHost, instanceName } from './names.js';
 
 /** The version of the contract in docs/CONTRACT.md: the declaration, the API, the CLI's JSON. */
@@ -410,15 +410,42 @@ export class Octopod {
    */
   private async writeLocalOnly(): Promise<boolean> {
     const network = `${this.instance}-edge_default`;
-    const out = await this.docker.run(['network', 'inspect', network, '--format', '{{json .IPAM.Config}}']);
-    const subnets = ((JSON.parse(out.trim() || 'null') ?? []) as { Subnet?: string }[]).map((c) => c.Subnet).filter((s): s is string => !!s);
+    const subnets = await this.subnets(network);
     if (subnets.length === 0) throw new OctopodError(`network ${network} has no subnet: the console and the dashboard stay closed`);
-    const file = this.path('edge', 'dynamic', 'local.yml');
-    const content = JSON.stringify(localOnlyConfig(subnets), null, 2) + '\n';
+    return this.writeDynamic('local.yml', localOnlyConfig(subnets));
+  }
+
+  /** A network's subnets; none when it does not exist. */
+  private async subnets(network: string): Promise<string[]> {
+    const out = await this.docker.run(['network', 'inspect', network, '--format', '{{json .IPAM.Config}}']).catch(() => '');
+    return ((JSON.parse(out.trim() || 'null') ?? []) as { Subnet?: string }[]).map((c) => c.Subnet).filter((s): s is string => !!s);
+  }
+
+  /** A file of Traefik's dynamic configuration, written in place atomically; says whether it changed. */
+  private async writeDynamic(name: string, config: unknown): Promise<boolean> {
+    const file = this.path('edge', 'dynamic', name);
+    const content = JSON.stringify(config, null, 2) + '\n';
     if ((await readFile(file, 'utf8').catch(() => undefined)) === content) return false;
+    await mkdir(dirname(file), { recursive: true });
     await writeFile(`${file}.tmp`, content);
     await rename(`${file}.tmp`, file);
     return true;
+  }
+
+  /**
+   * What a project's routes answer: the host, and the project's own containers. A group's
+   * shared services also answer the projects that use them. Until it is written, the
+   * project's routes answer nothing: closed by default.
+   */
+  private async writeAllowList(project: string, members: string[] = []): Promise<void> {
+    const subnets = [
+      ...(await this.subnets(`${this.instance}-edge_default`)),
+      ...(await this.subnets(edgeNetwork(this.instance, project))),
+      ...(await Promise.all(members.map((m) => this.subnets(edgeNetwork(this.instance, m))))).flat(),
+    ];
+    const changed = await this.writeDynamic(`from-${project}.yml`, projectAllowConfig(project, [...new Set(subnets)]));
+    // Docker Desktop (Windows) passes no file events through a bind mount: Traefik reads it on restart.
+    if (changed && process.platform === 'win32') await this.docker.run(['restart', edgeContainer(this.instance)]);
   }
 
   async edgeDown(): Promise<EdgeStatus> {
@@ -778,6 +805,11 @@ export class Octopod {
       await this.docker.run(['image', 'prune', '-f', '--filter', `label=${PROJECT_LABEL}=${declaration.project}`]).catch(() => undefined);
     }
     await this.connect(declaration.project);
+    // Its routes answer the host and its own containers; a group's shared services, the
+    // projects that use them too — this one among them, now that its network exists.
+    const group = declaration.group;
+    await this.writeAllowList(declaration.project, group && declaration.project === this.sharedOf(group).project ? await this.sharedMembers(group) : []);
+    if (group && declaration.shared) await this.writeAllowList(this.sharedOf(group).project, await this.sharedMembers(group));
     if (instance > 1) await this.noteInstance(name, instance, true);
     return this.status(name, instance);
   }
@@ -972,6 +1004,17 @@ export class Octopod {
         });
     }
     return this.readJson<string[]>(join('projects', project, 'hosts.json'), []);
+  }
+
+  /** The projects of a group that use its shared services, each instance by its own name. */
+  private async sharedMembers(group: string): Promise<string[]> {
+    const members: string[] = [];
+    for (const [name, root] of Object.entries(await this.registry())) {
+      const other = await loadDeclaration(root).catch(() => undefined);
+      if (other?.group !== group || !Object.values(other.services ?? {}).some((s) => s.shared)) continue;
+      members.push(name, ...(await this.instances(name)).map((n) => instanceName(name, n)));
+    }
+    return members;
   }
 
   /** The group's shared services down, once no project of the group that uses them runs. */
@@ -1368,6 +1411,7 @@ export class Octopod {
     await this.writeJson('projects.json', registry);
     // The data in .octopod/data stays, and with it the secrets it was made with: a database
     // kept there opens with them only — registered again, the project finds them.
+    await rm(this.path('edge', 'dynamic', `from-${name}.yml`), { force: true });
     const dir = this.path('projects', name);
     const data = root ? await stat(join(root, DATA_DIR)).catch(() => undefined) : undefined;
     if (!data) return rm(dir, { recursive: true, force: true });

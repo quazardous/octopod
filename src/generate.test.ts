@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { bindSources, choosePort, composePorts, consoleNginxConfig, dataVolumes, duplicationBlockers, edgeCompose, imagePorts, LOCAL_ONLY, localOnlyConfig, projectOverride, traefikConfig } from './generate.js';
+import { bindSources, choosePort, composePorts, consoleNginxConfig, dataVolumes, duplicationBlockers, edgeCompose, imagePorts, LOCAL_ONLY, localOnlyConfig, projectOverride, traefikConfig, projectAllowConfig } from './generate.js';
 import { withInstance } from './declaration.js';
 import { instanceName } from './names.js';
 import { fullHost, slugify } from './names.js';
@@ -131,6 +131,9 @@ describe('a project override', () => {
     expect(web['octopod.edge']).toBe('octopod');
     expect(web['traefik.docker.network']).toBe('octopod-demo-edge');
     expect(web['traefik.http.routers.demo-demo.rule']).toBe('Host(`demo.localhost`)');
+    // Its routes answer the host and its own containers, not another project's.
+    expect(web['traefik.http.routers.demo-demo.middlewares']).toBe('octopod-from-demo@file');
+    expect(projectAllowConfig('demo', ['10.1.0.0/20'])).toEqual({ http: { middlewares: { 'octopod-from-demo': { ipAllowList: { sourceRange: ['127.0.0.1/32', '10.1.0.0/20'] } } } } });
     expect(web['traefik.http.services.demo-demo.loadbalancer.server.port']).toBe('3000');
     expect(web['traefik.http.routers.demo-debug-demo.rule']).toBe('Host(`debug.demo.localhost`)');
     expect(web['traefik.http.services.demo-debug-demo.loadbalancer.server.port']).toBe('9229');

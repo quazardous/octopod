@@ -119,9 +119,16 @@ traefik.enable=true
 traefik.docker.network=octopod-<project>-edge
 traefik.http.routers.<project>-<service>.rule=Host(`<host>.localhost`)
 traefik.http.routers.<project>-<service>.entrypoints=web
+traefik.http.routers.<project>-<service>.middlewares=octopod-from-<project>@file
 traefik.http.routers.<project>-<service>.service=<project>-<service>
 traefik.http.services.<project>-<service>.loadbalancer.server.port=<port>
 ```
+
+`octopod-from-<project>` lets through the host and the project's own containers (its edge
+network), and nothing else: another project's container that sends this project's host to
+the edge gets a 403. A group's shared services (`<group>-shared`) also answer the projects
+that use them. octopod writes it in the edge's dynamic configuration when the project comes
+up; until then the project's routes answer nothing.
 
 ## Layering
 

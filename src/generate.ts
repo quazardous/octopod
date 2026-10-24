@@ -86,6 +86,16 @@ export function traefikConfig(instance: string, port = 80): Record<string, unkno
  * and the console live; a project's container comes from its edge network instead. Until
  * this file is written, the routers that use it answer nothing: closed by default.
  */
+/**
+ * `octopod-from-<project>`: what a project's routes answer — the host (as `octopod-local`)
+ * and the project's own containers, from its edge network; not another project's, which
+ * reaches the edge over its own network with whatever Host header it likes. A group's
+ * shared services add the networks of the projects that use them.
+ */
+export function projectAllowConfig(project: string, subnets: string[]): Record<string, unknown> {
+  return { http: { middlewares: { [`octopod-from-${project}`]: { ipAllowList: { sourceRange: ['127.0.0.1/32', ...subnets] } } } } };
+}
+
 export function localOnlyConfig(subnets: string[]): Record<string, unknown> {
   return { http: { middlewares: { 'octopod-local': { ipAllowList: { sourceRange: ['127.0.0.1/32', ...subnets] } } } } };
 }
@@ -383,6 +393,7 @@ export function projectOverride(
         'traefik.docker.network': network,
         [`traefik.http.routers.${id}.rule`]: `Host(\`${exposure.host}\`)`,
         [`traefik.http.routers.${id}.entrypoints`]: 'web',
+        [`traefik.http.routers.${id}.middlewares`]: `octopod-from-${declaration.project}@file`,
         [`traefik.http.routers.${id}.service`]: id,
         [`traefik.http.services.${id}.loadbalancer.server.port`]: String(ports[exposure.host] ?? exposure.port ?? GUESS),
       },

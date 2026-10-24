@@ -74,12 +74,13 @@ vulnerability.
 **Project isolation.** Each project has its own edge network,
 `octopod-<project>-edge`, created `internal`, and only the shared Traefik joins them all.
 A project's containers do not share a network with another project's. They do reach the
-edge, though: over their edge network, under their project's own hosts (so an app reaches its
-own `api.<project>.localhost` as a browser does). **A known gap:** Traefik routes by the
-`Host` header alone, so a container that sends another project's host to the edge reaches
-that project's routed HTTP services. Closing it, so that each project's routes answer only
-the host and that project, is planned. Until then, two projects are not walled off from each
-other at HTTP. A project serves only `<project>.localhost` and names under it: it cannot
+edge, over their edge network, under their project's own hosts (so an app reaches its own
+`api.<project>.localhost` as a browser does). Each project's routes answer only the host and
+that project's own containers (`octopod-from-<project>`, an allow-list of their networks):
+a container that sends another project's host to the edge gets a 403. A group's shared
+services also answer the projects of the group that use them; projects that share a
+network in their own compose files (a shared database, say) reach each other through it,
+as they chose. A project serves only `<project>.localhost` and names under it: it cannot
 take another project's host.
 docker gets only what it needs of octopod's own environment, so a variable of the calling
 shell never flows into a project's compose file unseen.

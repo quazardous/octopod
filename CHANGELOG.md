@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** a project's routes answer only the host and the project's own containers. A container of another project that sends this project's host to the edge now gets a 403; before, it was served. Run `octopod up` on each project once after upgrading: until then its routes keep answering everyone. Projects that must talk to each other share a network in their compose files (docs/PATTERNS.md), or a group's shared services.
 - The console shows a project run more than once as one stacked tile, a dot per instance with its state and `×N`; its page opens on a strip of its instances (state, address, Up/Down), the one shown below marked, instead of cards nested under the first.
 
 ### Fixed

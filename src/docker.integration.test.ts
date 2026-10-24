@@ -237,6 +237,18 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
     expect((await eventually('traefik.localhost', 302)).status).toBe(302);
   });
 
+  it("keeps a project's routes from another project's containers, whatever Host they send", async () => {
+    await eventually('alpha.localhost', 200);
+    await eventually('beta.localhost', 200);
+    const from = (network: string, host: string): string =>
+      execFileSync('docker', ['run', '--rm', '--network', network, 'alpine:3.20', 'sh', '-c', `(printf 'GET / HTTP/1.0\\r\\nHost: ${host}\\r\\n\\r\\n'; sleep 3) | nc -w 5 ${INSTANCE}-edge ${PORT} | head -1`], { encoding: 'utf8' });
+    expect(from('octopodtest-alpha-edge', 'alpha.localhost')).toMatch(/200/);
+    expect(from('octopodtest-alpha-edge', 'beta.localhost')).toMatch(/403/);
+    expect(from('octopodtest-beta-edge', 'alpha.localhost')).toMatch(/403/);
+    // The host reaches both.
+    expect((await get('beta.localhost', '/')).status).toBe(200);
+  });
+
   it('serves a router the project added in its own compose file, next to octopod\'s', async () => {
     expect((await eventually('extra.localhost', 200)).body).toContain('Name: from-override');
     expect((await eventually('alpha.localhost', 200)).status).toBe(200);
