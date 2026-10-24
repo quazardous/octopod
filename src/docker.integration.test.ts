@@ -1158,7 +1158,7 @@ describe.skipIf(!dockerAvailable())('the OIDC provider, seen from the browser an
   });
 
   it('opens its admin with no token by default, and gives its users to octopod oidc', async () => {
-    expect(JSON.parse((await get('id.idp.octopod.localhost', '/admin/api/session')).body)).toEqual({ open: true });
+    expect(JSON.parse((await get('id.idp.octopod.localhost', '/admin/api/session')).body)).toEqual(expect.objectContaining({ open: true, token: expect.any(String) }));
     expect((await get('id.idp.octopod.localhost', '/admin/api/users')).status).toBe(200);
     await octopod.oidcUsers('idp', 'PUT', 'agent', { claims: { groups: ['staff'] }, password: 'p4ss' });
     const { users } = (await octopod.oidcUsers('idp', 'GET')) as { users: { sub: string; password: boolean }[] };

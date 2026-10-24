@@ -27,7 +27,8 @@ class AdminTokenAuth extends LocalStorageSessionAuthAdapter {
   async openIfAllowed(): Promise<void> {
     const answer = await fetch('/admin/api/session').catch(() => undefined)
     const { open } = answer?.ok ? ((await answer.json()) as { open?: boolean }) : { open: false }
-    if (!open || this.isAuthenticated()) return
+    // A session of another time (the admin asked for its token then) is replaced.
+    if (!open) return
     this.setSession('open', { id: 'admin', username: 'admin', role: 'ROLE_ADMIN' })
     this.persist()
   }

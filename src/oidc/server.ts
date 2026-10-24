@@ -136,7 +136,8 @@ async function admin(req: IncomingMessage, res: ServerResponse, path: string, op
     if (path === '/admin' || path === '/admin/') return send(res, 200, adminPage(), { 'content-security-policy': "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'" });
   }
   // What the admin app asks before it shows its login: whether there is one.
-  if (path === '/admin/api/session' && req.method === 'GET') return send(res, 200, { open: Boolean(options.adminOpen) });
+  // Open, it gives its token too: the login form fills itself in, one click signs in.
+  if (path === '/admin/api/session' && req.method === 'GET') return send(res, 200, options.adminOpen ? { open: true, token: options.adminToken } : { open: false });
   if (!options.adminOpen && !admitted(req.headers.authorization, options.adminToken)) return send(res, 401, { error: 'unauthorized', error_description: 'the admin token is needed (Authorization: Bearer …)' }, { 'www-authenticate': 'Bearer' });
   if (path === '/admin/api/users' && req.method === 'GET') {
     const users = options.users.all().map(shown);

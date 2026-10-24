@@ -1691,7 +1691,8 @@ class AdminTokenAuth extends LocalStorageSessionAuthAdapter {
   async openIfAllowed(): Promise<void> {
     const answer = await fetch('/admin/api/session').catch(() => undefined)
     const { open } = answer?.ok ? ((await answer.json()) as { open?: boolean }) : { open: false }
-    if (!open || this.isAuthenticated()) return
+    // A session of another time (the admin asked for its token then) is replaced.
+    if (!open) return
     this.setSession('open', { id: 'admin', username: 'admin', role: 'ROLE_ADMIN' })
     this.persist()
   }
@@ -1738,13 +1739,24 @@ export const http: HttpClient = {
 OIDC_ADMIN_7
 COPY <<'OIDC_ADMIN_8' /admin/src/Login.vue
 <script setup lang="ts">
+import { onMounted, ref } from 'vue'
 import { LoginPage } from '@quazardous/qdadm/components'
+
+// An admin that asks for nothing gives its token: the form comes filled in.
+const ready = ref(false)
+const token = ref('')
+onMounted(async () => {
+  const session = await fetch('/admin/api/session').then((r) => r.json() as Promise<{ token?: string }>, () => ({}) as { token?: string })
+  token.value = session.token ?? ''
+  ready.value = true
+})
 </script>
 
 <template>
-  <LoginPage>
+  <LoginPage v-if="ready" default-username="admin" :default-password="token">
     <template #footer>
-      <p class="hint">Any user name; the password is the admin token: <code>octopod secrets &lt;project&gt;</code>, the service's <code>admin-token</code>.</p>
+      <p v-if="token" class="hint">Filled in: <code>admin</code>, and the admin token. Sign in.</p>
+      <p v-else class="hint">Any user name; the password is the admin token: <code>octopod secrets &lt;project&gt;</code>, the service's <code>admin-token</code>.</p>
     </template>
   </LoginPage>
 </template>
@@ -2383,8 +2395,9 @@ async function admin(req, res, path, options) {
             return send(res, 200, adminPage(), { 'content-security-policy': "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'" });
     }
     // What the admin app asks before it shows its login: whether there is one.
+    // Open, it gives its token too: the login form fills itself in, one click signs in.
     if (path === '/admin/api/session' && req.method === 'GET')
-        return send(res, 200, { open: Boolean(options.adminOpen) });
+        return send(res, 200, options.adminOpen ? { open: true, token: options.adminToken } : { open: false });
     if (!options.adminOpen && !admitted(req.headers.authorization, options.adminToken))
         return send(res, 401, { error: 'unauthorized', error_description: 'the admin token is needed (Authorization: Bearer …)' }, { 'www-authenticate': 'Bearer' });
     if (path === '/admin/api/users' && req.method === 'GET') {

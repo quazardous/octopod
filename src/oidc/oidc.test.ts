@@ -208,7 +208,7 @@ describe('the OIDC server with an open admin (the recipe\'s default)', () => {
   });
 
   it('says it is open, and keeps users with no token, a token still taken', async () => {
-    expect(await (await fetch(`${base}/admin/api/session`)).json()).toEqual({ open: true });
+    expect(await (await fetch(`${base}/admin/api/session`)).json()).toEqual({ open: true, token: 'admin-t0ken' });
     expect((await fetch(`${base}/admin/api/users/ada`, { method: 'PUT', body: JSON.stringify({ claims: { groups: ['staff'] } }) })).status).toBe(201);
     expect((await fetch(`${base}/admin/api/users`, { headers: { authorization: 'Bearer admin-t0ken' } })).status).toBe(200);
     const { users } = (await (await fetch(`${base}/admin/api/users`)).json()) as { users: { sub: string }[] };
