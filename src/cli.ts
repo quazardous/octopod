@@ -58,6 +58,7 @@ function print(value: unknown, json: boolean): void {
       console.log(`  [${s.state}${s.health ? `, ${s.health}` : ''}] ${s.service}`);
       for (const g of s.programs ?? []) console.log(`      ${g.program}: ${g.state.toLowerCase()}`);
     }
+    for (const s of (p as ProjectStatus).shared ?? []) console.log(`  [${s.state}${s.health ? `, ${s.health}` : ''}] ${s.service} — group ${p.group ?? 'default'}'s ${s.server}`);
     for (const w of (p as ProjectStatus).warnings ?? []) console.log(`  ! ${w}`);
   }
 }

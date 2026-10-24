@@ -86,6 +86,31 @@ export interface Project {
   /** Its group and tags, from its octopod.yaml. */
   group?: string;
   tags?: string[];
+  /** The services group N shares (`<N>-shared`): not a project, shown in the projects that use them. */
+  sharedOf?: string;
+}
+
+/** A known service: what the console draws (`recipe`), where its icon leads (`link`), what it is. */
+export interface KnownService {
+  /** The recipe it is made of: the console draws its icon. */
+  recipe?: string;
+  /** Where its icon leads: its route (an admin's at its `link`), or for a database its admin's. */
+  link?: string;
+  /** It works on the project's files. */
+  app?: boolean;
+  /** An app's own services it is wired to (the group's left out): the console draws them with it. */
+  uses?: string[];
+  /** The service it is the admin of (phpMyAdmin of a MariaDB): the console draws the two as one. */
+  admin?: string;
+}
+
+/** A server of the group this project uses, under the project's own name for it. */
+export interface SharedService extends KnownService {
+  service: string;
+  /** The group's server it is (`mariadb-11-4`), in `<group>-shared`. */
+  server: string;
+  state: string;
+  health?: string;
 }
 
 export interface ProjectStatus extends Project {
@@ -94,12 +119,9 @@ export interface ProjectStatus extends Project {
   /** The project's other instances up, when this is the first. */
   instances?: number[];
   /** `programs`: a supervised service's, as its supervisor reports them, when it runs. */
-  /**
-   * `recipe`: the recipe a service is made of (the console draws its icon); `link`: where the
-   * console's icon leads (its route, its admin's for a database); `app`: it works on the
-   * project's files.
-   */
-  services: { service: string; state: string; health?: string; programs?: { program: string; state: string; detail: string }[]; recipe?: string; link?: string; app?: boolean }[];
+  services: ({ service: string; state: string; health?: string; programs?: { program: string; state: string; detail: string }[] } & KnownService)[];
+  /** The group's servers the project uses, each in the state the group's stack has it. */
+  shared?: SharedService[];
   /** Things the operator should fix, e.g. data written by a service that runs as another user. */
   warnings?: string[];
 }
@@ -746,6 +768,7 @@ export class Octopod {
       root: declaration.root,
       ...(declaration.group ? { group: declaration.group } : {}),
       ...(declaration.tags ? { tags: declaration.tags } : {}),
+      ...(declaration.group && this.isSharedStack(declaration) ? { sharedOf: declaration.group } : {}),
       compose: declaration.compose,
       routes: await this.routes(declaration),
     };
@@ -1153,6 +1176,7 @@ export class Octopod {
     ];
     const others = instance === 1 ? await this.instances(name) : [];
     const known = await this.knownServices(declaration, made);
+    const shared = await this.sharedStates(declaration);
     return {
       ...(await this.project(declaration)),
       ...(instance > 1 ? { instance } : others.length > 0 ? { instances: others } : {}),
@@ -1163,6 +1187,7 @@ export class Octopod {
         })
         .concat(tools)
         .map((s) => ({ ...s, ...known.get(s.service) })),
+      ...(shared.length > 0 ? { shared } : {}),
       ...(warnings.length > 0 ? { warnings } : {}),
     };
   }
@@ -1256,22 +1281,26 @@ export class Octopod {
     return stale;
   }
 
-  /** The services made of recipes, as rendered (secrets left out): what each is. */
   /**
    * What the console shows of a recipe's service: its recipe (for its icon), and where its
    * icon leads — its route (an admin's at its `link`), or, for a database, the route of the
    * admin wired to it (phpMyAdmin for MariaDB).
    */
-  private async knownServices(declaration: Declaration, made: RenderedService[]): Promise<Map<string, { recipe: string; link?: string; app?: boolean }>> {
+  private async knownServices(declaration: Declaration, made: RenderedService[]): Promise<Map<string, KnownService>> {
     const port = (await this.readJson<{ port?: number }>('edge/edge.json', {})).port ?? 80;
     const urlOf = (service: string): string | undefined => {
       const host = declaration.expose.find((e) => e.service === service)?.host;
       return host ? this.url(host, port) : undefined;
     };
-    const out = new Map<string, { recipe: string; link?: string; app?: boolean }>();
+    const out = new Map<string, KnownService>();
     for (const s of made) {
       const url = urlOf(s.name);
-      out.set(s.name, { recipe: s.recipe, ...(url && s.link ? { link: `${url}${s.link === '/' ? '' : s.link}` } : {}), ...(s.app ? { app: true } : {}) });
+      out.set(s.name, {
+        recipe: s.recipe,
+        ...(url && s.link ? { link: `${url}${s.link === '/' ? '' : s.link}` } : {}),
+        ...(s.app ? { app: true } : {}),
+        ...(s.app && s.uses ? { uses: s.uses } : {}),
+      });
     }
     // An admin lends its address to what it administers.
     for (const s of made) {
@@ -1279,10 +1308,45 @@ export class Octopod {
       if (s.app || !url) continue;
       for (const p of s.uses ?? []) {
         const target = out.get(p);
-        if (target && !target.link) target.link = url;
+        if (target && !target.link) {
+          target.link = url;
+          out.get(s.name)!.admin = p;
+        }
       }
     }
     return out;
+  }
+
+  /**
+   * The group's servers a project uses, under its own names, in the state the group's stack
+   * has them; an admin's `admin` named as the project names what it administers.
+   */
+  private async sharedStates(declaration: Prepared): Promise<SharedService[]> {
+    const shared = Object.entries(declaration.sharedServices ?? {});
+    if (shared.length === 0 || !declaration.shareGroup) return [];
+    const { project } = this.sharedOf(declaration.shareGroup);
+    const stack = (await this.registry())[project] ? await this.status(project).catch(() => undefined) : undefined;
+    const localOf = new Map(shared.map(([local, s]) => [s.server, local]));
+    return shared.map(([local, s]) => {
+      const row = stack?.services.find((x) => x.service === s.server);
+      const admin = row?.admin ? localOf.get(row.admin) : undefined;
+      return {
+        service: local,
+        server: s.server,
+        state: row?.state ?? 'absent',
+        ...(row?.health ? { health: row.health } : {}),
+        recipe: s.recipe,
+        ...(row?.link ? { link: row.link } : {}),
+        ...(admin ? { admin } : {}),
+      };
+    });
+  }
+
+  /** Whether a declaration is a group's shared services, the stack octopod made for them. */
+  private isSharedStack(declaration: Declaration): boolean {
+    if (!declaration.group) return false;
+    const { project, dir } = this.sharedOf(declaration.group);
+    return declaration.project === project && declaration.root === dir;
   }
 
   /**

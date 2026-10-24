@@ -2,17 +2,21 @@
 
 ![The console: two projects, their services, states and routes](./console.png)
 
-`http://octopod.localhost` shows every project as a tile: its state, the services running,
-its warnings and its URLs, grouped by `group`. A project run more than once is one stacked
-tile, a dot per instance. A project's page has its instances, the state and health of each
-service and its programs, what octopod warns about, and the logs, which it refreshes.
+`http://octopod.localhost` shows every project as a tile: its state, its warnings, its apps
+and what they use. A group is one tile: the servers its projects share in its head, then each
+project's apps; it opens on the group's page, the same view and each project in full. A
+project run more than once is one stacked tile, a dot per instance. A project's page has its
+instances, its apps, every container in a table (state, health, programs), what octopod
+warns about, and the logs, which it refreshes.
 
-A project's known services show as small icons of their software (an envelope for the mail
-catcher), in its colours: greyed when stopped, with a dot when in trouble. A click opens what
-each serves — the OIDC admin, the mail inbox, and for a database the admin wired to it, which
-its icon stands for. Only the app's URLs are listed.
+A project is drawn as it is made. Each app comes with its address and the icons of its own
+services it uses (its cache, its database); the servers it shares with its group show once,
+at the group's level. A group's shared services are not a tile of their own. An icon is the
+software's, in its colours: greyed when stopped, with a dot when in trouble. A click opens
+what it serves — the OIDC admin, the mail inbox, and for a database the admin wired to it,
+which its icon stands for.
 
-It brings a project up or down; Down asks for a second click. The rest (`restart`, `exec`,
+It brings a project, or a group's projects, up or down; Down asks for a second click. The rest (`restart`, `exec`,
 `run`, removing volumes) stays on the command line. It links to Traefik's dashboard at
 `http://traefik.localhost`.
 

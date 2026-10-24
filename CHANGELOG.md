@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The console draws a project as it is made: its apps, each with its address and the icons of its own services it uses. A group is one tile: the servers its projects share in its head, then each project's apps; it opens on a page of the group (`#/g/<group>`), whose Up and Down act on all its projects. A group's shared services (`<group>-shared`) are no longer a tile of their own. A project's page shows its apps, then every container in a table, the group's servers it uses included. `status` gives an app the services it `uses`, an admin the service it is the `admin` of, and the project the group's servers it uses (`shared`, also in `octopod status`); `list` marks a group's shared services with `sharedOf`.
+
 - The console draws a project's known services as small icons of their software (an envelope for mailpit), in their colours (greyed when stopped, a dot when in trouble), on its tile, its instances and its page; a click opens what each serves: the OIDC admin, the mail inbox, and for a database, the admin wired to it (phpMyAdmin, mongo-express), which its icon stands for: the admin has none of its own. Their URLs are no longer listed beside the app's; a tooltip on each says which service, its recipe, its state and what it opens. A recipe names its picture (`icon:`, an SVG of its folder) and where it leads (`link:`); `status` gives each service its `recipe`, `link` and `app`; `GET /v1/recipes/:id/icon` serves the picture.
 
 ### Fixed

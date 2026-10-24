@@ -1050,6 +1050,9 @@ describe.skipIf(!dockerAvailable())("a group's shared database (real docker)", {
     await octopod.up('ga');
     await octopod.up('gb');
     expect(await octopod.names()).toContain('gtest-shared');
+    // The console shows the group's servers in the projects that use them, not as a project.
+    expect((await octopod.list()).find((p) => p.name === 'gtest-shared')?.sharedOf).toBe('gtest');
+    expect((await octopod.status('ga')).shared).toMatchObject([{ server: 'mariadb-11-4', state: 'running', recipe: 'mariadb' }]);
     const [a, b] = [await secret('ga'), await secret('gb')];
     expect(a).not.toBe(b);
     const own = await asTenant('ga', a, 'ga');

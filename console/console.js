@@ -40,13 +40,15 @@ const state = {
 /** How long a first click on Down waits for the second. */
 const CONFIRM_MS = 4000;
 
-/** The page the address names: `#/p/<project>[/<instance>]`, or the gallery. */
+/** The page the address names: `#/p/<project>[/<instance>]`, `#/g/<group>`, or the gallery. */
 function route() {
   const m = /^#\/p\/([^/]+)(?:\/(\d+))?$/.exec(location.hash);
-  state.view = m ? { project: decodeURIComponent(m[1]), instance: Number(m[2] || 1) } : null;
+  const g = /^#\/g\/([^/]+)$/.exec(location.hash);
+  state.view = m ? { project: decodeURIComponent(m[1]), instance: Number(m[2] || 1) } : g ? { group: decodeURIComponent(g[1]) } : null;
 }
 
 const pageOf = (name, instance = 1) => `#/p/${encodeURIComponent(name)}${instance > 1 ? `/${instance}` : ''}`;
+const groupPageOf = (group) => `#/g/${encodeURIComponent(group)}`;
 
 const $ = (id) => document.getElementById(id);
 
@@ -192,6 +194,30 @@ async function act(project, instance, what) {
   refresh();
 }
 
+/** A group's projects up or down, one after the other: `group` is `group:<name>`. */
+async function actGroup(group, instance, what) {
+  const key = `${group}#${instance}`;
+  if (state.busy.has(key)) return;
+  const name = group.slice('group:'.length);
+  const members = ((state.last && state.last.projects) || []).filter((p) => p.group === name && !p.sharedOf);
+  state.busy.set(key, what);
+  state.actFailed.delete(key);
+  if (state.last) render(state.last);
+  const failed = [];
+  for (const p of members) {
+    if (what === 'down' && projectTone(p).label === 'down' && !p.problem) continue;
+    try {
+      await post(`/v1/projects/${encodeURIComponent(p.name)}/${what}`, {});
+    } catch (e) {
+      if (e.enroll) return (state.busy.delete(key), showLogin());
+      failed.push(`${p.name}: ${e.message}`);
+    }
+  }
+  if (failed.length) state.actFailed.set(key, `${what} failed: ${failed.join('; ')}`);
+  state.busy.delete(key);
+  refresh();
+}
+
 /**
  * Down asks first: a first click turns it into a confirmation, a second within a few seconds
  * stops the project; otherwise it goes back.
@@ -207,16 +233,16 @@ function armDown(key) {
 }
 
 /** The button that brings a project up or down, or says it is on the way. */
-function actButton(project, instance, what) {
+function actButton(project, instance, what, run = act) {
   const key = `${project}#${instance}`;
   const busy = state.busy.get(key);
   if (busy) return el('button', { type: 'button', class: 'act', disabled: true }, busy === 'up' ? 'Starting…' : 'Stopping…');
-  if (what === 'up') return el('button', { type: 'button', class: 'act up', title: 'octopod up: start it, or apply what changed', onclick: () => act(project, instance, 'up') }, 'Up');
+  if (what === 'up') return el('button', { type: 'button', class: 'act up', title: 'octopod up: start it, or apply what changed', onclick: () => run(project, instance, 'up') }, 'Up');
   if (state.arming === key) {
     const go = () => {
       clearTimeout(state.armTimer);
       state.arming = null;
-      act(project, instance, 'down');
+      run(project, instance, 'down');
     };
     return el('button', { type: 'button', class: 'act down armed', title: 'Click again to stop it: its containers go, its data stays', onclick: go }, 'Stop?');
   }
@@ -243,7 +269,7 @@ function serviceTone(s) {
  * admin, which it stands for: `admins`). Set through the CSSOM: the page's policy forbids
  * inline styles.
  */
-function decoration(s, project, admins = []) {
+function decoration(s, project, admins = [], groupOf = '') {
   let tone = serviceTone(s);
   if (tone === 'ok' && admins.some((a) => serviceTone(a) !== 'ok')) tone = 'warn';
   const icon = el('span', { class: 'deco-icon' });
@@ -252,6 +278,7 @@ function decoration(s, project, admins = []) {
   const tip = [
     `${s.service} · ${s.recipe}`,
     said(s),
+    s.server ? `shared: group ${groupOf}'s ${s.server}` : null,
     ...admins.map((a) => `${a.service} · ${a.recipe}: ${said(a)}`),
     s.link ? `opens ${s.link.replace(/^http:\/\//, '')}` : null,
   ].filter(Boolean);
@@ -283,21 +310,103 @@ function hideTip() {
 }
 
 /**
- * A project's known services, apps first: what the stack is, at a glance. A database's admin
- * is not drawn apart: the database leads to it (same link, no route of its own), and stands
- * for it.
+ * A project's known services, apps first, then the group's servers it uses: what the stack
+ * is, at a glance. An admin is not drawn apart: the service it administers leads to it, and
+ * stands for it.
  */
 function decorations(p, project) {
-  const known = (p.services || []).filter((s) => s.recipe).sort((a, b) => Number(Boolean(b.app)) - Number(Boolean(a.app)) || a.service.localeCompare(b.service));
-  const routed = new Set((p.routes || []).map((r) => r.service));
+  const byName = (a, b) => Number(Boolean(b.app)) - Number(Boolean(a.app)) || a.service.localeCompare(b.service);
+  const own = (p.services || []).filter((s) => s.recipe).sort(byName);
+  const shared = [...(p.shared || [])].sort(byName);
+  const all = [...own, ...shared];
   const admins = new Map();
-  const shown = known.filter((s) => {
-    const owner = s.link && known.find((d) => d !== s && d.link === s.link && !routed.has(d.service));
-    if (!owner) return true;
-    admins.set(owner, [...(admins.get(owner) || []), s]);
-    return false;
-  });
-  return shown.length ? el('div', { class: 'decos' }, shown.map((s) => decoration(s, project, admins.get(s)))) : null;
+  const drawn = (list) =>
+    list.filter((s) => {
+      const of = s.admin && all.find((x) => x.service === s.admin);
+      if (!of) return true;
+      admins.set(of, [...(admins.get(of) || []), s]);
+      return false;
+    });
+  const mine = drawn(own);
+  const group = drawn(shared);
+  const icons = [
+    ...mine.map((s) => decoration(s, project, admins.get(s))),
+    ...(mine.length && group.length ? [el('span', { class: 'deco-gap', 'aria-hidden': 'true' })] : []),
+    ...group.map((s) => decoration(s, project, admins.get(s), p.group || 'default')),
+  ];
+  return icons.length ? el('div', { class: 'decos' }, icons) : null;
+}
+
+/**
+ * A project as it is made: its apps, each with its address and the services of its own it is
+ * wired to; the services of its own no app uses (`loose`); the group's servers it uses
+ * (`shared`). A project without apps (compose) has its routed services for apps. An admin is
+ * drawn as what it administers (`admins`).
+ */
+function stackParts(p) {
+  const services = p.services || [];
+  const shared = p.shared || [];
+  const all = [...services, ...shared];
+  const routes = p.routes || [];
+  const admins = new Map();
+  const absorbed = new Set();
+  for (const s of all) {
+    const of = s.admin && all.find((x) => x.service === s.admin);
+    if (!of) continue;
+    admins.set(of, [...(admins.get(of) || []), s]);
+    absorbed.add(s);
+  }
+  let apps = services.filter((s) => s.app);
+  if (apps.length === 0) {
+    const routed = [...new Set(routes.map((r) => r.service))];
+    apps = routed.map((name) => services.find((s) => s.service === name) || { service: name, state: 'not created' });
+  }
+  const appNames = new Set(apps.map((a) => a.service));
+  const wired = new Set(apps.flatMap((a) => a.uses || []));
+  const mine = (s) => !absorbed.has(s) && !appNames.has(s.service);
+  return {
+    admins,
+    apps: apps.map((a) => ({ app: a, route: routes.find((r) => r.service === a.service), own: services.filter((s) => (a.uses || []).includes(s.service) && mine(s)) })),
+    loose: services.filter((s) => s.recipe && !s.app && !wired.has(s.service) && mine(s)),
+    shared: shared.filter((s) => !absorbed.has(s)),
+  };
+}
+
+/** An app's line: its icon, its name (a link when given), its address, its own services. */
+function appRow(part, icon, name, href) {
+  const { app, route, own } = part;
+  return el(
+    'div',
+    { class: 'app-row' },
+    app.recipe ? icon(app) : el('span', { class: `dot ${serviceTone(app)}` }),
+    href ? el('a', { href, class: 'mono app-name' }, name) : el('span', { class: 'mono app-name' }, name),
+    route ? el('a', { href: route.url, target: '_blank', rel: 'noreferrer', class: 'mono' }, route.url.replace(/^http:\/\//, '')) : null,
+    own.map(icon),
+  );
+}
+
+/** The badges line: services of no app, then the group's servers, after the group's name. */
+function badgesRow(loose, shared, group) {
+  if (loose.length + shared.length === 0) return null;
+  return el(
+    'div',
+    { class: 'stack-shared' },
+    shared.length ? el('span', { class: 'muted' }, `group ${group}`) : null,
+    loose,
+    loose.length && shared.length ? el('span', { class: 'deco-gap', 'aria-hidden': 'true' }) : null,
+    shared,
+  );
+}
+
+/** A project as it is made, on its tile or its page: its badges, then its apps; on its group's page, the group's servers are the group's. */
+function stackView(p, project, withShared = true) {
+  const group = p.group || 'default';
+  const parts = stackParts(p);
+  const icon = (s) => decoration(s, project, parts.admins.get(s), s.server ? group : '');
+  const badges = badgesRow(parts.loose.map(icon), withShared ? parts.shared.map(icon) : [], group);
+  const rows = parts.apps.map((part) => appRow(part, icon, part.app.service));
+  if (!badges && rows.length === 0) return null;
+  return el('div', { class: 'stack' }, badges, rows);
 }
 
 /** The routes worth listing: an app's, or a service octopod knows nothing of; a known one is its icon. */
@@ -343,17 +452,19 @@ function servicesTable(p, base, instance) {
   // An exposed service with no container yet still shows, with its route.
   for (const service of byService.keys()) if (!rows.has(service)) rows.set(service, { service, state: 'not created' });
   if (rows.size === 0) return el('p', { class: 'muted' }, 'No container: the project is down.');
-  const body = [...rows.values()]
-    .sort((a, b) => a.service.localeCompare(b.service))
+  // The group's servers it uses, after its own: their logs are the group's stack's.
+  const group = p.group || 'default';
+  const body = [...[...rows.values()].sort((a, b) => a.service.localeCompare(b.service)), ...(p.shared || [])]
     .map((s) =>
       el(
         'tr',
         {},
-        el('td', {}, s.recipe ? decoration(s, base) : el('span', { class: `dot ${serviceTone(s)}` }), el('span', { class: 'mono' }, ` ${s.service}`)),
+        el('td', {}, s.recipe ? decoration(s, base, [], s.server ? group : '') : el('span', { class: `dot ${serviceTone(s)}` }), el('span', { class: 'mono' }, ` ${s.service}`)),
         el(
           'td',
           {},
           s.state,
+          s.server ? el('span', { class: 'muted' }, ` · group ${group}'s ${s.server}`) : null,
           s.state === 'tool' ? el('span', { class: 'muted' }, ` · run on demand: octopod shell ${base}${instance > 1 ? ` --instance ${instance}` : ''} ${s.service} -- …`) : null,
           s.health ? el('span', { class: 'muted' }, ` · ${s.health}`) : null,
           // A supervised service: what runs in it, each program with its state.
@@ -364,7 +475,8 @@ function servicesTable(p, base, instance) {
         el(
           'td',
           {},
-          (byService.get(s.service) || []).map((r) =>
+          s.server && s.link ? el('a', { href: s.link, target: '_blank', rel: 'noreferrer' }, s.link.replace(/^http:\/\//, '')) : null,
+          (s.server ? [] : byService.get(s.service) || []).map((r) =>
             el(
               'div',
               {},
@@ -376,7 +488,7 @@ function servicesTable(p, base, instance) {
         el(
           'td',
           { class: 'actions' },
-          s.state === 'not created' || s.state === 'tool'
+          s.state === 'not created' || s.state === 'tool' || s.server
             ? null
             : el('button', { type: 'button', onclick: () => openLogs({ project: base, instance, service: s.service }) }, 'Logs'),
         ),
@@ -390,21 +502,19 @@ function servicesTable(p, base, instance) {
   );
 }
 
-function card(p, base, nested = false) {
+function card(p, base, nested = false, inGroup = false) {
   const instance = p.instance || 1;
   const { tone, label } = projectTone(p);
   const key = `${base}#${instance}`;
-  const routes = plainRoutes(p).map((r) => el('a', { href: r.url, target: '_blank', rel: 'noreferrer' }, r.url.replace(/^http:\/\//, '')));
   return el(
     'article',
     { class: nested ? 'card instance' : 'card', 'data-name': base },
     el(
       'div',
       { class: 'card-head' },
-      el('h2', {}, nested ? el('a', { href: pageOf(base, instance) }, p.name) : p.name, nested ? el('span', { class: 'muted' }, ` (instance ${instance})`) : null),
+      el('h2', {}, nested || inGroup ? el('a', { href: pageOf(base, instance) }, p.name) : p.name, nested ? el('span', { class: 'muted' }, ` (instance ${instance})`) : null),
       el('span', { class: `pill ${tone}` }, label),
       nested ? null : (p.tags || []).map((t) => el('span', { class: 'tag' }, `#${t}`)),
-      el('div', { class: 'routes' }, routes),
       el('span', { class: 'spacer' }),
       el('button', { type: 'button', onclick: () => openLogs({ project: base, instance, service: '' }) }, 'All logs'),
       state.busy.has(key) ? actButton(base, instance, 'up') : [actButton(base, instance, 'up'), actButton(base, instance, 'down')],
@@ -412,7 +522,7 @@ function card(p, base, nested = false) {
     failure(base, instance),
     nested ? null : el('div', { class: 'root mono muted' }, p.root),
     nested || !(p.compose || []).length ? null : details(`${key}:compose`, `${p.compose.length} compose file${p.compose.length > 1 ? 's' : ''}`, el('ul', {}, p.compose.map((f) => el('li', { class: 'mono' }, f)))),
-    p.problem ? el('p', { class: 'problem' }, p.problem) : servicesTable(p, base, instance),
+    p.problem ? el('p', { class: 'problem' }, p.problem) : [stackView(p, base, !inGroup), servicesTable(p, base, instance)],
     (p.warnings || []).length ? el('ul', { class: 'warnings' }, p.warnings.map((w) => el('li', {}, w))) : null,
     (p.others || []).map((o) => card(o, base, true)),
   );
@@ -429,7 +539,7 @@ function matches(p, needle) {
     .every((word) => {
       if (word.startsWith('group:')) return (p.group || '') === word.slice(6);
       if (word.startsWith('tag:')) return (p.tags || []).includes(word.slice(4));
-      return p.name.toLowerCase().includes(word) || (p.root || '').toLowerCase().includes(word);
+      return p.name.toLowerCase().includes(word) || (p.group || '').toLowerCase().includes(word) || (p.root || '').toLowerCase().includes(word);
     });
 }
 
@@ -475,10 +585,112 @@ function tile(p) {
     ),
     failure(p.name, 1),
     p.problem ? el('p', { class: 'problem' }, p.problem) : el('p', { class: 'tile-facts muted' }, facts, warnings ? el('span', { class: 'dot warn tile-alert' }) : null),
-    decorations(p, p.name),
-    el('div', { class: 'tile-routes' }, plainRoutes(p).map((r) => el('a', { href: r.url, target: '_blank', rel: 'noreferrer' }, r.url.replace(/^http:\/\//, '')))),
+    p.problem ? null : stackView(p, p.name),
     (p.tags || []).length ? el('div', { class: 'tile-tags' }, p.tags.map((t) => el('span', { class: 'tag' }, `#${t}`))) : null,
   );
+}
+
+/** A group's state from its projects': the worst of them, up when all are, down when none runs. */
+function groupTone(members) {
+  const tones = members.map(projectTone);
+  if (tones.some((t) => t.tone === 'bad')) return { tone: 'bad', label: 'error' };
+  if (tones.every((t) => t.label === 'down')) return { tone: '', label: 'down' };
+  if (tones.every((t) => t.tone === 'ok')) return { tone: 'ok', label: 'up' };
+  const up = tones.filter((t) => t.label !== 'down').length;
+  return { tone: 'warn', label: up === tones.length ? 'up, not healthy' : `${up}/${tones.length} up` };
+}
+
+/**
+ * A group's view: the servers its projects share, once (for its head), and each project's
+ * apps, each line leading to its project's page with the services of its own beside it. A
+ * project's services no app uses go on its first line.
+ */
+function groupStack(group, members) {
+  const servers = new Map();
+  const rows = [];
+  for (const p of [...members].sort((a, b) => a.name.localeCompare(b.name))) {
+    const parts = stackParts(p);
+    const icon = (s) => decoration(s, p.name, parts.admins.get(s), s.server ? group : '');
+    for (const s of parts.shared) {
+      // The group's server, named as the group knows it; a project's own name for it aside.
+      if (!servers.has(s.server)) servers.set(s.server, decoration({ ...s, service: s.server }, p.name, (parts.admins.get(s) || []).map((a) => ({ ...a, service: a.server })), group));
+    }
+    if (p.problem) {
+      rows.push(el('div', { class: 'app-row' }, el('span', { class: 'dot bad' }), el('a', { href: pageOf(p.name), class: 'mono app-name' }, p.name), el('span', { class: 'problem' }, 'error')));
+      continue;
+    }
+    parts.apps.forEach((part, i) => {
+      const name = parts.apps.length > 1 ? `${p.name} · ${part.app.service}` : p.name;
+      rows.push(appRow(i === 0 ? { ...part, own: [...part.own, ...parts.loose] } : part, icon, name, pageOf(p.name)));
+    });
+  }
+  return { shared: [...servers.values()], rows: el('div', { class: 'stack' }, rows) };
+}
+
+/** A group in the gallery: one tile for its projects, as one project of several apps. */
+function groupTile(group, members) {
+  const { tone, label } = groupTone(members);
+  const services = members.flatMap((p) => p.services || []).filter((s) => s.state !== 'tool');
+  const running = services.filter((s) => s.state === 'running').length;
+  const warnings = members.reduce((n, p) => n + [p, ...(p.others || [])].reduce((m, x) => m + (x.warnings || []).length, 0), 0);
+  const href = groupPageOf(group);
+  const key = `group:${group}`;
+  const view = groupStack(group, members);
+  const facts = [`${members.length} project${members.length > 1 ? 's' : ''}`, `${running}/${services.length} running`, warnings ? `${warnings} warning${warnings > 1 ? 's' : ''}` : null].filter(Boolean).join(' · ');
+  return el(
+    'article',
+    {
+      class: `tile ${tone}`,
+      'data-name': group,
+      onclick: (e) => {
+        if (!e.target.closest('a, button')) location.hash = href;
+      },
+    },
+    el(
+      'div',
+      { class: 'tile-head' },
+      el('a', { href, class: 'tile-name' }, group),
+      el('span', { class: `pill ${tone}` }, label),
+      el('span', { class: 'decos' }, view.shared),
+      el('span', { class: 'spacer' }),
+      actButton(key, 1, label === 'down' ? 'up' : 'down', actGroup),
+    ),
+    failure(key, 1),
+    el('p', { class: 'tile-facts muted' }, facts, warnings ? el('span', { class: 'dot warn tile-alert' }) : null),
+    view.rows,
+  );
+}
+
+/** A group's page: its view, then each of its projects as on its own page. */
+function renderGroup(projects) {
+  const { group } = state.view;
+  const members = projects.filter((p) => p.group === group && !p.sharedOf);
+  const back = el('a', { href: '#', class: 'back' }, '← All projects');
+  if (members.length === 0) {
+    $('projects').replaceChildren(back, el('p', { class: 'problem' }, `No group "${group}".`));
+    $('summary').textContent = '';
+    return;
+  }
+  const { tone, label } = groupTone(members);
+  const key = `group:${group}`;
+  const view = groupStack(group, members);
+  const head = el(
+    'article',
+    { class: 'card' },
+    el(
+      'div',
+      { class: 'card-head' },
+      el('h2', {}, group),
+      el('span', { class: `pill ${tone}` }, label),
+      el('span', { class: 'decos' }, view.shared),
+      el('span', { class: 'spacer' }),
+      state.busy.has(`${key}#1`) ? actButton(key, 1, 'up', actGroup) : [actButton(key, 1, 'up', actGroup), actButton(key, 1, 'down', actGroup)],
+    ),
+    failure(key, 1),
+    view.rows,
+  );
+  $('projects').replaceChildren(back, head, ...[...members].sort((a, b) => a.name.localeCompare(b.name)).map((p) => card({ ...p, others: [] }, p.name, false, true)));
+  $('summary').textContent = `group ${group} · ${members.length} project${members.length > 1 ? 's' : ''}`;
 }
 
 /**
@@ -519,8 +731,10 @@ function renderDetail(projects) {
     $('summary').textContent = '';
     return;
   }
+  // A grouped project's way back is its group's page.
+  const up = base.group ? el('a', { href: groupPageOf(base.group), class: 'back' }, `← group ${base.group}`) : back;
   // replaceChildren writes a null as the text "null": a project run once has no strip.
-  $('projects').replaceChildren(...[back, instanceStrip(base, instance), card({ ...p, others: [] }, project)].filter(Boolean));
+  $('projects').replaceChildren(...[up, instanceStrip(base, instance), card({ ...p, others: [] }, project)].filter(Boolean));
   $('summary').textContent = [base.group ? `group ${base.group}` : '', instance > 1 ? `instance ${instance} of ${project}` : ''].filter(Boolean).join(' · ');
   // The page opens on its logs, every service's; closed, they stay closed on this page.
   const key = `${project}#${instance}`;
@@ -540,41 +754,45 @@ function render({ edge, projects }) {
   $('version').textContent = state.version ? `v${state.version}` : '';
   $('filter').hidden = Boolean(state.view);
   $('signout').hidden = false;
-  $('empty').hidden = projects.length > 0;
+  // A group's shared services are not a project: they show in the projects that use them.
+  const listed = projects.filter((p) => !p.sharedOf);
+  $('empty').hidden = listed.length > 0;
   // Open by itself the first time when there is nothing yet; then as the operator leaves it.
   if (!state.helpSet) {
     state.helpSet = true;
-    $('help').open = projects.length === 0;
+    $('help').open = listed.length === 0;
   }
   $('help').hidden = Boolean(state.view);
-  if (state.view) return renderDetail(projects);
+  if (state.view) return state.view.group ? renderGroup(projects) : renderDetail(projects);
   state.logsPage = null;
   if (state.logs) closeLogs();
 
   const needle = state.filter.trim().toLowerCase();
-  const shown = projects
+  const shown = listed
     .filter((p) => matches(p, needle))
     .sort((a, b) => {
       const rank = (p) => ({ ok: 0, warn: 1, bad: 2, '': 3 })[projectTone(p).tone];
       return rank(a) - rank(b) || a.name.localeCompare(b.name);
     });
-  // By group, groups in name order, projects without a group last. No group anywhere: a flat list.
-  const groups = [...new Set(shown.map((p) => p.group).filter(Boolean))].sort();
-  const gallery = (members) => el('div', { class: 'gallery' }, members.map(tile));
-  if (groups.length === 0) {
-    $('projects').replaceChildren(gallery(shown));
-  } else {
-    const section = (key, title, members) => (members.length === 0 ? null : details(`group:${key}`, `${title} · ${members.length}`, gallery(members)));
-    $('projects').replaceChildren(
-      ...[...groups.map((g) => section(g, g, shown.filter((p) => p.group === g))), section('', 'no group', shown.filter((p) => !p.group))].filter(Boolean),
-    );
-  }
-  const up = projects.filter((p) => projectTone(p).label !== 'down' && !p.problem).length;
+  // A group is one tile, its projects inside; a project without a group, a tile of its own.
+  const groups = [...new Set(shown.map((p) => p.group).filter(Boolean))];
+  const units = [
+    ...groups.map((g) => {
+      const members = listed.filter((p) => p.group === g);
+      return { name: g, tone: groupTone(members).tone, node: () => groupTile(g, members) };
+    }),
+    ...shown.filter((p) => !p.group).map((p) => ({ name: p.name, tone: projectTone(p).tone, node: () => tile(p) })),
+  ].sort((a, b) => {
+    const rank = (t) => ({ ok: 0, warn: 1, bad: 2, '': 3 })[t];
+    return rank(a.tone) - rank(b.tone) || a.name.localeCompare(b.name);
+  });
+  $('projects').replaceChildren(el('div', { class: 'gallery' }, units.map((u) => u.node())));
+  const up = listed.filter((p) => projectTone(p).label !== 'down' && !p.problem).length;
   const services = projects.flatMap((p) => [...(p.services || []), ...(p.others || []).flatMap((o) => o.services || [])]);
   const running = services.filter((s) => s.state === 'running').length;
   const warnings = projects.reduce((n, p) => n + (p.warnings || []).length, 0);
   $('summary').textContent =
-    `${projects.length} project${projects.length === 1 ? '' : 's'} · ${up} up · ${running} service${running === 1 ? '' : 's'} running` +
+    `${listed.length} project${listed.length === 1 ? '' : 's'} · ${up} up · ${running} service${running === 1 ? '' : 's'} running` +
     (warnings ? ` · ${warnings} warning${warnings === 1 ? '' : 's'}` : '') +
     (needle ? ` · ${shown.length} shown` : '');
 }
