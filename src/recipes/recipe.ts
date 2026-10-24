@@ -120,11 +120,16 @@ export const RecipeSchema = z
     port: z.number().int().min(1).max(65535).optional(),
     /**
      * The console's picture of it: an SVG of the recipe's folder (its software's logo, or a
-     * glyph that says what it does), drawn in the console's colours.
+     * glyph that says what it does), in its own colours.
      */
     icon: z.string().regex(/^[A-Za-z0-9._-]+\.svg$/, 'an SVG file of the recipe folder').optional(),
     /** Where the console's icon of a routed service leads, on its route: `/admin/` for the OIDC provider. */
     link: z.string().regex(/^\/[A-Za-z0-9._~\/-]*$/, 'a path').default('/'),
+    /**
+     * The recipe of an admin octopod runs beside it when the project names none
+     * (`redis-commander` for `redis`): `<service>-admin`, wired to it alone.
+     */
+    admin: Ident.optional(),
     /** Routed by the edge: at the project's host, or at `<subdomain>.<project>.localhost`. */
     route: z.union([z.literal(true), z.object({ subdomain: Ident }).strict()]).optional(),
     profiles: z.array(Ident).default([]),

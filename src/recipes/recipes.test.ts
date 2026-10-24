@@ -8,7 +8,7 @@ import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BUILTIN_RECIPES, digestOf, loadRecipes, RecipeError } from './loader.js';
-import { formatPlan, renderServices, userNameOf } from './render.js';
+import { formatPlan, renderServices, userNameOf, withAdmins } from './render.js';
 import { lintDockerfile } from './lint.js';
 
 let base: string;
@@ -311,9 +311,21 @@ describe('the built-in recipes', () => {
     expect(out.files['.octopod/programs.mockpit.api.conf']).toContain('command=uvicorn app:app --host 0.0.0.0 --port 8000');
     expect(api.expose).toEqual(['8000']);
     const routes = Object.fromEntries(out.services.map((x) => [x.name, x.route]));
-    expect(routes).toEqual({ api: '', jobs: undefined, cache: undefined });
+    // The cache's viewer comes with it, unasked: its keys at redis.<project>.localhost.
+    expect(routes).toEqual({ api: '', jobs: undefined, cache: undefined, 'cache-admin': 'redis' });
+    expect((out.compose.services['cache-admin'].environment as Record<string, string>).REDIS_HOSTS).toBe('cache:cache:6379');
     expect(out.compose.services.cache.depends_on).toBeUndefined();
     expect(api.depends_on).toEqual({ cache: { condition: 'service_healthy' } });
+  });
+
+  it('runs the admin a recipe names beside it, unless the project names one, or the service is the group\'s', async () => {
+    const book = await loadRecipes([BUILTIN_RECIPES]);
+    expect(Object.keys(withAdmins({ cache: { recipe: 'redis' } }, book))).toEqual(['cache', 'cache-admin']);
+    expect(Object.keys(withAdmins({ cache: { recipe: 'redis' }, rc: { recipe: 'redis-commander' } }, book))).toEqual(['cache', 'rc']);
+    expect(Object.keys(withAdmins({ cache: { recipe: 'redis', shared: true } }, book))).toEqual(['cache']);
+    // Two of a kind: which one the admin shows is the project's to say.
+    expect(Object.keys(withAdmins({ a: { recipe: 'redis' }, b: { recipe: 'valkey' } }, book))).toEqual(['a', 'b']);
+    expect(Object.keys(withAdmins({ db: { recipe: 'mariadb' } }, book))).toEqual(['db']);
   });
 
   it("leaves a group's shared database to the group, and gives the project its own tenancy in it", async () => {

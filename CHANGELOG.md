@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A recipe can name an admin octopod runs beside its service when the project names none (`admin:` in `recipe.yaml`): `redis` and `valkey` come with Redis Commander (`<service>-admin`, at `http://redis.<project>.localhost`), so the console's icon of every cache opens its keys. A group's shared Redis gets its own, in the group's stack. Run `octopod up` on a project to add it.
+
 ## [0.6.1] - 2026-10-24
 
 ### Added

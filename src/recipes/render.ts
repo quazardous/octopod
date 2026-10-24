@@ -272,12 +272,34 @@ function tenantParams(r: Resolved, options: RenderOptions): Record<string, Param
   return { ...r.params, ...renderMap(tenant.params, { tenant: options.shared.tenant }, `${r.name}.tenant.params`) };
 }
 
+/**
+ * The project's services, and the admins their recipes name (`admin:`) beside them: one for a
+ * service that is the project's own and the only provider of what the admin requires, when the project
+ * runs no service of that admin's recipe itself. A shared service's is the group's.
+ */
+export function withAdmins(services: RenderOptions['services'], book: RenderOptions['book']): RenderOptions['services'] {
+  const out = { ...services };
+  const named = new Set(Object.values(services).map((s) => s.recipe));
+  for (const [name, request] of Object.entries(services)) {
+    const admin = book.recipes.get(request.recipe)?.recipe.admin;
+    const needs = admin ? book.recipes.get(admin)?.recipe.requires.map((r) => r.capability) : undefined;
+    if (!admin || !needs || request.shared || named.has(admin)) continue;
+    // Two providers of what it requires: which one it shows is the project's to say.
+    const providers = Object.values(services).filter((s) => book.recipes.get(s.recipe)?.recipe.provides.some((c) => needs.includes(c)));
+    if (providers.length > 1) continue;
+    const id = `${name}-admin`;
+    if (id in out || !IDENT.test(id)) continue;
+    out[id] = { recipe: admin };
+  }
+  return out;
+}
+
 export function renderServices(options: RenderOptions): Rendered {
   const factory = options.secretFactory ?? ((bytes: number) => randomBytes(bytes).toString('base64url'));
   const kept = options.secrets ?? {};
   const resolved: Resolved[] = [];
 
-  for (const [name, request] of Object.entries(options.services)) {
+  for (const [name, request] of Object.entries(withAdmins(options.services, options.book))) {
     const where = `service '${name}'`;
     if (!IDENT.test(name)) throw new RenderError(`${where}: the name must match ${IDENT}`);
     const entry = options.book.recipes.get(request.recipe);

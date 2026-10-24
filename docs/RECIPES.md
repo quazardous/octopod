@@ -21,7 +21,7 @@ before anything does.
 | `mailpit` | catches the mail sent, read at `mail.<project>.localhost` | `MAILER_DSN`, `SMTP_URL` |
 | `oidc` | an OpenID Connect provider ([OIDC.md](./OIDC.md)) | `OIDC_ISSUER_BASE` |
 | `phpmyadmin`, `mongo-express` | the admin of the database, signed in | — |
-| `redis-commander` | a viewer of the Redis or Valkey: keys, values, a command line, at `redis.<project>.localhost` | — |
+| `redis-commander` | a viewer of the Redis or Valkey: keys, values, a command line, at `redis.<project>.localhost`; comes with `redis` and `valkey` unasked | — |
 
 The apps (`node-app`, `php-app`, `python-app`) take each of these when the project has one:
 a recipe that provides `sql` hands its URL to every app that wants one.

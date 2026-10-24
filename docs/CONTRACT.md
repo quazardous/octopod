@@ -200,8 +200,13 @@ workspace: .               # the folder a recipe's workspace mounts; the project
   `redis` (`redis` and `valkey`: `url`), `memcached` (`url`), `mongodb` (`url`), `smtp`
   (`mailpit`: `url`), `oidc` (`oidc`: `issuer_base`). `php-app`, `node-app` and `python-app` require each of them optionally (`DATABASE_URL`, `REDIS_URL`,
   `MEMCACHED_URL`, `MONGODB_URL`, `MAILER_DSN` and `SMTP_URL`, `OIDC_ISSUER_BASE`); `phpmyadmin` requires
-  `mysql`, `mongo-express` requires `mongodb`. Two providers of one capability a service
-  requires is an error: name the one you mean in a recipe of your own.
+  `mysql`, `mongo-express` requires `mongodb`, `redis-commander` requires `redis`. Two
+  providers of one capability a service requires is an error: name the one you mean in a
+  recipe of your own.
+- **An admin beside it.** A recipe's `admin:` names the recipe octopod runs beside its
+  service when the project runs none of it: `<service>-admin`, wired to it. `redis` and
+  `valkey` name `redis-commander`. It is not added for a group's shared service (the group's
+  stack has its own), nor when two services provide what the admin requires.
 - **A shell like a machine's.** An app recipe with `home: true` (`node-app`, `php-app`,
   `php-cli`) gives its shell octopod's settings — the prompt says `<user>@<project>:<service>`
   (red as root), a history that lasts, `ll`/`la` — from `.octopod/bashrc`, mounted
