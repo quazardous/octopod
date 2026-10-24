@@ -28,7 +28,8 @@ path or a user's command is an injection waiting to happen.
 
 **Nothing written into a project but `.octopod/`.** The project's folder belongs to its
 owner: octopod keeps its own files (overrides, secrets, state) in its state directory, and
-only data folders and rendered recipes go into the project's `.octopod/`, git-ignored.
+only data folders, rendered recipes and a copy of the secrets beside the data they unlock
+go into the project's `.octopod/`, git-ignored.
 
 **The contract is what clients rely on.** docs/CONTRACT.md describes the declaration, the
 generated labels, the API and the CLI's JSON. Change it together with the code, and a

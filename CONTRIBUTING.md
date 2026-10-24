@@ -68,7 +68,8 @@ that follows them is easier to review.
   (`generate.test.ts`, `recipes.test.ts`). Behaviour that depends on Docker goes into
   `docker.integration.test.ts`, against real Docker, not a mock.
 - **Nothing is written into a project but `.octopod/`.** The generated override and the
-  secrets live in octopod's state directory.
+  secrets live in octopod's state directory; `.octopod/` holds a copy of the secrets, beside
+  the data they unlock.
 - **Test names are sentences** about the behaviour: `it('refuses a moving tag unless the
   recipe says so, …')`.
 - Errors say what went wrong and what to do: a user reads them in a terminal.

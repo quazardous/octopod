@@ -548,6 +548,27 @@ describe.skipIf(!dockerAvailable())('a project made of recipes (real docker)', {
     expect(await password()).toBe(before);
   });
 
+  it("comes back from the project's copy of its secrets when octopod's state is lost", async () => {
+    const password = async () => (await octopod.secrets('delta')).find((s) => s.service === 'db' && s.name === 'password')?.value;
+    const before = await password();
+    const copy = join(root, '.octopod', 'secrets.delta.json');
+    expect((await stat(copy)).mode & 0o777).toBe(0o600);
+    expect(JSON.parse(await readFile(copy, 'utf8')).db.password).toBe(before);
+    // Another machine, a purge: the state has nothing, the data and its copy are there.
+    await rm(join(base, 'state', 'projects', 'delta', 'secrets.json'));
+    await octopod.up('delta');
+    expect(await password()).toBe(before);
+    expect((await eventually('delta.localhost', 200)).body).toContain('user=delta');
+    const db = await octopod.exec('delta', 'db', ['sh', '-c', 'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRES_USER" -tAc "SELECT 1" "$POSTGRES_DB"']);
+    expect(db.output.trim()).toBe('1');
+    // Two values for one secret: the state's is used, and status says so.
+    const kept = await readFile(copy, 'utf8');
+    await writeFile(copy, kept.replace(before!, 'another'));
+    expect((await octopod.status('delta')).warnings?.join('\n')).toMatch(/db\/password: octopod's state and \.octopod\/secrets\.delta\.json hold two values/);
+    expect(await password()).toBe(before);
+    await writeFile(copy, kept);
+  });
+
   it('removes what it built when the project is unregistered, and keeps the data', async () => {
     await octopod.unregister('delta');
     expect(docker('images', '--format', '{{.Repository}}').split('\n')).not.toEqual(expect.arrayContaining(['delta-app']));

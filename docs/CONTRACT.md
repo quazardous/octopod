@@ -182,8 +182,12 @@ workspace: .               # the folder a recipe's workspace mounts; the project
   space-separated.
 - A recipe's image may name an **enum** param, and only that: `php:{{params.php}}-fpm`
   with `php` one of the versions the recipe lists. A project picks among them; it never
-  writes an image. Secrets are generated once and kept in octopod's state (`0600`),
-  never in the project.
+  writes an image. Secrets are generated once and kept in octopod's state (`0600`), with
+  a copy beside the data they unlock, `.octopod/secrets.<project>.json` (`0600`,
+  git-ignored with the rest of `.octopod/`): a project whose state was lost (another
+  machine, `uninstall --purge`) gets its passwords back from it instead of new ones. Where
+  both hold a value and they differ, the state's is used, the copy is left as it is, and
+  `status` and `doctor` say so. A secret is never replaced once kept.
 - Routed recipes are exposed without an `expose` entry, at the project's host or their
   subdomain; two wanting the same host is an error. `route: false` on a service turns its
   recipe's route off (a worker that serves nothing over HTTP). Their profiles are activated.

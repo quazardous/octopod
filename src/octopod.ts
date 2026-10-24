@@ -331,6 +331,25 @@ function sharedNetworks(services: string[], networks: Record<string, string>, al
 const GENERIC_ICON =
   '<svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><title>Service</title><path fill="none" stroke="rgb(100,116,139)" stroke-width="2" stroke-linejoin="round" d="M12 2.5 21 7v10l-9 4.5L3 17V7z M3 7l9 4.5L21 7 M12 11.5v10"/></svg>';
 
+/** The copy of a project's secrets beside its data, git-ignored with the rest of `.octopod/`. */
+function projectSecrets(root: string, project: string): string {
+  return join(root, '.octopod', `secrets.${project}.json`);
+}
+
+/** A secrets file: none when it is absent, an error when it cannot be read — never an empty set in its place. */
+async function secretsFile(file: string): Promise<Record<string, Record<string, string>>> {
+  const text = await readFile(file, 'utf8').catch((e: NodeJS.ErrnoException) => {
+    if (e.code === 'ENOENT') return undefined;
+    throw new OctopodError(`${file} cannot be read (${e.message}): octopod will not make new secrets over it`);
+  });
+  if (text === undefined) return {};
+  try {
+    return JSON.parse(text) as Record<string, Record<string, string>>;
+  } catch (e) {
+    throw new OctopodError(`${file} is not valid JSON (${(e as Error).message}): octopod will not make new secrets over it — put it right, or remove it to start again`);
+  }
+}
+
 /**
  * A file written only when its content changes — a project is rendered at each read, and
  * rewriting it each time races with whoever reads it — whole or not at all, in `mode`.
@@ -399,18 +418,26 @@ export class Octopod {
    * Never an empty set in its place: new passwords over a database made with the old ones
    * lock the project out of it.
    */
-  private async readSecrets(project: string): Promise<Record<string, Record<string, string>>> {
-    const file = join('projects', project, 'secrets.json');
-    const text = await readFile(this.path(file), 'utf8').catch((e: NodeJS.ErrnoException) => {
-      if (e.code === 'ENOENT') return undefined;
-      throw new OctopodError(`${this.path(file)} cannot be read (${e.message}): octopod will not make new secrets over it`);
-    });
-    if (text === undefined) return {};
-    try {
-      return JSON.parse(text) as Record<string, Record<string, string>>;
-    } catch (e) {
-      throw new OctopodError(`${this.path(file)} is not valid JSON (${(e as Error).message}): octopod will not make new secrets over it — put it right, or remove it to start again`);
-    }
+  private async readSecrets(project: string, root?: string): Promise<Record<string, Record<string, string>>> {
+    const state = await secretsFile(this.path('projects', project, 'secrets.json'));
+    if (!root) return state;
+    // The copy beside the data: what a lost state (another machine, a purge) comes back from.
+    // The state's values win where both have one.
+    const copy = await secretsFile(projectSecrets(root, project));
+    const out: Record<string, Record<string, string>> = { ...copy };
+    for (const [service, values] of Object.entries(state)) out[service] = { ...copy[service], ...values };
+    return out;
+  }
+
+  /** The secrets octopod's state and the project's copy hold differently: the state's are used. */
+  private async secretsDiffer(declaration: Declaration): Promise<string[]> {
+    const state = await secretsFile(this.path('projects', declaration.project, 'secrets.json')).catch(() => ({}) as Record<string, Record<string, string>>);
+    const copy = await secretsFile(projectSecrets(declaration.root, declaration.project)).catch(() => ({}) as Record<string, Record<string, string>>);
+    return Object.entries(state).flatMap(([service, values]) =>
+      Object.entries(values)
+        .filter(([key, value]) => copy[service]?.[key] !== undefined && copy[service][key] !== value)
+        .map(([key]) => `${service}/${key}`),
+    );
   }
 
   /** The API's port and token (TCP only): made the first time, kept after, readable by the operator only. */
@@ -636,7 +663,7 @@ export class Octopod {
     const book = await loadRecipes(this.recipeDirs(declaration)).catch((e: Error) => {
       throw new OctopodError(e.message);
     });
-    const kept = keepSecrets ? await this.readSecrets(declaration.project) : {};
+    const kept = keepSecrets ? await this.readSecrets(declaration.project, declaration.root) : {};
     try {
       return {
         book,
@@ -677,10 +704,11 @@ export class Octopod {
       // rendering, nor by another process's that made a new one at the same moment. A
       // service gone from this rendering keeps its secrets too: its data may still need them.
       const file = join('projects', declaration.project, 'secrets.json');
-      const kept = await this.readSecrets(declaration.project);
+      const stateKept = await secretsFile(this.path(file));
+      const kept = await this.readSecrets(declaration.project, declaration.root);
       const merged: Record<string, Record<string, string>> = { ...kept };
       for (const [service, values] of Object.entries(rendered.secrets)) merged[service] = { ...values, ...kept[service] };
-      if (JSON.stringify(merged) !== JSON.stringify(kept)) {
+      if (JSON.stringify(merged) !== JSON.stringify(stateKept)) {
         await this.writeSecret(file, merged);
         // Another process kept other values first: render with those.
         if (Object.entries(rendered.secrets).some(([service, values]) => Object.entries(values).some(([k, v]) => merged[service][k] !== v))) {
@@ -689,6 +717,16 @@ export class Octopod {
       }
       await mkdir(dir, { recursive: true });
       await writeFile(join(dir, '.gitignore'), '*\n', { flag: 'wx' }).catch(() => undefined);
+      // A copy beside the data they unlock, unless it holds other values (said by status):
+      // the data was made with the state's, or the copy's, and octopod does not guess which.
+      const copy = projectSecrets(declaration.root, declaration.project);
+      const secrets = await this.readSecrets(declaration.project);
+      if ((await this.secretsDiffer(declaration)).length === 0) {
+        const old = await secretsFile(copy).catch(() => ({}) as Record<string, Record<string, string>>);
+        const both: Record<string, Record<string, string>> = { ...old };
+        for (const [service, values] of Object.entries(secrets)) both[service] = { ...old[service], ...values };
+        await writeIfChanged(copy, JSON.stringify(both, null, 2) + '\n', 0o600);
+      }
       // The compose file carries the secrets in its environment: the operator's alone.
       await writeIfChanged(composeFile, JSON.stringify(rendered.compose, null, 2) + '\n', 0o600);
       for (const [path, content] of Object.entries(rendered.files)) {
@@ -1230,6 +1268,9 @@ export class Octopod {
       ...(await this.foreignBinds(declaration)),
       ...(await this.rootWarnings(rows)),
       ...(await this.sharedLeftovers(declaration)),
+      ...(await this.secretsDiffer(declaration)).map(
+        (k) => `${k}: octopod's state and .octopod/secrets.${declaration.project}.json hold two values; the state's is used — if the data was made with the other, put it in the state (octopod secrets shows it)`,
+      ),
       ...failing,
     ];
     const others = instance === 1 ? await this.instances(name) : [];
@@ -1644,7 +1685,8 @@ export class Octopod {
 
   /**
    * What is wrong on this machine, and how to put it right: Docker, the edge, the console,
-   * the API, the state directory's modes, projects whose folder is gone. Reads only.
+   * the API, the state directory's modes, projects whose folder is gone, secrets whose two
+   * copies differ. Reads only.
    */
   async doctor(): Promise<{ checks: DoctorCheck[] }> {
     const checks: DoctorCheck[] = [];
@@ -1684,6 +1726,18 @@ export class Octopod {
       if (!(await stat(join(root, DECLARATION_FILE)).then(() => true, () => false))) gone.push(name);
     }
     add('projects', gone.length === 0, gone.length === 0 ? `${Object.keys(registry).length} registered, each folder in place` : `no ${DECLARATION_FILE} any more for ${gone.join(', ')}`, gone.map((n) => `octopod unregister ${n}`).join('; '));
+    const differ: string[] = [];
+    for (const [name, root] of Object.entries(registry)) {
+      if (gone.includes(name)) continue;
+      const declared = await loadDeclaration(root).catch(() => undefined);
+      if (declared && (await this.secretsDiffer(declared)).length > 0) differ.push(name);
+    }
+    add(
+      'secrets',
+      differ.length === 0,
+      differ.length === 0 ? "each project's copy of its secrets agrees with octopod's" : `octopod's state and the project's .octopod/secrets.<project>.json differ for ${differ.join(', ')}`,
+      `octopod status ${differ[0] ?? ''} says which; the state's are used: a database made with the other values refuses them`,
+    );
     return { checks };
   }
 
