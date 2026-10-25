@@ -487,9 +487,10 @@ function details(key, summary, ...children) {
 
 /** What a service takes, beside its Logs: its image, its data, what may be lost, the code it mounts. */
 function serviceDisk(base, instance, service) {
-  const known = state.disk.get(`${base}#${instance}`);
-  const d = known && known.services && known.services.find((x) => x.service === service);
-  if (!d) return null;
+  const known = diskOf(base, instance);
+  if (!known || known.error) return el('span', { class: 'muted', title: known ? known.error : '' }, known ? '?' : '…');
+  const d = (known.services || []).find((x) => x.service === service);
+  if (!d) return el('span', { class: 'muted' }, '—');
   const parts = [
     ['docker', d.image, 'its image'],
     ['data', d.data, 'what it keeps: its volumes in .octopod/data, its kept home — only Destroy removes it'],
@@ -572,20 +573,29 @@ function humanSize(bytes) {
   return `${unit === 0 || n >= 10 ? Math.round(n) : n.toFixed(1)} ${units[unit]}`;
 }
 
+/** An instance's disk figures as known, read (again) when missing or a minute old: the page redraws when they come. */
+function diskOf(base, instance) {
+  const key = `${base}#${instance}`;
+  const known = state.disk.get(key);
+  if (!known || (Date.now() - known.at > DISK_MS && !known.loading)) {
+    state.disk.set(key, { ...known, at: known ? known.at : 0, loading: true });
+    api(`/v1/projects/${encodeURIComponent(base)}/disk?instance=${instance}`)
+      .then(
+        (d) => state.disk.set(key, { at: Date.now(), data: d.projects[0], services: d.services || [] }),
+        (e) => state.disk.set(key, { at: Date.now(), error: e.message }),
+      )
+      .then(() => state.last && render(state.last));
+  }
+  return known;
+}
+
 /**
  * What an instance takes on disk, on its page: what is kept apart from what `octopod prune`
  * may empty. Read when the page shows it, then once a minute at most; the console only reads.
  */
 function diskView(base, instance) {
   const key = `${base}#${instance}`;
-  const known = state.disk.get(key);
-  if (!known || (Date.now() - known.at > DISK_MS && !known.loading)) {
-    state.disk.set(key, { ...known, at: known ? known.at : 0, loading: true });
-    api(`/v1/projects/${encodeURIComponent(base)}/disk?instance=${instance}`).then(
-      (d) => state.disk.set(key, { at: Date.now(), data: d.projects[0], services: d.services || [] }),
-      (e) => state.disk.set(key, { at: Date.now(), error: e.message }),
-    ).then(() => state.last && render(state.last));
-  }
+  const known = diskOf(base, instance);
   if (!known || (!known.data && !known.error)) return el('div', { class: 'disk muted' }, 'Disk: reading…');
   if (known.error) return el('div', { class: 'disk muted' }, `Disk: ${known.error}`);
   const d = known.data;
@@ -703,8 +713,7 @@ function card(p, base, nested = false, inGroup = false) {
     nested ? null : el('div', { class: 'root mono muted' }, p.root),
     nested || !(p.compose || []).length ? null : details(`${key}:compose`, `${p.compose.length} compose file${p.compose.length > 1 ? 's' : ''}`, el('ul', {}, p.compose.map((f) => el('li', { class: 'mono' }, f)))),
     p.problem ? el('p', { class: 'problem' }, p.problem) : [stackView(p, base, !inGroup), servicesTable(p, base, instance)],
-    // On the project's page only: a group's page lists many, and reading each walks its folders.
-    inGroup || p.problem ? null : diskView(base, instance),
+    p.problem ? null : diskView(base, instance),
     (p.warnings || []).length ? el('ul', { class: 'warnings' }, p.warnings.map((w) => el('li', {}, w))) : null,
     (p.others || []).map((o) => card(o, base, true)),
   );
