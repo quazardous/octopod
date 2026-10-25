@@ -5,13 +5,13 @@
 import { lstat, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
-/** The bytes under a path, links not followed; 0 when it is not there. */
-export async function sizeOf(path: string): Promise<number> {
+/** The bytes under a path, links not followed, folders named in `skip` left out; 0 when it is not there. */
+export async function sizeOf(path: string, skip: string[] = []): Promise<number> {
   const stats = await lstat(path).catch(() => undefined);
   if (!stats) return 0;
   if (!stats.isDirectory()) return stats.size;
   let total = 0;
-  for (const entry of await readdir(path).catch(() => [])) total += await sizeOf(join(path, entry));
+  for (const entry of await readdir(path).catch(() => [])) if (!skip.includes(entry)) total += await sizeOf(join(path, entry), skip);
   return total;
 }
 

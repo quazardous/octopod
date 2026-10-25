@@ -195,13 +195,13 @@ export function handler(octopod: Octopod) {
         return send(res, 200, await octopod.disk(name, url.searchParams.has('instance') ? queryInstance() : undefined));
       }
       if (resource === 'projects' && name && action === 'prune' && method === 'POST') {
-        const { service } = await body(req);
-        return send(res, 200, await octopod.prune(name, { service: typeof service === 'string' ? service : undefined }));
+        const { service, instance } = await body(req);
+        return send(res, 200, await octopod.prune(name, { service: typeof service === 'string' ? service : undefined, ...(instance !== undefined ? { instance: instanceValue(instance) } : {}) }));
       }
       if (resource === 'projects' && name && action === 'destroy' && method === 'POST') {
-        // The console never deletes data, whatever the relay let through.
-        if (viaConsole) return send(res, 403, { error: 'the console does not destroy data: octopod destroy' });
-        const { service, keepSecrets, confirm } = await body(req);
+        const { service, keepSecrets, confirm, project } = await body(req);
+        // From the console, the project's name typed by hand, as well as its header: no stray click destroys.
+        if (viaConsole && confirm === true && project !== name) return send(res, 403, { error: `type the project's name, ${name}, to destroy its data` });
         return send(res, 200, await octopod.destroy(name, { service: typeof service === 'string' ? service : undefined, keepSecrets: keepSecrets === true, confirm: confirm === true }));
       }
       if (resource === 'projects' && name && action === 'restart' && method === 'POST') {

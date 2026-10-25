@@ -264,7 +264,16 @@ details.group > .gallery { margin-bottom: 8px; }
 .disk { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; margin: 8px 0 4px; font-size: 12px; }
 .disk-label { font-weight: 600; }
 .disk-sep { color: var(--muted); }
-.disk-hint { margin-left: auto; }
+.disk-cell { font-size: 12px; white-space: nowrap; }
+.svc-disk { display: inline-flex; flex-wrap: wrap; gap: 2px 10px; white-space: normal; }
+dialog.destroy { max-width: 34rem; border: 1px solid var(--bad); border-radius: 10px; background: var(--panel); color: inherit; padding: 18px 20px; }
+dialog.destroy::backdrop { background: rgb(0 0 0 / 45%); }
+dialog.destroy h2 { margin: 0 0 8px; color: var(--bad); font-size: 17px; }
+dialog.destroy label { display: block; margin: 12px 0 4px; }
+dialog.destroy input { display: block; width: 100%; box-sizing: border-box; margin-top: 6px; padding: 6px 8px; font: inherit; }
+dialog.destroy .act:disabled { opacity: 0.4; cursor: not-allowed; }
+.destroy-list { margin: 8px 0; padding-left: 18px; font-size: 13px; overflow-wrap: anywhere; }
+.dialog-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 details.compose summary { cursor: pointer; font-size: 12px; color: var(--muted); }
 details.compose ul { margin: 4px 0 0; padding-left: 18px; font-size: 12px; }
 

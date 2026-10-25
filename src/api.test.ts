@@ -230,11 +230,12 @@ describe.skipIf(process.platform === 'win32')('the API', () => {
     expect(await stat(join(base, 'demo', '.octopod', 'data', 'db-data', 'table')).then(() => true)).toBe(true);
     expect(((await call('POST', '/v1/projects/demo/destroy', { confirm: true })).json as { done: boolean }).done).toBe(true);
     expect(await stat(join(base, 'demo', '.octopod', 'data')).then(() => true, () => false)).toBe(false);
-    // The console reads it, and never destroys, enrolled or not.
-    expect((await raw('POST', '/v1/projects/demo/destroy', { confirm: true }, { 'x-octopod-via': 'console' })).status).toBe(401);
+    // The console destroys only for an enrolled browser, the project's name typed.
+    expect((await raw('POST', '/v1/projects/demo/destroy', { confirm: true, project: 'demo' }, { 'x-octopod-via': 'console' })).status).toBe(401);
     const { code } = (await call('POST', '/v1/console/code')).json as { code: string };
     const cookie = String((await raw('POST', '/v1/console/enroll', { code }, { 'x-octopod-via': 'console' })).headers['set-cookie']).split(';')[0]!;
     expect((await raw('POST', '/v1/projects/demo/destroy', { confirm: true }, { 'x-octopod-via': 'console', cookie })).status).toBe(403);
+    expect((await raw('POST', '/v1/projects/demo/destroy', { confirm: true, project: 'demo' }, { 'x-octopod-via': 'console', cookie })).status).toBe(200);
   });
 
   it('never removes volumes for the console', async () => {

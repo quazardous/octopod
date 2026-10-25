@@ -110,6 +110,19 @@ export interface DiskUse {
   leftovers: number;
 }
 
+/**
+ * What one service takes, in bytes: its image (`docker`), what it keeps (`data`: its volumes
+ * in `.octopod/data`, its kept home), what may be lost (`temp`: its caches and temporary
+ * folders), and the project's folders it mounts (`code`).
+ */
+export interface ServiceDisk {
+  service: string;
+  image: number;
+  data: number;
+  temp: number;
+  code: number;
+}
+
 /** What `prune` freed: the folders it emptied, and the bytes. */
 export interface Pruned {
   freed: number;
@@ -1929,7 +1942,7 @@ export class Octopod {
    * that instance's alone: instance N keeps its folders in `<folder>/<N>/`, the first in
    * the rest.
    */
-  async disk(name?: string, instance?: number): Promise<{ projects: DiskUse[]; buildCache?: number }> {
+  async disk(name?: string, instance?: number): Promise<{ projects: DiskUse[]; buildCache?: number; services?: ServiceDisk[] }> {
     const registry = await this.registry();
     const names = name ? [name] : Object.keys(registry);
     const projects: DiskUse[] = [];
@@ -1961,8 +1974,49 @@ export class Octopod {
         leftovers,
       });
     }
-    return name ? { projects } : { projects, buildCache: await this.buildCacheBytes() };
+    if (!name) return { projects, buildCache: await this.buildCacheBytes() };
+    return instance ? { projects, services: await this.servicesDisk(name, instance) } : { projects };
   }
+
+  /** Each service of an instance, from what compose mounts in it: see {@link ServiceDisk}. */
+  private async servicesDisk(name: string, instance: number): Promise<ServiceDisk[]> {
+    const declaration = await this.declaration(name, instance);
+    const config = await this.docker
+      .run(this.configArgs(declaration))
+      .then((out) => JSON.parse(out) as { services?: Record<string, ComposeService>; volumes?: Record<string, ComposeVolume> })
+      .catch(() => undefined);
+    if (!config?.services) return [];
+    const data = dataVolumes(declaration.root, config.volumes ?? {}, instance);
+    const dot = join(declaration.root, '.octopod');
+    const inside = (path: string, dir: string): boolean => path === dir || path.startsWith(`${dir}/`);
+    // A folder two services mount (the project, for an app and its worker) is read once.
+    const sizes = new Map<string, Promise<number>>();
+    const size = (path: string): Promise<number> => {
+      // The project's code without what octopod keeps in it (`.octopod/`, counted apart).
+      if (!sizes.has(path)) sizes.set(path, sizeOf(path, inside(path, dot) ? [] : ['.octopod']));
+      return sizes.get(path)!;
+    };
+    const out: ServiceDisk[] = [];
+    for (const [service, spec] of Object.entries(config.services)) {
+      const row: ServiceDisk = { service, image: 0, data: 0, temp: 0, code: 0 };
+      const image = spec.image ?? `${declaration.project}-${service}`;
+      row.image = Number((await this.docker.run(['image', 'inspect', image, '--format', '{{.Size}}']).catch(() => '0')).trim()) || 0;
+      for (const v of spec.volumes ?? []) {
+        if (typeof v !== 'object' || !v.source) continue;
+        if (v.type === 'volume') {
+          if (data[v.source]) row.data += await size(data[v.source]!);
+          continue;
+        }
+        if (v.type !== 'bind') continue;
+        if (inside(v.source, join(dot, 'data')) || inside(v.source, join(dot, 'home'))) row.data += await size(v.source);
+        else if (inside(v.source, join(dot, 'cache')) || inside(v.source, join(dot, 'temp'))) row.temp += await size(v.source);
+        else if (!inside(v.source, dot) && [declaration.root, declaration.workspace].some((d) => d && inside(v.source!, d))) row.code += await size(v.source);
+      }
+      out.push(row);
+    }
+    return out;
+  }
+
 
   private async buildCacheBytes(): Promise<number> {
     const df = await this.docker.run(['system', 'df', '--format', '{{json .}}']).catch(() => '');
@@ -1976,9 +2030,9 @@ export class Octopod {
    * The data is never touched. A service whose temporary folders were emptied is restarted,
    * so it does not keep a file it thinks is there.
    */
-  async prune(name: string, options: { service?: string } = {}): Promise<Pruned> {
+  async prune(name: string, options: { service?: string; instance?: number } = {}): Promise<Pruned> {
     const out: Pruned = { freed: 0, emptied: [], images: 0 };
-    for (const n of await this.everyInstance(name)) {
+    for (const n of options.instance ? [options.instance] : await this.everyInstance(name)) {
       const declaration = await this.declaration(name, n);
       const services = (await this.recipeServices(declaration)).filter((s) => !options.service || s.name === options.service);
       if (options.service && services.length === 0) throw new OctopodError(`"${name}" has no service "${options.service}" made of a recipe`);
@@ -1993,11 +2047,12 @@ export class Octopod {
       }
       if (restart.length > 0) await this.docker.run([...this.composeArgs(declaration, true), 'restart', ...restart]).catch(() => undefined);
     }
-    const before = await this.imageBytes(name, true);
-    for (const label of [`${PROJECT_LABEL}=${name}`, `com.docker.compose.project=${name}`]) {
+    const project = options.instance ? instanceName(name, options.instance) : name;
+    const before = await this.imageBytes(project, true);
+    for (const label of [`${PROJECT_LABEL}=${project}`, `com.docker.compose.project=${project}`]) {
       await this.docker.run(['image', 'prune', '-f', '--filter', `label=${label}`]).catch(() => undefined);
     }
-    out.images = before - (await this.imageBytes(name, true));
+    out.images = before - (await this.imageBytes(project, true));
     out.freed += out.images;
     return out;
   }

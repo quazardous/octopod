@@ -37,6 +37,8 @@ const state = {
   /** The project whose Down was clicked once, by the same key: a second click stops it. */
   arming: null,
   armTimer: 0,
+  /** What the last prune of an instance said, by `prune:<project>#<instance>`. */
+  pruned: new Map(),
   /** What each instance takes on disk, by `<project>#<instance>`: { at, data } or { at, error }; read again after a minute. */
   disk: new Map(),
 };
@@ -204,6 +206,28 @@ async function act(project, instance, what) {
   }
   state.busy.delete(key);
   refresh();
+}
+
+/**
+ * `octopod prune` of an instance: its caches, temporary folders and leftover images emptied,
+ * never its data. What it freed is said beside the button, and the figures read again.
+ */
+async function prune(project, instance) {
+  const key = `prune:${project}#${instance}`;
+  if (state.busy.has(key)) return;
+  state.busy.set(key, 'prune');
+  state.pruned.delete(key);
+  if (state.last) render(state.last);
+  try {
+    const out = await post(`/v1/projects/${encodeURIComponent(project)}/prune`, instance > 1 ? { instance } : {});
+    state.pruned.set(key, `freed ${humanSize(out.freed)}`);
+  } catch (e) {
+    if (e.enroll) return (state.busy.delete(key), showLogin());
+    state.pruned.set(key, `prune failed: ${e.message}`);
+  }
+  state.busy.delete(key);
+  state.disk.delete(`${project}#${instance}`);
+  if (state.last) render(state.last);
 }
 
 /** A group's projects up or down, one after the other: `group` is `group:<name>`. */
@@ -461,6 +485,21 @@ function details(key, summary, ...children) {
   return node;
 }
 
+/** What a service takes, beside its Logs: its image, its data, what may be lost, the code it mounts. */
+function serviceDisk(base, instance, service) {
+  const known = state.disk.get(`${base}#${instance}`);
+  const d = known && known.services && known.services.find((x) => x.service === service);
+  if (!d) return null;
+  const parts = [
+    ['docker', d.image, 'its image'],
+    ['data', d.data, 'what it keeps: its volumes in .octopod/data, its kept home — only Destroy removes it'],
+    ['temp', d.temp, 'its caches and temporary folders — Prune empties them'],
+    ['code', d.code, "the project's folders it mounts (.octopod/ apart)"],
+  ].filter(([, bytes]) => bytes > 0);
+  if (parts.length === 0) return el('span', { class: 'muted' }, '—');
+  return el('span', { class: 'svc-disk' }, parts.map(([label, bytes, title]) => el('span', { title }, el('span', { class: 'muted' }, `${label} `), humanSize(bytes))));
+}
+
 function servicesTable(p, base, instance) {
   const byService = new Map();
   for (const r of p.routes || []) byService.set(r.service, [...(byService.get(r.service) || []), r]);
@@ -502,6 +541,7 @@ function servicesTable(p, base, instance) {
             ),
           ),
         ),
+        el('td', { class: 'disk-cell' }, s.server ? null : serviceDisk(base, instance, s.service)),
         el(
           'td',
           { class: 'actions' },
@@ -515,7 +555,7 @@ function servicesTable(p, base, instance) {
   return el(
     'table',
     { class: 'services' },
-    el('thead', {}, el('tr', {}, el('th', {}, 'Service'), el('th', {}, 'State'), el('th', {}, 'Route'), el('th', {}))),
+    el('thead', {}, el('tr', {}, el('th', {}, 'Service'), el('th', {}, 'State'), el('th', {}, 'Route'), el('th', {}, 'Disk'), el('th', {}))),
     el('tbody', {}, body),
   );
 }
@@ -542,7 +582,7 @@ function diskView(base, instance) {
   if (!known || (Date.now() - known.at > DISK_MS && !known.loading)) {
     state.disk.set(key, { ...known, at: known ? known.at : 0, loading: true });
     api(`/v1/projects/${encodeURIComponent(base)}/disk?instance=${instance}`).then(
-      (d) => state.disk.set(key, { at: Date.now(), data: d.projects[0] }),
+      (d) => state.disk.set(key, { at: Date.now(), data: d.projects[0], services: d.services || [] }),
       (e) => state.disk.set(key, { at: Date.now(), error: e.message }),
     ).then(() => state.last && render(state.last));
   }
@@ -562,8 +602,84 @@ function diskView(base, instance) {
     part('cache', d.cache, 'caches its recipes declare, in .octopod/cache'),
     part('temp', d.temp, 'temporary folders, in .octopod/temp'),
     part('leftovers', d.leftovers, 'nameless images its rebuilds left'),
-    lost > 0 ? el('span', { class: 'muted mono disk-hint', title: 'empties cache, temp and leftovers; the data stays' }, `octopod prune ${base}`) : null,
+    el('span', { class: 'spacer' }),
+    state.pruned.has(`prune:${key}`) ? el('span', { class: 'muted' }, state.pruned.get(`prune:${key}`)) : null,
+    pruneButton(base, instance, lost),
+    // The data goes for every instance at once: offered on the project's own card.
+    instance === 1 ? el('button', { type: 'button', class: 'act down', title: "octopod destroy: its data, homes, caches, images and secrets, for good — asks for the project's name", onclick: () => openDestroy(base) }, 'Destroy…') : null,
   );
+}
+
+/**
+ * Destroy, the dangerous level: a dialog lists what goes and how much (`octopod destroy`
+ * without confirm), and destroys only once the project's name is typed. Outside the page the
+ * refresh redraws, so the typing survives it.
+ */
+async function openDestroy(project) {
+  const dialog = el('dialog', { class: 'destroy' });
+  const close = () => (dialog.close(), dialog.remove());
+  const body = el('div', { class: 'muted' }, 'Reading what it would remove…');
+  const typed = el('input', { type: 'text', autocomplete: 'off', spellcheck: 'false', placeholder: project, 'aria-label': `type ${project} to confirm` });
+  const go = el('button', { type: 'button', class: 'act armed', disabled: true }, 'Destroy');
+  const said = el('p', { class: 'problem', hidden: true });
+  typed.addEventListener('input', () => (go.disabled = typed.value !== project));
+  go.addEventListener('click', async () => {
+    go.disabled = true;
+    go.textContent = 'Destroying…';
+    try {
+      const out = await post(`/v1/projects/${encodeURIComponent(project)}/destroy`, { confirm: true, project });
+      state.pruned.set(`prune:${project}#1`, `destroyed: ${humanSize(out.freed)}`);
+      for (const key of [...state.disk.keys()]) if (key.startsWith(`${project}#`)) state.disk.delete(key);
+      close();
+      refresh();
+    } catch (e) {
+      said.hidden = false;
+      said.textContent = e.message;
+      go.textContent = 'Destroy';
+      go.disabled = typed.value !== project;
+    }
+  });
+  dialog.append(
+    el('h2', {}, `Destroy ${project}'s data`),
+    el('p', {}, 'For good, every instance: there is no undo. The project stays registered; its next up starts empty, with new passwords.'),
+    body,
+    el('label', {}, 'Type ', el('b', { class: 'mono' }, project), ' to confirm', typed),
+    said,
+    el('div', { class: 'dialog-buttons' }, el('button', { type: 'button', class: 'act', onclick: close }, 'Cancel'), go),
+  );
+  dialog.addEventListener('close', () => dialog.remove());
+  document.body.append(dialog);
+  dialog.showModal();
+  try {
+    const plan = await post(`/v1/projects/${encodeURIComponent(project)}/destroy`, {});
+    body.replaceWith(
+      el(
+        'ul',
+        { class: 'destroy-list' },
+        plan.removed.map((r) => el('li', {}, r.what, r.path ? el('span', { class: 'mono muted' }, ` ${r.path}`) : null, r.bytes !== undefined ? el('b', {}, ` ${humanSize(r.bytes)}`) : null)),
+        el('li', { class: 'muted' }, `${humanSize(plan.freed)} in all`),
+      ),
+    );
+  } catch (e) {
+    body.textContent = e.message;
+    body.className = 'problem';
+  }
+}
+
+/** Prune asks first, as Down does: a first click arms it, a second within a few seconds empties. */
+function pruneButton(base, instance, lost) {
+  const key = `prune:${base}#${instance}`;
+  if (state.busy.has(key)) return el('button', { type: 'button', class: 'act', disabled: true }, 'Pruning…');
+  const title = 'octopod prune: empties its caches, temporary folders and leftover images; the data stays';
+  if (state.arming === key) {
+    const go = () => {
+      clearTimeout(state.armTimer);
+      state.arming = null;
+      prune(base, instance);
+    };
+    return el('button', { type: 'button', class: 'act down armed', title, onclick: go }, `Empty ${humanSize(lost)}?`);
+  }
+  return el('button', { type: 'button', class: 'act', title, disabled: lost === 0, onclick: () => armDown(key) }, 'Prune');
 }
 
 function card(p, base, nested = false, inGroup = false) {
