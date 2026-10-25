@@ -22,12 +22,15 @@ env:
   HOST: 0.0.0.0
   PORT: "3000"
   NODE_ENV: development
+  # npm's cache, kept apart from the data: octopod prune empties it.
+  npm_config_cache: /cache/npm
   # Where no file event crosses the mount (Docker Desktop on Windows), dev servers poll:
   # chokidar (Vite and most tools) and watchpack (webpack, Next). Absent elsewhere.
   CHOKIDAR_USEPOLLING: "{{host.poll}}"
   WATCHPACK_POLLING: "{{host.poll}}"
 workspace: /app
 home: true
+caches: { npm: /cache/npm }
 port: 3000
 route: true
 profiles: [dev]

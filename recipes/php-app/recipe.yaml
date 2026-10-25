@@ -23,8 +23,12 @@ buildArgs:
   DOCROOT: "{{params.docroot}}"
 command: [supervisord, -c, /etc/octopod/supervisord.conf]
 supervisor: { config: /etc/octopod/supervisord.conf, programs: [php-fpm, nginx] }
+# composer's cache, kept apart from the data: octopod prune empties it.
+env:
+  COMPOSER_CACHE_DIR: /cache/composer
 workspace: /app
 home: true
+caches: { composer: /cache/composer }
 port: 8080
 route: true
 profiles: [dev]

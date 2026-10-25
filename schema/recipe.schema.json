@@ -264,6 +264,30 @@
         "additionalProperties": false
       }
     },
+    "caches": {
+      "default": {},
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]{0,30}$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^\\/[A-Za-z0-9._/-]*$"
+      }
+    },
+    "temp": {
+      "default": {},
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]{0,30}$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^\\/[A-Za-z0-9._/-]*$"
+      }
+    },
     "volumes": {
       "default": [],
       "type": "array",

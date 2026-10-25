@@ -183,7 +183,7 @@ describe('the built-in recipes', () => {
     expect(app.build.args).toEqual(expect.objectContaining({ BASE_IMAGE: 'php:8.2-fpm', EXTENSIONS: 'pdo_mysql gd', DOCROOT: 'public', UID: '1234', GID: '5678', USER_NAME: 'shop' }));
     expect(app.user).toBe('1234:5678');
     expect(app.expose).toEqual(['8080']);
-    expect(app.volumes).toEqual(['/w:/app', './.octopod/bashrc:/etc/octopod/bashrc:ro', './.octopod/programs.shop.app.conf:/etc/octopod/programs.conf:ro']);
+    expect(app.volumes).toEqual(['/w:/app', './.octopod/bashrc:/etc/octopod/bashrc:ro', './.octopod/cache/app/composer:/cache/composer', './.octopod/programs.shop.app.conf:/etc/octopod/programs.conf:ro']);
     expect((app.environment as Record<string, string>).DATABASE_URL).toMatch(/^mysql:\/\/app:s24@db:3306\/app$/);
     expect(app.depends_on).toEqual({ db: { condition: 'service_healthy' } });
   });
@@ -425,7 +425,7 @@ describe('the built-in recipes', () => {
     const cli = out.compose.services.cli;
     expect(cli.profiles).toEqual(['octopod-tool']);
     expect(cli.restart).toBeUndefined();
-    expect(cli.volumes).toEqual(['cli-cache:/cache', '/p:/app', './.octopod/bashrc:/etc/octopod/bashrc:ro']);
+    expect(cli.volumes).toEqual(['/p:/app', './.octopod/bashrc:/etc/octopod/bashrc:ro', './.octopod/cache/cli/cache:/cache']);
     expect(out.services.find((x) => x.name === 'cli')?.tool).toBe(true);
     expect(formatPlan('shop', out.services, '/p')).toContain('tool    never started by up: octopod shell shop cli -- <command…>');
   });
@@ -466,6 +466,21 @@ describe('rendering services', () => {
     expect(tag(changed)).not.toBe(first);
   });
 
+  it('mounts the caches and temporary folders from .octopod/, the project\'s beside the recipe\'s, apart for instance N', async () => {
+    const book = await loadRecipes([BUILTIN_RECIPES]);
+    const out = renderServices({ project: 'shop', book, services: { app: { recipe: 'node-app', caches: { vite: '/app/node_modules/.vite' }, temp: { media: '/app/media' } } }, workspace: '/p' });
+    expect(out.compose.services.app.volumes).toEqual(
+      expect.arrayContaining(['./.octopod/cache/app/npm:/cache/npm', './.octopod/cache/app/vite:/app/node_modules/.vite', './.octopod/temp/app/media:/app/media']),
+    );
+    expect(out.services[0]).toEqual(expect.objectContaining({ caches: ['.octopod/cache/app/npm', '.octopod/cache/app/vite'], temp: ['.octopod/temp/app/media'] }));
+    expect(formatPlan('shop', out.services, '/p')).toContain('temp    .octopod/temp/app/media (octopod prune empties it)');
+    const second = renderServices({ project: 'shop-2', book, services: { app: { recipe: 'node-app' } }, workspace: '/p', instance: 2 });
+    expect(second.compose.services.app.volumes).toContain('./.octopod/cache/2/app/npm:/cache/npm');
+    // A cache, not data: the PHP tool's cache is no longer kept in .octopod/data.
+    const tool = renderServices({ project: 'shop', book, services: { lint: { recipe: 'php-cli' } }, workspace: '/p' });
+    expect(tool.services[0]).toEqual(expect.objectContaining({ volumes: [], caches: ['.octopod/cache/lint/cache'] }));
+  });
+
   it('builds the app with its user named after the project at the operator\'s uid, from an empty context', async () => {
     const book = await loadRecipes([BUILTIN_RECIPES]);
     const out = renderServices({ project: 'shop', book, services: { app: { recipe: 'node-app' } }, workspace: '/home/op/shop', owner: '1234:5678', secretFactory: secrets, hostOs: 'linux' });
@@ -477,12 +492,12 @@ describe('rendering services', () => {
       labels: { 'octopod.build': out.services[0].buildTag, 'octopod.project': 'shop' },
     });
     expect(out.files['.octopod/build/app/Dockerfile']).toContain('usermod');
-    expect(app.volumes).toEqual(['/home/op/shop:/app', './.octopod/bashrc:/etc/octopod/bashrc:ro']);
+    expect(app.volumes).toEqual(['/home/op/shop:/app', './.octopod/bashrc:/etc/octopod/bashrc:ro', './.octopod/cache/app/npm:/cache/npm']);
     expect(app.working_dir).toBe('/app');
     expect(app.user).toBe('1234:5678');
     expect(app.expose).toEqual(['3000']);
     expect(app.profiles).toEqual(['dev']);
-    expect(app.environment).toEqual({ HOST: '0.0.0.0', PORT: '3000', NODE_ENV: 'development', OCTOPOD_PROJECT: 'shop', OCTOPOD_SERVICE: 'app' });
+    expect(app.environment).toEqual({ HOST: '0.0.0.0', PORT: '3000', NODE_ENV: 'development', npm_config_cache: '/cache/npm', OCTOPOD_PROJECT: 'shop', OCTOPOD_SERVICE: 'app' });
     expect(app.networks).toBeUndefined();
   });
 

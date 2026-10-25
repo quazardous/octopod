@@ -135,7 +135,7 @@ describe.skipIf(process.platform === 'win32')('the API', () => {
 
   it('says its version and the contract it speaks, from package.json', async () => {
     const { version } = JSON.parse(await readFile(join(import.meta.dirname, '..', 'package.json'), 'utf8')) as { version: string };
-    expect((await call('GET', '/v1/version')).json).toEqual({ version, contract: 1, features: ['secrets', 'mcp'] });
+    expect((await call('GET', '/v1/version')).json).toEqual({ version, contract: 1, features: ['secrets', 'mcp', 'disk'] });
   });
 
   it('reports the edge as stopped when nothing runs', async () => {
@@ -209,6 +209,32 @@ describe.skipIf(process.platform === 'win32')('the API', () => {
     expect(page.text).toContain('<a href="http://api.demo.octopod.localhost:18499">');
     expect((await lost('<b>.octopod.localhost', 'text/html')).text).toContain('&#60;b&#62;.octopod.localhost');
     expect((await lost('nobody.octopod.localhost')).text).toContain('No route for nobody.octopod.localhost');
+  });
+
+  it("says what a project takes on disk, and destroys its data only when confirmed", async () => {
+    await call('POST', '/v1/projects', { root: join(base, 'demo') });
+    await mkdir(join(base, 'demo', '.octopod', 'data', 'db-data'), { recursive: true });
+    await writeFile(join(base, 'demo', '.octopod', 'data', 'db-data', 'table'), 'x'.repeat(2000));
+    await mkdir(join(base, 'demo', '.octopod', 'cache', 'app', 'npm'), { recursive: true });
+    await writeFile(join(base, 'demo', '.octopod', 'cache', 'app', 'npm', 'pkg'), 'y'.repeat(300));
+    const disk = (await call('GET', '/v1/projects/demo/disk')).json as { projects: Record<string, unknown>[] };
+    expect(disk.projects).toEqual([expect.objectContaining({ name: 'demo', data: 2000, cache: 300, temp: 0 })]);
+    // Instance 2 keeps its own beside the first's: each counted apart.
+    await mkdir(join(base, 'demo', '.octopod', 'data', '2', 'db-data'), { recursive: true });
+    await writeFile(join(base, 'demo', '.octopod', 'data', '2', 'db-data', 'table'), 'z'.repeat(700));
+    expect(((await call('GET', '/v1/projects/demo/disk?instance=1')).json as typeof disk).projects[0]).toEqual(expect.objectContaining({ name: 'demo', data: 2000 }));
+    expect(((await call('GET', '/v1/projects/demo/disk?instance=2')).json as typeof disk).projects[0]).toEqual(expect.objectContaining({ name: 'demo-2', data: 700 }));
+    const plan = (await call('POST', '/v1/projects/demo/destroy', {})).json as { done: boolean; removed: { what: string; bytes?: number }[] };
+    expect(plan.done).toBe(false);
+    expect(plan.removed).toEqual(expect.arrayContaining([expect.objectContaining({ what: 'data', bytes: 2700 }), expect.objectContaining({ what: 'caches', bytes: 300 })]));
+    expect(await stat(join(base, 'demo', '.octopod', 'data', 'db-data', 'table')).then(() => true)).toBe(true);
+    expect(((await call('POST', '/v1/projects/demo/destroy', { confirm: true })).json as { done: boolean }).done).toBe(true);
+    expect(await stat(join(base, 'demo', '.octopod', 'data')).then(() => true, () => false)).toBe(false);
+    // The console reads it, and never destroys, enrolled or not.
+    expect((await raw('POST', '/v1/projects/demo/destroy', { confirm: true }, { 'x-octopod-via': 'console' })).status).toBe(401);
+    const { code } = (await call('POST', '/v1/console/code')).json as { code: string };
+    const cookie = String((await raw('POST', '/v1/console/enroll', { code }, { 'x-octopod-via': 'console' })).headers['set-cookie']).split(';')[0]!;
+    expect((await raw('POST', '/v1/projects/demo/destroy', { confirm: true }, { 'x-octopod-via': 'console', cookie })).status).toBe(403);
   });
 
   it('never removes volumes for the console', async () => {

@@ -1,8 +1,8 @@
 /**
  * `octopod mcp`: the operations a coding agent needs, as MCP tools over stdio. The same
  * `Octopod` as the CLI and the API, so the same rules: a command is an argv array, never a
- * shell string; a destructive action asks for `confirm`; secrets, shells and the machine's
- * edge are not offered (the human's). The project is the one declared in the client's
+ * shell string; a destructive action asks for `confirm`; secrets, shells, destroying the
+ * data and the machine's edge are not offered (the human's). The project is the one declared in the client's
  * folder (the nearest `octopod.yaml` up the tree), or the one a tool names.
  */
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
@@ -15,7 +15,7 @@ import { OCTOPOD_VERSION } from './meta.js';
 import { CONTRACT, type Octopod } from './octopod.js';
 
 /** The tools, in the order they are listed: locked by a test, part of the contract. */
-export const MCP_TOOLS = ['octopod_status', 'octopod_logs', 'octopod_plan', 'octopod_exec', 'octopod_run', 'octopod_up', 'octopod_down', 'octopod_restart', 'octopod_oidc_session', 'octopod_oidc_token'] as const;
+export const MCP_TOOLS = ['octopod_status', 'octopod_logs', 'octopod_plan', 'octopod_exec', 'octopod_run', 'octopod_up', 'octopod_down', 'octopod_restart', 'octopod_prune', 'octopod_oidc_session', 'octopod_oidc_token'] as const;
 
 export interface McpOptions {
   /** The client's folder: where the project is looked for. */
@@ -199,6 +199,20 @@ export function mcpServer(octopod: Octopod, options: McpOptions): McpServer {
     guarded(async ({ project: named, instance: n, service }) => {
       const { name } = await resolve(named);
       return text(await octopod.restart(name, service, n));
+    }),
+  );
+
+  server.registerTool(
+    'octopod_prune',
+    {
+      description:
+        "Empties what may be lost in the project: the caches and temporary folders its recipes and octopod.yaml declare (one service's, or all), and the images its rebuilds left nameless. Never the data; a service whose temporary folders are emptied is restarted. Says what it freed.",
+      inputSchema: { project, service: z.string().min(1).max(64).optional() },
+      annotations: { destructiveHint: true, idempotentHint: true },
+    },
+    guarded(async ({ project: named, service }) => {
+      const { name } = await resolve(named);
+      return text(await octopod.prune(name, { service }));
     }),
   );
 

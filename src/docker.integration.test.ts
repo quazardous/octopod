@@ -1089,6 +1089,35 @@ describe.skipIf(!dockerAvailable())('a Python project made of recipes (real dock
     expect(info.text).toMatch(/^REDIS_URL\tredis:\/\/cache:6379$/m);
     expect(info.text).toMatch(/web\s+RUNNING/);
   });
+
+  it('keeps the caches in .octopod/cache as the operator, says what they take, and prunes them, the data left', async () => {
+    const wrote = await octopod.exec('pyapp', 'app', ['sh', '-c', 'echo "$UV_CACHE_DIR" && head -c 200000 /dev/zero > "$UV_CACHE_DIR/blob"']);
+    expect(wrote.output.trim()).toBe('/cache/uv');
+    const blob = join(root, '.octopod', 'cache', 'app', 'uv', 'blob');
+    expect((await stat(blob)).uid).toBe(process.getuid?.());
+    await mkdir(join(root, '.octopod', 'data'), { recursive: true });
+    await writeFile(join(root, '.octopod', 'data', 'kept'), 'data');
+    const [use] = (await octopod.disk('pyapp')).projects;
+    expect(use!.cache).toBeGreaterThanOrEqual(200_000);
+    const pruned = await octopod.prune('pyapp');
+    expect(pruned.freed).toBeGreaterThanOrEqual(200_000);
+    expect(await stat(blob).then(() => true, () => false)).toBe(false);
+    // The folder stays, the service still writes to it; the data is untouched.
+    expect((await octopod.exec('pyapp', 'app', ['sh', '-c', 'touch "$UV_CACHE_DIR/again"'])).ok).toBe(true);
+    expect(await readFile(join(root, '.octopod', 'data', 'kept'), 'utf8')).toBe('data');
+  });
+
+  it('destroys the data only when confirmed, and the project comes up again, empty', async () => {
+    const plan = await octopod.destroy('pyapp');
+    expect(plan.done).toBe(false);
+    expect(plan.removed.map((r) => r.what)).toEqual(expect.arrayContaining(['data', 'caches']));
+    expect(await readFile(join(root, '.octopod', 'data', 'kept'), 'utf8')).toBe('data');
+    const done = await octopod.destroy('pyapp', { confirm: true });
+    expect(done.done).toBe(true);
+    expect(await stat(join(root, '.octopod', 'data')).then(() => true, () => false)).toBe(false);
+    await octopod.up('pyapp');
+    expect((await eventually('pyapp.octopod.localhost', 200)).body).toContain('served by python-app');
+  });
 });
 
 describe.skipIf(!dockerAvailable())('the OIDC provider, seen from the browser and from the app (real docker)', { timeout: 600_000 }, () => {

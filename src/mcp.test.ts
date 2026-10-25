@@ -22,6 +22,7 @@ function fakeOctopod(overrides: Partial<Record<keyof Octopod, unknown>> = {}) {
     ensureRegistered: vi.fn(async () => ({ name: 'demo', registered: false })),
     runAction: vi.fn(async () => ({ ok: true, code: 0, stderr: '' })),
     plan: vi.fn(async () => ({ text: '+ app  node-app' })),
+    prune: vi.fn(async () => ({ freed: 1000, emptied: ['/somewhere/.octopod/cache/app/npm'], images: 0 })),
     oidcSession: vi.fn(async () => ({ header: 'sessionid=abc', cookies: [], landed: 'http://app/me', jar: '' })),
     oidcLink: vi.fn(async () => ({ url: 'http://id/sign-in?ticket=t', expires_in: 120 })),
     oidcToken: vi.fn(async () => ({ id_token: 'x.y.z' })),
@@ -56,7 +57,7 @@ describe('octopod mcp', () => {
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name)).toEqual([...MCP_TOOLS]);
     expect(tools.filter((t) => t.annotations?.readOnlyHint).map((t) => t.name)).toEqual(['octopod_status', 'octopod_logs', 'octopod_plan']);
-    expect(tools.filter((t) => t.annotations?.destructiveHint).map((t) => t.name)).toEqual(['octopod_run', 'octopod_down', 'octopod_restart']);
+    expect(tools.filter((t) => t.annotations?.destructiveHint).map((t) => t.name)).toEqual(['octopod_run', 'octopod_down', 'octopod_restart', 'octopod_prune']);
   });
 
   it("finds the project declared in the client's folder, or above it", async () => {
@@ -100,6 +101,14 @@ describe('octopod mcp', () => {
     expect((await call('octopod_oidc_session', { user: 'ada', url: 'http://app.demo.octopod.localhost/login', link: true })).text).toContain('sign-in?ticket');
     expect((await call('octopod_oidc_token', { claims: { groups: ['beta'] } })).text).toContain('x.y.z');
     expect((await call('octopod_oidc_token', {})).isError).toBe(true);
+  });
+
+  it('prunes what may be lost, a service or all, and offers no way to destroy the data', async () => {
+    const octopod = fakeOctopod();
+    const { call, client } = await connect(octopod);
+    expect((await call('octopod_prune', { service: 'app' })).text).toContain('.octopod/cache/app/npm');
+    expect(octopod.prune).toHaveBeenCalledWith('demo', { service: 'app' });
+    expect((await client.listTools()).tools.map((t) => t.name).filter((n) => /destroy/.test(n))).toEqual([]);
   });
 
   it('keeps the lines of the logs that match', async () => {

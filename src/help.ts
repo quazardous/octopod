@@ -20,6 +20,17 @@ export const HELP: Record<string, CommandHelp> = {
   restart: { usage: 'octopod restart [project] [--service s]', about: 'Restart the project, or one service.', flags: [['--service s', 'one service'], INSTANCE, JSON_FLAG] },
   plan: { usage: 'octopod plan [dir] [--instance N]', about: 'What up would run, writing nothing: each service, its image, the variables it gets and from where, its data, its address.', flags: [INSTANCE, JSON_FLAG] },
   register: { usage: 'octopod register [dir]', about: 'Declare a project without starting it.', flags: [JSON_FLAG] },
+  disk: { usage: 'octopod disk [project] [--all]', about: "What a project takes on disk (every project's, outside one): its data, homes, caches, temporary files, images and the leftovers of its rebuilds; and the machine's build cache.", flags: [['--all', 'every project'], JSON_FLAG] },
+  prune: {
+    usage: 'octopod prune [project] [service] [--all] [--build-cache]',
+    about: 'Empty what may be lost: the caches and temporary folders its recipes and octopod.yaml declare, and the images its rebuilds left nameless. Never the data.',
+    flags: [['--all', 'every project'], ['--build-cache', "also the machine's build cache, every project's (the next builds are slower)"], JSON_FLAG],
+  },
+  destroy: {
+    usage: 'octopod destroy <project> [service] [--yes] [--keep-secrets]',
+    about: "Remove a project's data for good, or one service's: .octopod/data, homes, caches, its images and volumes, its secrets; on the group's server, its database reset. Asks first, shows what and how much.",
+    flags: [['--yes', 'no question'], ['--keep-secrets', 'keep the passwords (the data alone goes)'], JSON_FLAG],
+  },
   unregister: { usage: 'octopod unregister <project>', about: 'Take its containers and images away; its data stays in its folder.' },
   list: { usage: 'octopod list [--group g] [--tag t]', about: 'The registered projects.', flags: [['--group g', 'those of a group'], ['--tag t', 'those carrying a tag'], JSON_FLAG] },
   shell: { usage: 'octopod shell [project] [service] [--root] [--oneshot] [-- command…]', about: "A shell in a running service, as its user, in its working folder; or a command, with a terminal.", flags: [['--root', 'as root'], ['--oneshot', 'in a fresh container of a service that is not running'], INSTANCE] },

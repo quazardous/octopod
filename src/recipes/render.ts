@@ -34,6 +34,9 @@ export interface ServiceRequest {
   shared?: boolean;
   /** Where the console's icon leads, as the project says: a path on its route, or a URL. */
   link?: string;
+  /** Folders that may be lost, beside the recipe's (a name they share is the project's). */
+  caches?: Record<string, string>;
+  temp?: Record<string, string>;
 }
 
 export type ParamValue = string | number | boolean;
@@ -119,6 +122,9 @@ export interface RenderedService {
   actions?: Record<string, ActionSpec>;
   /** Its user's home, kept: the host folder, relative to the project when octopod's. */
   home?: string;
+  /** Its folders that may be lost, relative to the project: `.octopod/cache/<service>/<name>`, `.octopod/temp/…`. */
+  caches?: string[];
+  temp?: string[];
   /** The services it waits for at start: those that provide what it requires. */
   waits?: { service: string; healthy: boolean }[];
   /** Run by the group, not by the project. */
@@ -491,6 +497,16 @@ export function renderServices(options: RenderOptions): Rendered {
         mounts.push(`${isAbsolute(home) ? home : `./${home}`}:/home/${userNameOf(options.project)}`);
       }
     }
+    // What may be lost, apart from the data: `octopod prune` empties these folders.
+    const lost: Record<'cache' | 'temp', string[]> = { cache: [], temp: [] };
+    for (const [kind, folders] of [['cache', { ...recipe.caches, ...r.request.caches }], ['temp', { ...recipe.temp, ...r.request.temp }]] as const) {
+      const n = options.instance ?? 1;
+      for (const [key, path] of Object.entries(folders)) {
+        const dir = `.octopod/${kind}/${n > 1 ? `${n}/` : ''}${r.name}/${key}`;
+        lost[kind].push(dir);
+        mounts.push(`./${dir}:${path}`);
+      }
+    }
     if (recipe.supervisor) {
       // Always there, empty or not, so the recipe's configuration can include it; its digest
       // as a label, so a change of programs recreates the container, whose supervisor reads
@@ -537,6 +553,8 @@ export function renderServices(options: RenderOptions): Rendered {
       ephemeral,
       ...(workdir ? { workspace: workdir } : {}),
       ...(home ? { home } : {}),
+      ...(lost.cache.length > 0 ? { caches: lost.cache } : {}),
+      ...(lost.temp.length > 0 ? { temp: lost.temp } : {}),
       ...(recipe.port ? { port: recipe.port } : {}),
       ...(recipe.route && r.request.route !== false ? { route: recipe.route === true ? '' : recipe.route.subdomain } : {}),
       ...(waits.length > 0 ? { waits } : {}),
@@ -577,6 +595,8 @@ export function formatPlan(project: string, services: RenderedService[], workspa
     if (params.length > 0) lines.push(`    params  ${params.map(([k, v]) => `${k}=${v}`).join(' ')}`);
     if (s.secrets.length > 0) lines.push(`    secrets ${s.secrets.join(', ')} (generated, kept by octopod)`);
     if (s.volumes.length > 0) lines.push(`    data    ${s.volumes.join(', ')} (in .octopod/data)`);
+    if (s.caches) lines.push(`    cache   ${s.caches.join(', ')} (octopod prune empties it)`);
+    if (s.temp) lines.push(`    temp    ${s.temp.join(', ')} (octopod prune empties it)`);
     if (s.ephemeral.length > 0) lines.push(`    NOT KEPT ${s.ephemeral.join(', ')} — lost when the container is recreated`);
     if (s.workspace) lines.push(`    files   ${workspace} → ${s.workspace}  READ-WRITE`);
     if (s.programs) lines.push(`    runs    ${s.programs.join(', ')} (supervised)`);

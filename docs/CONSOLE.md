@@ -6,7 +6,8 @@
 and what they use. A group is one tile: the servers its projects share in its head, then each
 project's apps; it opens on the group's page, the same view and each project in full. A
 project run more than once is one stacked tile, a dot per instance. A project's page has its
-instances, its apps, every container in a table (state, health, programs), what octopod
+instances, its apps, every container in a table (state, health, programs), what each
+instance takes on disk (its data apart from what `octopod prune` may empty), what octopod
 warns about, and the logs, which it refreshes.
 
 A project is drawn as it is made. Each app comes with its address and the icons of its own
@@ -19,7 +20,7 @@ of what runs in it (its runtime, packages, environment, programs), or where the 
 says (`link: /__debug__/` on the service).
 
 It brings a project, or a group's projects, up or down; Down asks for a second click. The rest (`restart`, `exec`,
-`run`, removing volumes) stays on the command line. It links to Traefik's dashboard at
+`run`, removing volumes, pruning, destroying data) stays on the command line. It links to Traefik's dashboard at
 `http://traefik.octopod.localhost`.
 
 ## Who may see it

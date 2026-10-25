@@ -11,8 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - A project's tests run on the group's shared database: it owns, as many as it makes, the databases named `<project>_…` (`shop_test`, `shop_jobs`) and `test_<project>`, `test_<project>_…` (Django's, parallel runs included), made, used and dropped there, and no other project's. On postgres, its role may create databases, and `<project>_test` is made. Run `octopod up` on the project once to get the grants.
 
+- `octopod disk` says what each project takes: its data, homes, caches, temporary files, images, and the images its rebuilds left nameless; and the machine's build cache. `doctor` warns when a project keeps more than 5 GB it could lose. The console's project page shows each instance's.
+- `octopod prune [project] [service]` empties what may be lost, never the data: the caches and temporary folders, and the leftover images (`--all` for every project, `--build-cache` for the machine's build cache). Recipes and services declare these folders with `caches:` and `temp:`, mounted from `.octopod/cache/` and `.octopod/temp/`: `node-app` keeps npm's cache there, `python-app` uv's and pip's, `php-app` and `php-cli` composer's. The MCP server offers `octopod_prune`.
+- `octopod destroy <project> [service]` removes a project's data for good, or one service's: `.octopod/data`, its homes, caches, temporary files, images, volumes and secrets (`--keep-secrets` keeps them); on the group's server, its database is reset. It lists what it would remove and the sizes, and asks; `--yes` answers. The console and the MCP server never offer it.
+
 ### Changed
 
+- `php-cli` keeps its cache in `.octopod/cache/<service>/cache` instead of `.octopod/data/<service>-cache`: move it, or let it fill again. `up` also removes the images a project's own compose files rebuilt, now nameless, not only a recipe's.
 - A name the edge routes nowhere gets octopod's page, not Traefik's bare `404 page not found`: still a 404, saying no route answers it; and for an address of before 0.7.0 (`box.testbox.localhost`) that a registered project had, where it is now (`box.testbox.group-admi.octopod.localhost`). Run `octopod edge up` to get it. docs/PATTERNS.md says what long names ask of an nginx behind the edge (`server_names_hash_bucket_size 128;`).
 - The OIDC provider's sign-in and signed-out pages carry a hazard-tape banner, "Development sign-in — not a real identity provider": nobody who lands on them, or sees a screenshot, takes them for a real login. Run `octopod up` on a project to rebuild its provider.
 

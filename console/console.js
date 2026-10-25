@@ -37,7 +37,12 @@ const state = {
   /** The project whose Down was clicked once, by the same key: a second click stops it. */
   arming: null,
   armTimer: 0,
+  /** What each instance takes on disk, by `<project>#<instance>`: { at, data } or { at, error }; read again after a minute. */
+  disk: new Map(),
 };
+
+/** How long a project's disk figures are shown before they are read again: reading them walks its folders. */
+const DISK_MS = 60_000;
 
 /** How long a first click on Down waits for the second. */
 const CONFIRM_MS = 4000;
@@ -515,6 +520,52 @@ function servicesTable(p, base, instance) {
   );
 }
 
+/** A size for a person: 1.2 GB, 340 MB. */
+function humanSize(bytes) {
+  const units = ['B', 'kB', 'MB', 'GB', 'TB'];
+  let n = bytes;
+  let unit = 0;
+  while (n >= 1000 && unit < units.length - 1) {
+    n /= 1000;
+    unit++;
+  }
+  return `${unit === 0 || n >= 10 ? Math.round(n) : n.toFixed(1)} ${units[unit]}`;
+}
+
+/**
+ * What an instance takes on disk, on its page: what is kept apart from what `octopod prune`
+ * may empty. Read when the page shows it, then once a minute at most; the console only reads.
+ */
+function diskView(base, instance) {
+  const key = `${base}#${instance}`;
+  const known = state.disk.get(key);
+  if (!known || (Date.now() - known.at > DISK_MS && !known.loading)) {
+    state.disk.set(key, { ...known, at: known ? known.at : 0, loading: true });
+    api(`/v1/projects/${encodeURIComponent(base)}/disk?instance=${instance}`).then(
+      (d) => state.disk.set(key, { at: Date.now(), data: d.projects[0] }),
+      (e) => state.disk.set(key, { at: Date.now(), error: e.message }),
+    ).then(() => state.last && render(state.last));
+  }
+  if (!known || (!known.data && !known.error)) return el('div', { class: 'disk muted' }, 'Disk: reading…');
+  if (known.error) return el('div', { class: 'disk muted' }, `Disk: ${known.error}`);
+  const d = known.data;
+  const part = (label, bytes, title) => el('span', { class: 'disk-part', title }, el('span', { class: 'muted' }, `${label} `), humanSize(bytes));
+  const lost = d.cache + d.temp + d.leftovers;
+  return el(
+    'div',
+    { class: 'disk' },
+    el('span', { class: 'disk-label' }, 'Disk'),
+    part('data', d.data, 'its .octopod/data: databases, uploads — only octopod destroy removes it'),
+    part('home', d.home, 'its users\' homes kept in .octopod/home'),
+    part('images', d.images, 'the images built for it'),
+    el('span', { class: 'disk-sep' }, '·'),
+    part('cache', d.cache, 'caches its recipes declare, in .octopod/cache'),
+    part('temp', d.temp, 'temporary folders, in .octopod/temp'),
+    part('leftovers', d.leftovers, 'nameless images its rebuilds left'),
+    lost > 0 ? el('span', { class: 'muted mono disk-hint', title: 'empties cache, temp and leftovers; the data stays' }, `octopod prune ${base}`) : null,
+  );
+}
+
 function card(p, base, nested = false, inGroup = false) {
   const instance = p.instance || 1;
   const { tone, label } = projectTone(p);
@@ -536,6 +587,8 @@ function card(p, base, nested = false, inGroup = false) {
     nested ? null : el('div', { class: 'root mono muted' }, p.root),
     nested || !(p.compose || []).length ? null : details(`${key}:compose`, `${p.compose.length} compose file${p.compose.length > 1 ? 's' : ''}`, el('ul', {}, p.compose.map((f) => el('li', { class: 'mono' }, f)))),
     p.problem ? el('p', { class: 'problem' }, p.problem) : [stackView(p, base, !inGroup), servicesTable(p, base, instance)],
+    // On the project's page only: a group's page lists many, and reading each walks its folders.
+    inGroup || p.problem ? null : diskView(base, instance),
     (p.warnings || []).length ? el('ul', { class: 'warnings' }, p.warnings.map((w) => el('li', {}, w))) : null,
     (p.others || []).map((o) => card(o, base, true)),
   );

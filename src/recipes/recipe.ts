@@ -101,6 +101,13 @@ export const RecipeSchema = z
           .strict(),
       )
       .default([]),
+    /**
+     * Folders that may be lost: a package manager's cache (`npm: /var/cache/npm`), the app's
+     * temporary files. Mounted from the project's `.octopod/cache/` and `.octopod/temp/`,
+     * kept from one container to the next; `octopod prune` empties them, never the data.
+     */
+    caches: z.record(Ident, z.string().regex(/^\/[A-Za-z0-9._/-]*$/, 'an absolute path in the container')).default({}),
+    temp: z.record(Ident, z.string().regex(/^\/[A-Za-z0-9._/-]*$/, 'an absolute path in the container')).default({}),
     /** Named volumes — bound by octopod to the project's `.octopod/data/`. `when`: a bool param that keeps it. */
     volumes: z.array(z.object({ name: Ident, path: z.string().min(1).max(200), when: Ident.optional() }).strict()).default([]),
     /**

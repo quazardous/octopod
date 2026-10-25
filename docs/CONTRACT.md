@@ -237,6 +237,14 @@ workspace: .               # the folder a recipe's workspace mounts; the project
   - `workdir: /my-app` mounts the project there instead of the recipe's workspace (`/app`):
     a project keeps the paths it has. It is passed to the build as `WORKSPACE` (php-app
     serves its docroot from it).
+- **What may be lost.** A recipe's `caches:` and `temp:` name folders of its service that
+  hold nothing the project needs to keep (`caches: { npm: /cache/npm }`): mounted from
+  `.octopod/cache/<service>/<name>` and `.octopod/temp/<service>/<name>`
+  (`.octopod/cache/<N>/<service>/…` for instance N), created as the operator. A service in
+  `octopod.yaml` adds its own (`temp: { media: /app/media }`); a name it shares with the
+  recipe's is the project's. `node-app` keeps npm's cache there (`npm_config_cache`),
+  `python-app` uv's and pip's, `php-app` and `php-cli` composer's. `octopod prune` empties
+  them; nothing else does.
 - **Where the console's icon leads.** A routed recipe's icon leads to its route, at the
   recipe's `link:` (`/admin/` for `oidc`); a database's, to the admin wired to it. An app's
   (a recipe with a workspace: its address is listed beside it) leads to its info page: what
@@ -405,6 +413,10 @@ first time, kept after), and answers only a request that carries that token in t
 | DELETE | `/v1/console/sessions` | | `{ closed }` — every browser signed out, every waiting code void. Socket only |
 | POST | `/v1/console/enroll` | `{ code }` | `{}` and the session's cookie (`octopod_console`, `HttpOnly`, `SameSite=Strict`, 30 days); `403` for a wrong or expired code. Through the relay only |
 | POST | `/v1/console/signout` | | `{}`, the session closed and its cookie removed. Through the relay only |
+| GET | `/v1/disk` · `/v1/projects/:name/disk?instance=` | | `{ projects: DiskUse[], buildCache? }` — bytes: `DiskUse` is `{ name, data, home, cache, temp, images, leftovers }`, the leftovers being the nameless images its rebuilds left. A project's: every instance together, or the one named. `buildCache`, the machine's, with every project's only |
+| POST | `/v1/projects/:name/prune` | `{ service? }` | `Pruned`: `{ freed, emptied, images }` — the caches and temporary folders emptied (the folders kept), a service with temporary folders restarted, the project's nameless images removed. Never the data |
+| POST | `/v1/build-cache/prune` | | `{ freed }` — the machine's build cache, every project's |
+| POST | `/v1/projects/:name/destroy` | `{ service?, keepSecrets?, confirm? }` | `{ done, removed: [{ what, path?, bytes? }], freed }`. Without `confirm: true`, what it would remove, nothing done. With it: the project down (every instance, its volumes and images), its `.octopod/data`, `home`, `cache`, `temp` removed (one service's folders only, with `service`), its secrets too unless `keepSecrets`; a tenant of the group's server gets its database reset, the server stays. Refused (403) through the console |
 | GET | `/v1/lost` | | `404`, HTML for a browser, text otherwise: no route for the name in `X-Octopod-Lost`, or where that old name of a project is now. Needs no enrollment |
 
 **The console's enrollment.** The relay sets `X-Octopod-Via: console` on everything it
@@ -469,11 +481,12 @@ names and parameters part of the contract (feature `mcp`):
 | `octopod_up` | `project?`, `instance?` | registers the folder's project if needed, then up; past 60 s it answers that the up is still running, and it goes on |
 | `octopod_down` | `project?`, `instance?`, `volumes?`, `confirm?` | `volumes: true` needs `confirm: true` |
 | `octopod_restart` | `project?`, `instance?`, `service` | one service |
+| `octopod_prune` | `project?`, `service?` | `Pruned`: the caches, temporary folders and leftover images emptied, as `POST …/prune` |
 | `octopod_oidc_session` | `project?`, `instance?`, `user?`, `claims?`, `issuer?`, `url`, `link?` | `{ cookie, cookies, landed }`: the app signed in as the user, from `url`, its sign-in; with `link`, `{ url, expires_in }` for a browser |
 | `octopod_oidc_token` | `project?`, `instance?`, `user?`, `claims?`, `issuer?`, `client?` | the provider's signed `id_token` and `access_token` for the user |
 
 A tool's failure is a result with `isError`, its message said for the agent. Not offered:
-secrets, a shell, register and unregister, the edge.
+secrets, a shell, register and unregister, destroying data, the edge.
 
 ## Schemas
 
@@ -492,6 +505,7 @@ and refuses to run below the version it needs. What it may rely on, from 0.1.0:
   field — none. Check for the feature you use, not for a version number:
   - `secrets` (0.2.0): `octopod secrets <project> [--instance N] --json` → `{ values }`.
   - `mcp` (0.7.0): `octopod mcp`, the MCP server and its tools.
+  - `disk` (unreleased): `octopod disk`, `prune` and `destroy`, and their API.
 - **The CLI, with `--json`**: `version`, `register <dir>`, `plan <dir>`, `recipes`,
   `up <project>`, `status <project>`, `restart <project> --service <s>`,
   `exec <project> <service> --timeout <ms> -- <argv…>` (its answer's `mode` included),

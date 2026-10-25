@@ -30,11 +30,15 @@ command:
 supervisor: { config: /etc/octopod/supervisord.conf, programs: [] }
 env:
   PYTHONUNBUFFERED: "1"
-  # uv uses the image's Python and keeps its cache in the user's home (home: true keeps it).
+  # uv uses the image's Python. Its cache and pip's are kept apart from the data: octopod
+  # prune empties them.
   UV_PYTHON_DOWNLOADS: never
   UV_LINK_MODE: copy
+  UV_CACHE_DIR: /cache/uv
+  PIP_CACHE_DIR: /cache/pip
 workspace: /app
 home: true
+caches: { uv: /cache/uv, pip: /cache/pip }
 port: 8000
 route: true
 profiles: [dev]

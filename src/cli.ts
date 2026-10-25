@@ -32,6 +32,7 @@ import { spawn } from 'node:child_process';
 import { closeSync, existsSync, openSync, read as readFs } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { humanSize } from './disk.js';
 import { dockerEnv } from './docker.js';
 import { DECLARATION_FILE, loadDeclaration } from './declaration.js';
 import { listen } from './api.js';
@@ -455,6 +456,67 @@ async function main(argv: string[]): Promise<void> {
         return json ? print({ closed }, true) : console.log(`${closed} session${closed === 1 ? '' : 's'} closed: each browser enrolls again`);
       }
       throw new Error('usage: octopod console code|revoke');
+    }
+    case 'disk': {
+      // octopod disk [project] [--all]: what each project takes, by what may be lost or not.
+      const words = positional(rest);
+      const here = await loadDeclaration(process.cwd()).then(() => true, () => false);
+      const out = await octopod.disk(rest.includes('--all') || (!words[0] && !here) ? undefined : await projectName(rest));
+      if (json) return print(out, true);
+      const cols = ['data', 'home', 'cache', 'temp', 'images', 'leftovers'] as const;
+      const width = Math.max(7, ...out.projects.map((p) => p.name.length));
+      console.log(`${'project'.padEnd(width)}  ${cols.map((c) => c.padStart(9)).join(' ')}`);
+      for (const p of out.projects) console.log(`${p.name.padEnd(width)}  ${cols.map((c) => humanSize(p[c]).padStart(9)).join(' ')}`);
+      if (out.buildCache !== undefined) console.log(`\nbuild cache (the machine's, every build's): ${humanSize(out.buildCache)}`);
+      console.log('octopod prune empties cache, temp and leftovers; the data stays. octopod destroy removes the data.');
+      return;
+    }
+    case 'prune': {
+      // octopod prune [project] [service] [--all] [--build-cache]: what may be lost, emptied.
+      const words = positional(rest);
+      const here = await loadDeclaration(process.cwd()).then((d) => d.project, () => undefined);
+      const named = words[0] !== undefined && (await octopod.names()).includes(words[0]);
+      let projects: string[] = [];
+      let service: string | undefined;
+      if (rest.includes('--all')) projects = await octopod.names();
+      else if (named) [projects, service] = [[words[0]!], words[1]];
+      else if (here) [projects, service] = [[here], words[0]];
+      else if (!rest.includes('--build-cache')) throw new Error('usage: octopod prune [project] [service] [--all] [--build-cache]');
+      const results: Record<string, unknown> = {};
+      let freed = 0;
+      for (const project of projects) {
+        const pruned = await octopod.prune(project, { service });
+        results[project] = pruned;
+        freed += pruned.freed;
+        if (!json) console.log(`${project}: ${humanSize(pruned.freed)} (${pruned.emptied.length} folders emptied, ${humanSize(pruned.images)} of leftover images)`);
+      }
+      if (rest.includes('--build-cache')) {
+        const cache = await octopod.pruneBuildCache();
+        results.buildCache = cache;
+        freed += cache;
+        if (!json) console.log(`build cache: ${humanSize(cache)}`);
+      }
+      return json ? print({ freed, ...results }, true) : console.log(`freed ${humanSize(freed)}`);
+    }
+    case 'destroy': {
+      // octopod destroy <project> [service] [--yes] [--keep-secrets]: the data, for good.
+      const [project, service] = positional(rest);
+      if (!project) throw new Error('usage: octopod destroy <project> [service] [--yes] [--keep-secrets]');
+      const options = { service, keepSecrets: rest.includes('--keep-secrets') };
+      const plan = await octopod.destroy(project, options);
+      const list = (r: typeof plan) => r.removed.map((x) => `  - ${x.what}${x.path ? ` ${x.path}` : ''}${x.bytes !== undefined ? ` (${humanSize(x.bytes)})` : ''}`).join('\n');
+      let confirmed = rest.includes('--yes');
+      if (!confirmed && !json && process.stderr.isTTY) {
+        console.log(`octopod destroy ${project}${service ? ` ${service}` : ''} removes, for good:\n${list(plan)}`);
+        confirmed = await ask(`Destroy ${humanSize(plan.freed)}? There is no undo. [y/N] `);
+      }
+      if (!confirmed) {
+        if (json) return print(plan, true);
+        if (!process.stderr.isTTY) console.log(`would remove:\n${list(plan)}`);
+        return console.log('nothing removed (--yes answers)');
+      }
+      const done = await octopod.destroy(project, { ...options, confirm: true });
+      return json ? print(done, true) : console.log(`destroyed: ${humanSize(done.freed)}\n${list(done)}`);
     }
     case 'unregister':
       if (!positional(rest)[0]) throw new Error('usage: octopod unregister <project>');

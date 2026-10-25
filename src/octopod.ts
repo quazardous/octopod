@@ -19,7 +19,11 @@ import { BUILD_LABEL, formatPlan, PROJECT_LABEL, renderServices, SHARED_NETWORK,
 import { ConsoleAccess } from './consoleAccess.js';
 import { cliDocker, composeUp, DockerError, type Docker } from './docker.js';
 import { bindSources, choosePort, projectAllowConfig, composePorts, CONSOLE_HOST, consoleContainer, consoleNginxConfig, DASHBOARD_HOST, DATA_DIR, dataVolumes, duplicationBlockers, edgeCompose, edgeContainer, imagePorts, localOnlyConfig, projectOverride, traefikConfig, type ComposeService, type ComposeVolume, type ResolvedPort } from './generate.js';
+import { dockerBytes, empty, humanSize, sizeOf } from './disk.js';
 import { edgeNetwork, fullHost, instanceName, projectDomain, RESERVED_PROJECTS, reservedName } from './names.js';
+
+/** Past this, what a project could lose is worth a word from doctor. */
+const PRUNE_HINT = 5e9;
 
 /** The version of the contract in docs/CONTRACT.md: the declaration, the API, the CLI's JSON. */
 export const CONTRACT = 1;
@@ -29,7 +33,7 @@ export const CONTRACT = 1;
  * What this octopod adds to contract 1, by name: a client checks for the feature it needs,
  * since an older octopod speaks contract 1 too without it. Absent before 0.2.0: none.
  */
-export const FEATURES = ['secrets', 'mcp'];
+export const FEATURES = ['secrets', 'mcp', 'disk'];
 
 export async function version(): Promise<{ version: string; contract: number; features: string[] }> {
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
@@ -89,6 +93,36 @@ export interface Project {
   tags?: string[];
   /** The services group N shares (`<N>-shared`): not a project, shown in the projects that use them. */
   sharedOf?: string;
+}
+
+/** What a project takes on disk, in bytes, by what it is: only `data` is never pruned. */
+export interface DiskUse {
+  name: string;
+  /** `.octopod/data`: databases, uploads. Only `destroy` removes it. */
+  data: number;
+  /** Its users' homes kept in `.octopod/home`. */
+  home: number;
+  /** `.octopod/cache` and `.octopod/temp`: what `prune` empties. */
+  cache: number;
+  temp: number;
+  /** The images built for it, and the nameless ones its rebuilds left (`prune` removes these). */
+  images: number;
+  leftovers: number;
+}
+
+/** What `prune` freed: the folders it emptied, and the bytes. */
+export interface Pruned {
+  freed: number;
+  emptied: string[];
+  images: number;
+  buildCache?: number;
+}
+
+/** What `destroy` removes (or would, without confirm): each thing and its size. */
+export interface Destroyed {
+  done: boolean;
+  removed: { what: string; path?: string; bytes?: number }[];
+  freed: number;
 }
 
 /** A known service: what the console draws (`recipe`), where its icon leads (`link`), what it is. */
@@ -755,9 +789,10 @@ export class Octopod {
         await mkdir(join(declaration.root, dirname(path)), { recursive: true });
         await writeIfChanged(join(declaration.root, path), content);
       }
-      // A kept home in .octopod/, created as the operator: docker would create it as root.
+      // A kept home, caches and temporary folders in .octopod/, created as the operator: docker would create them as root.
       for (const service of rendered.services) {
         if (service.home && !isAbsolute(service.home)) await mkdir(join(declaration.root, service.home), { recursive: true });
+        for (const dir of [...(service.caches ?? []), ...(service.temp ?? [])]) await mkdir(join(declaration.root, dir), { recursive: true });
       }
     }
     const declared = new Set(declaration.expose.map((e) => e.service));
@@ -1001,10 +1036,12 @@ export class Octopod {
     await this.forgetOrphanVolumes(declaration, config.volumes ?? {});
     // Tools are not started, but built now: run on demand, they answer at once.
     if (declaration.tools) await this.docker.run([...this.composeArgs(declaration, true), '--profile', TOOL_PROFILE, 'build', ...declaration.tools]);
-    // The images those builds replaced, now nameless: the project's only.
+    // The images those builds replaced, now nameless: the project's only — a recipe's, and
+    // one its own compose files build, which compose labels with the project.
     if (stale.length > 0 || declaration.tools) {
       await this.docker.run(['image', 'prune', '-f', '--filter', `label=${PROJECT_LABEL}=${declaration.project}`]).catch(() => undefined);
     }
+    await this.docker.run(['image', 'prune', '-f', '--filter', `label=com.docker.compose.project=${declaration.project}`]).catch(() => undefined);
     await this.connect(declaration.project);
     // Its routes answer the host and its own containers; a group's shared services, the
     // projects that use them too — this one among them, now that its network exists.
@@ -1861,7 +1898,176 @@ export class Octopod {
       differ.length === 0 ? "each project's copy of its secrets agrees with octopod's" : `octopod's state and the project's .octopod/secrets.<project>.json differ for ${differ.join(', ')}`,
       `octopod status ${differ[0] ?? ''} says which; the state's are used: a database made with the other values refuses them`,
     );
+    // What may be lost, grown large: caches, temporary files, the leftovers of rebuilds.
+    if (server) {
+      const heavy = (await this.disk().catch(() => ({ projects: [] as DiskUse[] }))).projects.filter((p) => p.cache + p.temp + p.leftovers > PRUNE_HINT);
+      add('disk', heavy.length === 0, heavy.length === 0 ? `no project keeps more than ${humanSize(PRUNE_HINT)} it could lose` : `${heavy.map((p) => `${p.name} (${humanSize(p.cache + p.temp + p.leftovers)})`).join(', ')}: caches, temporary files and leftover images`, heavy.map((p) => `octopod prune ${p.name}`).join('; '));
+    }
     return { checks };
+  }
+
+  // ─── Disk ───────────────────────────────────────────────────────────────────
+
+  /** The instances a project has: 1, and those `up --instance N` made. */
+  private async everyInstance(name: string): Promise<number[]> {
+    return [1, ...(await this.instances(name)).filter((n) => n !== 1)];
+  }
+
+  /** The bytes of the images labelled for a project, and of the nameless ones among them. */
+  private async imageBytes(project: string, dangling: boolean): Promise<number> {
+    const seen = new Map<string, number>();
+    for (const label of [`${PROJECT_LABEL}=${project}`, `com.docker.compose.project=${project}`]) {
+      const out = await this.docker.run(['image', 'ls', '--filter', `label=${label}`, ...(dangling ? ['--filter', 'dangling=true'] : []), '--format', '{{.ID}} {{.Size}}']).catch(() => '');
+      for (const [id, size] of out.split('\n').map((l) => l.trim().split(' ')).filter(([id]) => id)) seen.set(id!, dockerBytes(size ?? ''));
+    }
+    return [...seen.values()].reduce((a, b) => a + b, 0);
+  }
+
+  /**
+   * What each project takes (or one, every instance together), and with every project the
+   * machine's build cache (slow to read: Docker sizes everything for it). With an instance,
+   * that instance's alone: instance N keeps its folders in `<folder>/<N>/`, the first in
+   * the rest.
+   */
+  async disk(name?: string, instance?: number): Promise<{ projects: DiskUse[]; buildCache?: number }> {
+    const registry = await this.registry();
+    const names = name ? [name] : Object.keys(registry);
+    const projects: DiskUse[] = [];
+    const of = async (path: string): Promise<number> => {
+      if (instance === undefined) return sizeOf(path);
+      if (instance > 1) return sizeOf(join(path, String(instance)));
+      let total = 0;
+      for (const entry of await readdir(path).catch(() => [])) if (!/^\d+$/.test(entry)) total += await sizeOf(join(path, entry));
+      return total;
+    };
+    for (const project of names) {
+      const root = registry[project];
+      if (!root) throw new OctopodError(`no project "${project}"`);
+      const dir = join(root, '.octopod');
+      const named = instance ? [instanceName(project, instance)] : [project, ...(await this.instances(project)).filter((n) => n > 1).map((n) => instanceName(project, n))];
+      let images = 0;
+      let leftovers = 0;
+      for (const n of named) {
+        images += await this.imageBytes(n, false);
+        leftovers += await this.imageBytes(n, true);
+      }
+      projects.push({
+        name: instance && instance > 1 ? instanceName(project, instance) : project,
+        data: await of(join(root, DATA_DIR)),
+        home: await of(join(dir, 'home')),
+        cache: await of(join(dir, 'cache')),
+        temp: await of(join(dir, 'temp')),
+        images,
+        leftovers,
+      });
+    }
+    return name ? { projects } : { projects, buildCache: await this.buildCacheBytes() };
+  }
+
+  private async buildCacheBytes(): Promise<number> {
+    const df = await this.docker.run(['system', 'df', '--format', '{{json .}}']).catch(() => '');
+    const cache = df.split('\n').map((l) => (l.trim() ? (JSON.parse(l) as { Type?: string; Size?: string }) : {})).find((r) => r.Type === 'Build Cache');
+    return dockerBytes(cache?.Size ?? '');
+  }
+
+  /**
+   * Empty what may be lost: the caches and temporary folders the recipes and the project
+   * declare (one service's, or all), and the images the project's rebuilds left nameless.
+   * The data is never touched. A service whose temporary folders were emptied is restarted,
+   * so it does not keep a file it thinks is there.
+   */
+  async prune(name: string, options: { service?: string } = {}): Promise<Pruned> {
+    const out: Pruned = { freed: 0, emptied: [], images: 0 };
+    for (const n of await this.everyInstance(name)) {
+      const declaration = await this.declaration(name, n);
+      const services = (await this.recipeServices(declaration)).filter((s) => !options.service || s.name === options.service);
+      if (options.service && services.length === 0) throw new OctopodError(`"${name}" has no service "${options.service}" made of a recipe`);
+      const restart: string[] = [];
+      for (const s of services) {
+        for (const dir of [...(s.caches ?? []), ...(s.temp ?? [])]) {
+          const path = join(declaration.root, dir);
+          out.freed += await empty(path);
+          out.emptied.push(path);
+        }
+        if (s.temp) restart.push(s.name);
+      }
+      if (restart.length > 0) await this.docker.run([...this.composeArgs(declaration, true), 'restart', ...restart]).catch(() => undefined);
+    }
+    const before = await this.imageBytes(name, true);
+    for (const label of [`${PROJECT_LABEL}=${name}`, `com.docker.compose.project=${name}`]) {
+      await this.docker.run(['image', 'prune', '-f', '--filter', `label=${label}`]).catch(() => undefined);
+    }
+    out.images = before - (await this.imageBytes(name, true));
+    out.freed += out.images;
+    return out;
+  }
+
+  /** The machine's build cache, which every project's builds share: emptied, the next builds are slower. */
+  async pruneBuildCache(): Promise<number> {
+    const before = await this.buildCacheBytes();
+    await this.docker.run(['builder', 'prune', '-f'], { timeoutMs: 600_000 });
+    return before - (await this.buildCacheBytes());
+  }
+
+  /**
+   * Remove a project's data for good (or one service's): what it keeps in `.octopod/`, its
+   * images and volumes, and its secrets unless `keepSecrets` — the next `up` starts empty,
+   * with new passwords. On the group's server, its tenant's database is reset; the server
+   * stays. Without `confirm`, only what it would remove, and the sizes.
+   */
+  async destroy(name: string, options: { service?: string; keepSecrets?: boolean; confirm?: boolean } = {}): Promise<Destroyed> {
+    const removed: Destroyed['removed'] = [];
+    const paths: string[] = [];
+    const resets: { service: string; server: string }[] = [];
+    const root = (await this.registry())[name];
+    if (!root) throw new OctopodError(`no project "${name}"`);
+    const one = options.service;
+    const add = async (what: string, path: string): Promise<void> => {
+      if (!(await lstat(path).then(() => true, () => false))) return;
+      paths.push(path);
+      removed.push({ what, path, bytes: await sizeOf(path) });
+    };
+    if (!one) {
+      for (const [what, dir] of [['data', DATA_DIR], ['homes', '.octopod/home'], ['caches', '.octopod/cache'], ['temporary files', '.octopod/temp']]) await add(what!, join(root, dir!));
+    }
+    for (const n of await this.everyInstance(name)) {
+      const declaration = await this.declaration(name, n);
+      const services = (await this.recipeServices(declaration)).filter((s) => !one || s.name === one);
+      if (one && services.length === 0) throw new OctopodError(`"${name}" has no service "${one}" made of a recipe`);
+      for (const s of services) {
+        if (s.sharedAs?.tenant && s.actions?.reset) resets.push({ service: s.name, server: s.sharedAs.server });
+        if (!one) continue;
+        const data = n === 1 ? join(root, DATA_DIR) : join(root, DATA_DIR, String(n));
+        for (const volume of s.volumes) await add(`${s.name}'s data`, join(data, volume));
+        if (s.home && !isAbsolute(s.home)) await add(`${s.name}'s home`, join(root, s.home));
+        for (const dir of [...(s.caches ?? []), ...(s.temp ?? [])]) await add(`${s.name}'s ${dir.includes('/cache/') ? 'cache' : 'temporary files'}`, join(root, dir));
+      }
+    }
+    for (const r of resets) removed.push({ what: `${r.service}: its database on the group's server ${r.server}, reset (the server stays)` });
+    const images = await this.imageBytes(name, false);
+    if (images > 0) removed.push({ what: 'its images (built again at the next up)', bytes: images });
+    if (!options.keepSecrets) removed.push({ what: one ? `${one}'s secrets (new ones at the next up)` : 'its secrets (new ones at the next up)' });
+    const freed = removed.reduce((a, r) => a + (r.bytes ?? 0), 0);
+    if (!options.confirm) return { done: false, removed, freed };
+
+    // The tenant's database first: the group's server runs whatever the project does.
+    for (const r of resets) await this.runAction(name, r.service, 'reset', { confirm: true, output: '/dev/null' }).catch(() => undefined);
+    for (const n of await this.everyInstance(name)) await this.down(name, { instance: n, volumes: true, images: true }).catch(() => undefined);
+    for (const path of paths) await rm(path, { recursive: true, force: true });
+    if (!options.keepSecrets) {
+      const files = [this.path('projects', name, 'secrets.json'), projectSecrets(root, name)];
+      for (const file of files) {
+        if (!one) {
+          await rm(file, { force: true });
+          continue;
+        }
+        const kept = await secretsFile(file).catch(() => undefined);
+        if (!kept || !kept[one]) continue;
+        delete kept[one];
+        await writeIfChanged(file, JSON.stringify(kept, null, 2) + '\n', 0o600);
+      }
+    }
+    return { done: true, removed, freed };
   }
 
   /** Every registered project down, each of its instances too, the data left in place: for `uninstall`. */

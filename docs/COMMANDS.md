@@ -20,6 +20,19 @@ octopod unregister <project>  # its containers and images away; its data stays
 octopod list --group shop     # the registered projects (--tag php, too)
 ```
 
+## Its disk
+
+```sh
+octopod disk                  # what it takes: data, homes, caches, temp, images, leftovers; outside a project, every one
+octopod prune [service]       # empties its caches, temporary folders and leftover images; never the data
+octopod prune --all --build-cache   # every project's, and the machine's build cache
+octopod destroy <project> [service]  # its data for good: lists what and how much, asks; --yes, --keep-secrets
+```
+
+A recipe declares the folders that may be lost (`caches: { npm: /cache/npm }`, `temp:`), and
+a service in `octopod.yaml` adds its own (`temp: { media: /app/media }`): they live in
+`.octopod/cache/` and `.octopod/temp/`, apart from the data in `.octopod/data/`.
+
 ## Inside it
 
 ```sh
@@ -57,7 +70,7 @@ folder (the nearest `octopod.yaml` up the tree), or the one a tool names. Its to
 `octopod_status`, `octopod_logs` (with a `match`), `octopod_plan`, `octopod_exec` (an argv,
 never a shell string), `octopod_run` (a service's action; load and reset need `confirm`),
 `octopod_up` (a long build answers "still running" and goes on), `octopod_down` (`volumes`
-needs `confirm`), `octopod_restart`. Secrets, shells and the edge are not offered: they stay
+needs `confirm`), `octopod_restart`, `octopod_prune`. Secrets, shells, destroying data and the edge are not offered: they stay
 the human's. Another client registers the same command: `octopod mcp`, run in the project's
 folder.
 

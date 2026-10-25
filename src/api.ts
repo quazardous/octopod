@@ -189,6 +189,21 @@ export function handler(octopod: Octopod) {
         if (volumes === true && req.headers[CONSOLE_HEADER.toLowerCase()] !== undefined) return send(res, 403, { error: 'the console does not remove volumes: octopod down --volumes' });
         return send(res, 200, await octopod.down(name, { volumes: volumes === true, instance: instanceValue(instance) }));
       }
+      if (resource === 'disk' && !name && method === 'GET') return send(res, 200, await octopod.disk());
+      if (resource === 'build-cache' && name === 'prune' && method === 'POST') return send(res, 200, { freed: await octopod.pruneBuildCache() });
+      if (resource === 'projects' && name && action === 'disk' && method === 'GET') {
+        return send(res, 200, await octopod.disk(name, url.searchParams.has('instance') ? queryInstance() : undefined));
+      }
+      if (resource === 'projects' && name && action === 'prune' && method === 'POST') {
+        const { service } = await body(req);
+        return send(res, 200, await octopod.prune(name, { service: typeof service === 'string' ? service : undefined }));
+      }
+      if (resource === 'projects' && name && action === 'destroy' && method === 'POST') {
+        // The console never deletes data, whatever the relay let through.
+        if (viaConsole) return send(res, 403, { error: 'the console does not destroy data: octopod destroy' });
+        const { service, keepSecrets, confirm } = await body(req);
+        return send(res, 200, await octopod.destroy(name, { service: typeof service === 'string' ? service : undefined, keepSecrets: keepSecrets === true, confirm: confirm === true }));
+      }
       if (resource === 'projects' && name && action === 'restart' && method === 'POST') {
         const { service, instance } = await body(req);
         return send(res, 200, await octopod.restart(name, typeof service === 'string' ? service : undefined, instanceValue(instance)));
