@@ -10,7 +10,8 @@ import { dirname } from 'node:path';
 import { DeclarationError } from './declaration.js';
 import { DockerError } from './docker.js';
 import { sessionCookie, sessionsOf } from './consoleAccess.js';
-import { CONSOLE_HEADER, VIA_HEADER } from './generate.js';
+import { CONSOLE_HEADER, LOST_HEADER, VIA_HEADER } from './generate.js';
+import { EDGE_DOMAIN, movedTo } from './names.js';
 import { defaultSocket, Octopod, OctopodError, prepareSocketDir, TOKEN_HEADER, version, type ApiTcp } from './octopod.js';
 
 export { defaultSocket };
@@ -66,6 +67,33 @@ async function sendConsole(res: ServerResponse, file: { file: string; type: stri
   res.end(await readFile(new URL(file.file, CONSOLE_DIR)));
 }
 
+const escapeHtml = (s: string): string => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+/**
+ * The edge's answer for a name it routes nowhere: a 404 that says so, and where a name of the
+ * old addressing (before 0.7.0) went. HTML for a browser, text for anything else.
+ */
+function sendLost(req: IncomingMessage, res: ServerResponse, host: string, moved: string | undefined): void {
+  const html = (req.headers.accept ?? '').includes('text/html');
+  const lines = moved
+    ? [`${host} is an address of before octopod 0.7.0: it is now ${moved}`, `Every address moved under ${EDGE_DOMAIN}. Update what keeps the old name: ALLOWED_HOSTS, CSRF origins, OIDC redirect URIs, scripts.`]
+    : [`No route for ${host}.`, "If it is a project's, is the project up? octopod status lists its addresses."];
+  res.writeHead(404, {
+    'content-type': html ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8',
+    'cache-control': 'no-store',
+    'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'",
+    'x-content-type-options': 'nosniff',
+  });
+  if (!html) return void res.end(`${lines.join('\n')}\n`);
+  const link = moved ? escapeHtml(moved) : '';
+  res.end(
+    `<!doctype html><meta charset="utf-8"><title>Not here</title><body style="font:16px system-ui;margin:3rem;max-width:40rem">` +
+      (moved
+        ? `<h1>Moved</h1><p><code>${escapeHtml(host)}</code> is an address of before octopod 0.7.0. It is now <a href="${link}">${link}</a>.</p><p>${escapeHtml(lines[1]!)}</p>`
+        : `<h1>No route</h1><p>The edge routes nothing at <code>${escapeHtml(host)}</code>.</p><p>${escapeHtml(lines[1]!)}</p>`),
+  );
+}
+
 function send(res: ServerResponse, status: number, value: unknown, headers: Record<string, string> = {}): void {
   res.writeHead(status, { 'content-type': 'application/json', ...headers });
   res.end(JSON.stringify(value));
@@ -94,6 +122,12 @@ export function handler(octopod: Octopod) {
       if (viaConsole && resource === 'console' && name === 'signout' && method === 'POST') {
         for (const session of sessions) await octopod.access.signOut(session);
         return send(res, 200, {}, { 'set-cookie': sessionCookie(null) });
+      }
+      // A name the edge routes nowhere, from the relay's last resort: no enrollment needed, it
+      // says no more than where an old name of a project went.
+      if (resource === 'lost' && !name && (method === 'GET' || method === 'HEAD')) {
+        const host = String(req.headers[LOST_HEADER.toLowerCase()] ?? '').slice(0, 253);
+        return sendLost(req, res, host, movedTo(host, await octopod.list()));
       }
       if (viaConsole && !(await Promise.all(sessions.map((s) => octopod.access.valid(s)))).some(Boolean)) {
         return send(res, 401, { error: 'this browser is not enrolled in the console', enroll: true });

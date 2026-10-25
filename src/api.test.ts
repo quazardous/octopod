@@ -198,6 +198,19 @@ describe.skipIf(process.platform === 'win32')('the API', () => {
     expect((await call('GET', '/v1/projects')).status).toBe(200);
   });
 
+  it("answers a name the edge routes nowhere with a 404 that says where an old name went, enrolled or not", async () => {
+    await call('POST', '/v1/projects', { root: join(base, 'demo') });
+    const lost = (host: string, accept = '*/*') => raw('GET', '/v1/lost', undefined, { 'x-octopod-via': 'console', 'x-octopod-lost': host, accept });
+    const moved = await lost('api.demo.localhost');
+    expect(moved.status).toBe(404);
+    expect(moved.text).toContain('it is now http://api.demo.octopod.localhost:18499');
+    const page = await lost('api.demo.localhost', 'text/html');
+    expect(page.headers['content-type']).toContain('text/html');
+    expect(page.text).toContain('<a href="http://api.demo.octopod.localhost:18499">');
+    expect((await lost('<b>.octopod.localhost', 'text/html')).text).toContain('&#60;b&#62;.octopod.localhost');
+    expect((await lost('nobody.octopod.localhost')).text).toContain('No route for nobody.octopod.localhost');
+  });
+
   it('never removes volumes for the console', async () => {
     await call('POST', '/v1/projects', { root: join(base, 'demo') });
     const res = await raw('POST', '/v1/projects/demo/down', { volumes: true }, { 'x-octopod-console': '1' });

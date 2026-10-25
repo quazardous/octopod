@@ -35,6 +35,24 @@ export function projectDomain(project: string, group?: string): string {
   return group ? `${project}.group-${group}.${EDGE_DOMAIN}` : `${project}.${EDGE_DOMAIN}`;
 }
 
+/**
+ * Where a name of the addressing before 0.7.0 (`<host>.<project>.localhost`) is now: the
+ * route of a registered project that had it, or nothing. What the edge's page for a name it
+ * routes nowhere says, rather than a bare 404.
+ */
+export function movedTo(host: string, projects: { name: string; group?: string; routes: { url: string }[] }[]): string | undefined {
+  const name = host.toLowerCase().replace(/:\d+$/, '');
+  if (!name.endsWith('.localhost') || name === EDGE_DOMAIN || name.endsWith(`.${EDGE_DOMAIN}`)) return undefined;
+  for (const project of projects) {
+    const domain = projectDomain(project.name, project.group);
+    for (const route of project.routes) {
+      const now = new URL(route.url).hostname;
+      if (now.endsWith(domain) && `${now.slice(0, -domain.length)}${project.name}.localhost` === name) return route.url;
+    }
+  }
+  return undefined;
+}
+
 export function slugify(name: string): string {
   const slug = name.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 63).replace(/-+$/, '');
   return slug || 'project';

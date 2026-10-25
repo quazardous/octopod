@@ -48,6 +48,9 @@ project do not collide.
   webhook from outside.
 - **`host.docker.internal` needs `extra_hosts: host-gateway` on Linux** to route to
   something running on the host (a dev server outside Docker).
+- **The names are long.** `app.shop.group-x.octopod.localhost` overflows a web server's
+  default table of names: nginx behind the edge refuses its configuration until it gets
+  `server_names_hash_bucket_size 128;`.
 - **A route to a port that moved fails as a 502, not at start-up** — pin the ports routes
   point at, so the failure is loud.
 

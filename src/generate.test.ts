@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { bindSources, choosePort, composePorts, consoleNginxConfig, dataVolumes, duplicationBlockers, edgeCompose, imagePorts, LOCAL_ONLY, localOnlyConfig, projectOverride, traefikConfig, projectAllowConfig } from './generate.js';
 import { withInstance } from './declaration.js';
 import { instanceName } from './names.js';
-import { fullHost, projectDomain, slugify } from './names.js';
+import { fullHost, movedTo, projectDomain, slugify } from './names.js';
 import type { Declaration } from './declaration.js';
 
 const DEMO: Declaration = {
@@ -32,6 +32,21 @@ describe('names', () => {
     expect(fullHost('admi-shared', 'pma', 'admi')).toBe('pma.group-admi.octopod.localhost');
     // The machine's pool: the shared services of the projects without a group.
     expect(fullHost('default-shared', 'mail', 'default')).toBe('mail.octopod.localhost');
+  });
+
+  it('finds where a name of the old addressing went, and nothing for any other name', () => {
+    const projects = [
+      { name: 'shop', routes: [{ url: 'http://shop.octopod.localhost' }, { url: 'http://api.shop.octopod.localhost' }] },
+      { name: 'testbox', group: 'admi', routes: [{ url: 'http://box1.testbox.group-admi.octopod.localhost:8080' }] },
+      { name: 'admi-shared', group: 'admi', routes: [{ url: 'http://id.group-admi.octopod.localhost' }] },
+    ];
+    expect(movedTo('shop.localhost', projects)).toBe('http://shop.octopod.localhost');
+    expect(movedTo('API.shop.localhost:8080', projects)).toBe('http://api.shop.octopod.localhost');
+    expect(movedTo('box1.testbox.localhost', projects)).toBe('http://box1.testbox.group-admi.octopod.localhost:8080');
+    expect(movedTo('id.admi-shared.localhost', projects)).toBe('http://id.group-admi.octopod.localhost');
+    expect(movedTo('box2.testbox.localhost', projects)).toBeUndefined();
+    expect(movedTo('nobody.octopod.localhost', projects)).toBeUndefined();
+    expect(movedTo('shop.example.test', projects)).toBeUndefined();
   });
 
   it('turns a folder name into a DNS label', () => {
@@ -72,6 +87,10 @@ describe('the edge', () => {
     expect(traefik.labels['traefik.http.routers.octopod-dashboard.middlewares']).toBe(LOCAL_ONLY);
     expect(relay.labels['traefik.http.routers.octopod-console.rule']).toBe('Host(`octopod.localhost`)');
     expect(relay.labels['traefik.http.routers.octopod-console.middlewares']).toBe(LOCAL_ONLY);
+    // A name no other router takes: octopod's page, behind every router of the edge.
+    expect(relay.labels['traefik.http.routers.octopod-lost.rule']).toBe('HostRegexp(`.+`)');
+    expect(relay.labels['traefik.http.routers.octopod-lost.priority']).toBe('1');
+    expect(relay.labels['traefik.http.routers.octopod-lost.middlewares']).toBe(LOCAL_ONLY);
     expect(relay.labels['octopod.edge']).toBe('octopod');
   });
 
@@ -119,7 +138,13 @@ describe('the edge', () => {
     expect(acts).toContain('if ($http_x_octopod_console != "1") { return 403; }');
     expect(acts).toContain('proxy_pass http://unix:/run/octopod/octopod.sock;');
     // Whatever a request brought, the API learns it comes through the console.
-    expect(conf.match(/proxy_set_header X-Octopod-Via console;/g)).toHaveLength(2);
+    expect(conf.match(/proxy_set_header X-Octopod-Via console;/g)).toHaveLength(3);
+    // Any other name, which the edge routes nowhere: the API's page, told the name asked for.
+    const lost = conf.slice(conf.indexOf('listen 8080 default_server;'));
+    expect(conf).toContain('server_name octopod.localhost;');
+    expect(lost).toContain('rewrite ^ /v1/lost? break;');
+    expect(lost).toContain('proxy_set_header X-Octopod-Lost $host;');
+    expect(lost).toContain('limit_except GET { deny all; }');
     // The generated secrets are for local clients on the socket, never for the console.
     expect(conf).toMatch(/location ~ \^\/v1\/projects\/\[\^\/\]\+\/secrets \{\s*return 403;/);
   });

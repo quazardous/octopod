@@ -110,6 +110,8 @@ export const CONSOLE_HEADER = 'X-Octopod-Console';
  * it says the request comes through the console, which must be enrolled.
  */
 export const VIA_HEADER = 'X-Octopod-Via';
+/** The name a request asked for that the edge routes nowhere, set by the relay for the API's page. */
+export const LOST_HEADER = 'X-Octopod-Lost';
 
 /**
  * The console relay: GET and HEAD to the API; and a project's up and down, the only acts
@@ -148,6 +150,7 @@ http {
   scgi_temp_path /tmp/scgi;
   server {
     listen 8080;
+    server_name ${CONSOLE_HOST};
     # The generated secrets are for local clients, on the socket; the console never needs them.
     location ~ ^/v1/projects/[^/]+/secrets {
       return 403;
@@ -171,6 +174,22 @@ http {
     location @down {
       default_type text/html;
       return 503 '<!doctype html><meta charset="utf-8"><title>octopod</title><body style="font:16px system-ui;margin:3rem"><h1>octopod is not serving</h1><p>The console needs the API: ${start}.</p>';
+    }
+  }
+  # Any other name: one the edge routes nowhere (its last-resort router). The API's page says
+  # so, and where a name of the old addressing went, rather than Traefik's bare 404.
+  server {
+    listen 8080 default_server;
+    location / {
+      limit_except GET { deny all; }
+      rewrite ^ /v1/lost? break;
+      ${upstream}
+      proxy_set_header ${LOST_HEADER} $host;
+      error_page 502 504 = @nowhere;
+    }
+    location @nowhere {
+      default_type text/plain;
+      return 404 'no route for this name';
     }
   }
 }
@@ -234,6 +253,12 @@ export function edgeCompose(settings: EdgeSettings): Record<string, unknown> {
           'traefik.http.routers.octopod-console.middlewares': LOCAL_ONLY,
           'traefik.http.routers.octopod-console.service': 'octopod-console',
           'traefik.http.services.octopod-console.loadbalancer.server.port': '8080',
+          // Last resort: a name no other router takes gets octopod's page, not a bare 404.
+          'traefik.http.routers.octopod-lost.rule': 'HostRegexp(`.+`)',
+          'traefik.http.routers.octopod-lost.priority': '1',
+          'traefik.http.routers.octopod-lost.entrypoints': 'web',
+          'traefik.http.routers.octopod-lost.middlewares': LOCAL_ONLY,
+          'traefik.http.routers.octopod-lost.service': 'octopod-console',
         },
       },
     },

@@ -66,6 +66,12 @@ Rules, checked when the project is registered and every time it is brought up:
     starts the relay before octopod's service, and a folder it made would be root's; the
     relay waits instead, and `octopod serve` starts it once it listens. On Windows the relay
     reaches the API on the host's loopback (`host.docker.internal`), adding its token.
+  - any other name, one no router takes: the relay's last-resort router (`octopod-lost`,
+    `HostRegexp(.+)`, priority 1) passes it to the API as `GET /v1/lost`, the name asked
+    for in `X-Octopod-Lost`. The answer is a `404` that says no route answers that name,
+    or, for a name of the addressing before 0.7.0 (`<host>.<project>.localhost`) that a
+    registered project had, where it is now. No redirect: what keeps the old name (an
+    app's allowed hosts, CSRF origins, OIDC redirect URIs, scripts) has to change anyway.
 
   "From the host" is a Traefik middleware (`octopod-local`, in the file provider): the
   edge's own network, where the host's requests come from through the published port.
@@ -399,6 +405,7 @@ first time, kept after), and answers only a request that carries that token in t
 | DELETE | `/v1/console/sessions` | | `{ closed }` — every browser signed out, every waiting code void. Socket only |
 | POST | `/v1/console/enroll` | `{ code }` | `{}` and the session's cookie (`octopod_console`, `HttpOnly`, `SameSite=Strict`, 30 days); `403` for a wrong or expired code. Through the relay only |
 | POST | `/v1/console/signout` | | `{}`, the session closed and its cookie removed. Through the relay only |
+| GET | `/v1/lost` | | `404`, HTML for a browser, text otherwise: no route for the name in `X-Octopod-Lost`, or where that old name of a project is now. Needs no enrollment |
 
 **The console's enrollment.** The relay sets `X-Octopod-Via: console` on everything it
 passes, replacing whatever a request brought. To such a request, the API answers only

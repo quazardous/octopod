@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- A name the edge routes nowhere gets octopod's page, not Traefik's bare `404 page not found`: still a 404, saying no route answers it; and for an address of before 0.7.0 (`box.testbox.localhost`) that a registered project had, where it is now (`box.testbox.group-admi.octopod.localhost`). Run `octopod edge up` to get it. docs/PATTERNS.md says what long names ask of an nginx behind the edge (`server_names_hash_bucket_size 128;`).
 - The OIDC provider's sign-in and signed-out pages carry a hazard-tape banner, "Development sign-in — not a real identity provider": nobody who lands on them, or sees a screenshot, takes them for a real login. Run `octopod up` on a project to rebuild its provider.
 
 ## [0.7.0] - 2026-10-24

@@ -257,8 +257,10 @@ describe.skipIf(!dockerAvailable())('two projects behind one edge (real docker)'
     expect((await eventually('alpha.octopod.localhost', 200)).status).toBe(200);
   });
 
-  it('answers 404 for a host no project declared', async () => {
+  it("answers 404 for a host no project declared, with octopod's page: where an old name of a project went", async () => {
     expect((await eventually('nobody.octopod.localhost', 404)).status).toBe(404);
+    expect((await get('nobody.octopod.localhost')).body).toContain('No route for nobody.octopod.localhost');
+    expect((await get('alpha.localhost')).body).toContain(`it is now http://alpha.octopod.localhost:${PORT}`);
   });
 
   it('does not adopt a neighbour labelled for another Traefik', async () => {
