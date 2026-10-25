@@ -505,7 +505,7 @@ and refuses to run below the version it needs. What it may rely on, from 0.1.0:
   field — none. Check for the feature you use, not for a version number:
   - `secrets` (0.2.0): `octopod secrets <project> [--instance N] --json` → `{ values }`.
   - `mcp` (0.7.0): `octopod mcp`, the MCP server and its tools.
-  - `disk` (unreleased): `octopod disk`, `prune` and `destroy`, and their API.
+  - `disk` (0.8.0): `octopod disk`, `prune` and `destroy`, and their API.
 - **The CLI, with `--json`**: `version`, `register <dir>`, `plan <dir>`, `recipes`,
   `up <project>`, `status <project>`, `restart <project> --service <s>`,
   `exec <project> <service> --timeout <ms> -- <argv…>` (its answer's `mode` included),

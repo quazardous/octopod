@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-25
+
+After upgrading, run `octopod edge up` (the edge's page for a name no route takes, and the console's relay for Prune and Destroy), then `octopod up` in each project (its caches move to `.octopod/cache/`, its OIDC provider gets the banner).
+
 ### Added
 
 - A project's tests run on the group's shared database: it owns, as many as it makes, the databases named `<project>_…` (`shop_test`, `shop_jobs`) and `test_<project>`, `test_<project>_…` (Django's, parallel runs included), made, used and dropped there, and no other project's. On postgres, its role may create databases, and `<project>_test` is made. Run `octopod up` on the project once to get the grants.
@@ -235,7 +239,8 @@ The first preview: tested on Linux with Docker.
 - Traefik's dashboard and the console answer only from the host: a project's containers, which reach the edge over their edge network, get a 403.
 - `octopod` and `traefik` can no longer be project names: they are the edge's own hosts.
 
-[Unreleased]: https://github.com/quazardous/octopod/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/quazardous/octopod/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/quazardous/octopod/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/quazardous/octopod/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/quazardous/octopod/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/quazardous/octopod/compare/v0.5.1...v0.6.0

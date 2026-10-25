@@ -1,6 +1,6 @@
 {
   "name": "@quazardous/octopod",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "A clean, declared architecture for every Docker project of your machine — one local edge, ready-made services, shared servers — that a coding agent drives through the CLI or MCP",
   "license": "MIT",
   "author": "David Berlioz",
