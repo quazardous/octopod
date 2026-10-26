@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The console unregisters a project it cannot read (its folder gone, its `octopod.yaml`
+  broken): *Unregister* on its card, two clicks, in place of the disk line and *Destroy…*
+  such a project cannot show. The API takes `POST /v1/projects/:name/unregister` for it,
+  the same as `DELETE /v1/projects/:name`, and the console's relay passes it.
+
 ## [0.8.0] - 2026-10-25
 
 After upgrading, run `octopod edge up` (the edge's page for a name no route takes, and the console's relay for Prune and Destroy), then `octopod up` in each project (its caches move to `.octopod/cache/`, its OIDC provider gets the banner).

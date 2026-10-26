@@ -238,6 +238,13 @@ describe.skipIf(process.platform === 'win32')('the API', () => {
     expect((await raw('POST', '/v1/projects/demo/destroy', { confirm: true, project: 'demo' }, { 'x-octopod-via': 'console', cookie })).status).toBe(200);
   });
 
+  it('unregisters a project by POST too, the console\'s way: its folder gone, it is forgotten', async () => {
+    await call('POST', '/v1/projects', { root: join(base, 'demo') });
+    await rm(join(base, 'demo'), { recursive: true, force: true });
+    expect((await call('POST', '/v1/projects/demo/unregister')).status).toBe(200);
+    expect(((await call('GET', '/v1/projects')).json as { name: string }[]).map((p) => p.name)).not.toContain('demo');
+  });
+
   it('never removes volumes for the console', async () => {
     await call('POST', '/v1/projects', { root: join(base, 'demo') });
     const res = await raw('POST', '/v1/projects/demo/down', { volumes: true }, { 'x-octopod-console': '1' });

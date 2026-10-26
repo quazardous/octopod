@@ -114,7 +114,7 @@ export const VIA_HEADER = 'X-Octopod-Via';
 export const LOST_HEADER = 'X-Octopod-Lost';
 
 /**
- * The console relay: GET and HEAD to the API; and a project's up, down, prune and destroy,
+ * The console relay: GET and HEAD to the API; and a project's up, down, prune, destroy and unregister,
  * the only acts the console has, and the console's enrollment, carrying {@link CONSOLE_HEADER}. Anything
  * else refused. Everything passed carries {@link VIA_HEADER}: the API answers it only for an
  * enrolled browser. When the API is not running, a page that says how to start it.
@@ -155,10 +155,10 @@ http {
     location ~ ^/v1/projects/[^/]+/secrets {
       return 403;
     }
-    # A project's up, down, prune and destroy, and the console's enrollment, from the console's
+    # A project's up, down, prune, destroy and unregister, and the console's enrollment, from the console's
     # own page: the header proves it (a cross-site form or fetch cannot add it). An up may
     # build images: it may take minutes.
-    location ~ ^/v1/(projects/[^/]+/(up|down|prune|destroy)|console/(enroll|signout))$ {
+    location ~ ^/v1/(projects/[^/]+/(up|down|prune|destroy|unregister)|console/(enroll|signout))$ {
       limit_except POST { deny all; }
       if ($http_${CONSOLE_HEADER.toLowerCase().replace(/-/g, '_')} != "1") { return 403; }
       ${upstream}

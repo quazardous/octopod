@@ -179,6 +179,11 @@ export function handler(octopod: Octopod) {
         await octopod.unregister(name);
         return send(res, 200, {});
       }
+      // The console's way to the same: its relay passes POST only.
+      if (resource === 'projects' && name && action === 'unregister' && method === 'POST') {
+        await octopod.unregister(name);
+        return send(res, 200, {});
+      }
       if (resource === 'projects' && name && action === 'up' && method === 'POST') {
         const { instance } = await body(req);
         return send(res, 200, await octopod.up(name, instanceValue(instance)));

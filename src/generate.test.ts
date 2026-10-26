@@ -133,7 +133,7 @@ describe('the edge', () => {
     const conf = consoleNginxConfig('octopod.sock');
     expect(conf).toContain('proxy_pass http://unix:/run/octopod/octopod.sock;');
     expect(conf).toContain('limit_except GET { deny all; }');
-    const acts = /location ~ \^\/v1\/\(projects\/\[\^\/\]\+\/\(up\|down\|prune\|destroy\)\|console\/\(enroll\|signout\)\)\$ \{([^}]*\}[^}]*\}[^}]*)\}/.exec(conf)?.[1] ?? '';
+    const acts = /location ~ \^\/v1\/\(projects\/\[\^\/\]\+\/\(up\|down\|prune\|destroy\|unregister\)\|console\/\(enroll\|signout\)\)\$ \{([^}]*\}[^}]*\}[^}]*)\}/.exec(conf)?.[1] ?? '';
     expect(acts).toContain('limit_except POST { deny all; }');
     expect(acts).toContain('if ($http_x_octopod_console != "1") { return 403; }');
     expect(acts).toContain('proxy_pass http://unix:/run/octopod/octopod.sock;');

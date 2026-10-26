@@ -692,6 +692,37 @@ function pruneButton(base, instance, lost) {
   return el('button', { type: 'button', class: 'act', title, disabled: lost === 0, onclick: () => armDown(key) }, 'Prune');
 }
 
+/**
+ * A project octopod cannot read (its folder gone, its octopod.yaml broken) has no disk to
+ * show nor anything to destroy: it may be unregistered, two clicks as Down. Its data, if
+ * any, stays where it was; `octopod register` brings it back.
+ */
+function unregisterButton(base) {
+  const key = `unregister:${base}`;
+  if (state.busy.has(key)) return el('button', { type: 'button', class: 'act', disabled: true }, 'Unregistering…');
+  const title = 'octopod unregister: brought down and forgotten by octopod; its folder and data stay';
+  if (state.arming === key) {
+    const go = async () => {
+      clearTimeout(state.armTimer);
+      state.arming = null;
+      state.busy.set(key, 'unregister');
+      if (state.last) render(state.last);
+      try {
+        await post(`/v1/projects/${encodeURIComponent(base)}/unregister`, {});
+        // Its page names nothing now: back to every project.
+        if (location.hash.startsWith(pageOf(base))) location.hash = '';
+      } catch (e) {
+        if (e.enroll) return (state.busy.delete(key), showLogin());
+        state.actFailed.set(`${base}#1`, `unregister failed: ${e.message}`);
+      }
+      state.busy.delete(key);
+      refresh();
+    };
+    return el('button', { type: 'button', class: 'act down armed', title, onclick: go }, 'Unregister?');
+  }
+  return el('button', { type: 'button', class: 'act down', title, onclick: () => armDown(key) }, 'Unregister');
+}
+
 function card(p, base, nested = false, inGroup = false) {
   const instance = p.instance || 1;
   const { tone, label } = projectTone(p);
@@ -714,6 +745,7 @@ function card(p, base, nested = false, inGroup = false) {
     nested || !(p.compose || []).length ? null : details(`${key}:compose`, `${p.compose.length} compose file${p.compose.length > 1 ? 's' : ''}`, el('ul', {}, p.compose.map((f) => el('li', { class: 'mono' }, f)))),
     p.problem ? el('p', { class: 'problem' }, p.problem) : [stackView(p, base, !inGroup), servicesTable(p, base, instance)],
     p.problem ? null : diskView(base, instance),
+    p.problem && !nested ? el('div', { class: 'disk' }, el('span', { class: 'spacer' }), unregisterButton(base)) : null,
     (p.warnings || []).length ? el('ul', { class: 'warnings' }, p.warnings.map((w) => el('li', {}, w))) : null,
     (p.others || []).map((o) => card(o, base, true)),
   );

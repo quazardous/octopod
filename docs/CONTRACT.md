@@ -57,7 +57,7 @@ Rules, checked when the project is registered and every time it is brought up:
     routes, warnings and logs, and a button to bring each up or down. Served by `octopod
     serve` (the API), through `octopod-console`, a relay (nginx, running as the operator,
     read-only, no capability) that passes GET to the API's socket, and
-    `POST /v1/projects/:name/up`, `/down`, `/prune` and `/destroy` when they carry the header
+    `POST /v1/projects/:name/up`, `/down`, `/prune`, `/destroy` and `/unregister` when they carry the header
     `X-Octopod-Console: 1`, which a page of another site cannot add (it would need a CORS
     preflight the relay never answers); every other method and path is refused. It shows
     nothing but its login to a browser not enrolled: see *The console's enrollment*. When the API is
@@ -394,7 +394,7 @@ first time, kept after), and answers only a request that carries that token in t
 | GET | `/v1/projects?group=&tag=` | | `Project[]` — every registered project, or those of a group, or carrying a tag; a group's shared services (`<group>-shared`) are listed with `sharedOf: <group>`: not a project, the console shows them in the projects that use them |
 | POST | `/v1/projects` | `{ root }` | `Project` (registered from `root/octopod.yaml`) |
 | GET | `/v1/projects/:name` | | `ProjectStatus`; each of its `services` made of a recipe carries `recipe` (its id), `link` (where the console's icon leads: its route at the recipe's `link:`, or for a database the route of the admin wired to it) `app` (it works on the project's files), for an app `uses` (its own services it is wired to), for an admin `admin` (the service it administers: the console draws the two as one), `info` (it has an `info` action: `GET …/info`), `env` (the names of the variables it gets, each with the service it comes from: `{ name, from? }`, never the values). `shared`: the group's servers the project uses, `{ service, server, stack, state, health?, recipe, link?, admin? }` — `service` its own name for it, `server` the group's (`mariadb-11-4`), `stack` the group's stack that runs it (`<group>-shared`: its logs are there), `url` its address at the edge when routed |
-| POST | `/v1/projects/:name/up` · `/down` | `{ volumes?: boolean, instance? }` for down, `{ instance? }` for up | `ProjectStatus` — with prune and destroy, the only POSTs the console's relay lets through, with `X-Octopod-Console: 1`; a down with `volumes: true` and that header is refused (403) |
+| POST | `/v1/projects/:name/up` · `/down` | `{ volumes?: boolean, instance? }` for down, `{ instance? }` for up | `ProjectStatus` — with prune, destroy and unregister, the only POSTs the console's relay lets through, with `X-Octopod-Console: 1`; a down with `volumes: true` and that header is refused (403) |
 | POST | `/v1/projects/:name/restart` | `{ service? }` | `ProjectStatus` |
 | POST | `/v1/projects/:name/exec` | `{ service, argv: string[], timeoutMs? }` | `{ ok, mode, output, truncated }` — argv, never a shell string built by octopod; output bounded; a failure says how it ended (exit code, timeout). `mode: "run"` when the service was not running (stopped, restarting in a loop): the command ran in a one-off container of it (same image, mounts, user, network), kept out of the edge's routes |
 | GET | `/v1/projects/:name/logs?service=&tail=` | | `{ lines: string[] }` |
@@ -408,6 +408,7 @@ first time, kept after), and answers only a request that carries that token in t
 | GET | `/v1/recipes?root=` | | `{ recipes: {id,title,summary,dir,digest}[], shadowed: {id,dir,by}[] }` |
 | POST | `/v1/plan` | `{ root, instance? }` | `{ project, text, services, compose }` — writes nothing |
 | DELETE | `/v1/projects/:name` | | `{}` (brought down first) |
+| POST | `/v1/projects/:name/unregister` | | `{}` — the same, as a POST: the console's relay passes no DELETE |
 | GET | `/` · `/console.js` · `/console.css` | | the console's page and files |
 | POST | `/v1/console/code` | | `{ code, expires }` — a code that enrolls one browser in the console, `XXXX-XXXX`, valid 10 minutes, once. Socket only: refused through the relay |
 | DELETE | `/v1/console/sessions` | | `{ closed }` — every browser signed out, every waiting code void. Socket only |

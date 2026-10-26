@@ -24,7 +24,9 @@ It brings a project, or a group's projects, up or down; Down asks for a second c
 project's page, two levels of cleaning. *Prune* empties an instance's caches, temporary
 folders and leftover images (`octopod prune`), never its data; it asks for a second click
 too. *Destroy…* removes the project's data for good (`octopod destroy`): it lists what goes
-and how much, and acts only once the project's name is typed. The rest (`restart`, `exec`,
+and how much, and acts only once the project's name is typed. A project octopod cannot read
+(its folder gone, its `octopod.yaml` broken) shows its error and *Unregister* instead, two
+clicks (`octopod unregister`): octopod forgets it, its folder and data stay. The rest (`restart`, `exec`,
 `run`, removing volumes) stays on the command line. It links to Traefik's dashboard at
 `http://traefik.octopod.localhost`.
 
