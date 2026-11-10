@@ -130,6 +130,13 @@ describe('loadDeclaration', () => {
     expect(d.expose).toEqual([]);
   });
 
+  it("takes the services of other projects a service reaches, and refuses a name that is not a project's", async () => {
+    await writeFile(join(root, 'octopod.yaml'), 'services:\n  app: { recipe: node-app, reach: { legacy: [db, db, redis] } }\n');
+    expect((await loadDeclaration(root)).services?.app).toEqual({ recipe: 'node-app', params: {}, reach: { legacy: ['db', 'redis'] } });
+    await writeFile(join(root, 'octopod.yaml'), 'services:\n  app: { recipe: node-app, reach: { Legacy_Shop: [db] } }\n');
+    await expect(loadDeclaration(root)).rejects.toThrow(/reach/);
+  });
+
   it('refuses a declaration with nothing to serve', async () => {
     await writeFile(join(root, 'octopod.yaml'), 'project: demo\n');
     await expect(loadDeclaration(root)).rejects.toThrow(/nothing to serve/);

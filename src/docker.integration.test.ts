@@ -1120,6 +1120,75 @@ describe.skipIf(!dockerAvailable())('a Python project made of recipes (real dock
   });
 });
 
+describe.skipIf(!dockerAvailable())("a service reaching another project's (real docker)", { timeout: 600_000 }, () => {
+  let base: string;
+  let octopod: Octopod;
+  const NETWORK = `${INSTANCE}-reach-reachshop-reachlegacy`;
+
+  beforeAll(async () => {
+    base = await mkdtemp(join(tmpdir(), 'octopod-reach-'));
+    // Two projects, each its own `db`: the shop's reaches the legacy one's.
+    for (const [name, yaml] of [
+      ['reachlegacy', 'services:\n  db: { recipe: valkey }\n'],
+      ['reachshop', 'services:\n  db: { recipe: valkey, reach: { reachlegacy: [db] } }\n'],
+    ]) {
+      await mkdir(join(base, name));
+      await writeFile(join(base, name, 'octopod.yaml'), yaml);
+    }
+    octopod = new Octopod({ stateDir: join(base, 'state'), instance: INSTANCE, ports: [PORT] });
+    await octopod.register(join(base, 'reachlegacy'));
+    await octopod.register(join(base, 'reachshop'));
+  }, 600_000);
+
+  afterAll(async () => {
+    await octopod.unregister('reachshop').catch(() => undefined);
+    await octopod.unregister('reachlegacy').catch(() => undefined);
+    await octopod.edgeDown();
+    await rm(base, { recursive: true, force: true });
+  }, 600_000);
+
+  const cli = (project: string, ...args: string[]) => octopod.exec(project, 'db', ['valkey-cli', ...args]).then((r) => r.output.trim());
+
+  it("says it cannot reach a project that does not run, then reaches it under its prefixed name, a bare db still its own", async () => {
+    const alone = await octopod.up('reachshop');
+    expect(alone.warnings).toEqual(expect.arrayContaining([expect.stringContaining('reach reachlegacy/db: not running')]));
+    await octopod.up('reachlegacy');
+    await cli('reachlegacy', 'set', 'who', 'legacy');
+    await cli('reachshop', 'set', 'who', 'shop');
+    expect(await cli('reachshop', '-h', 'db', 'get', 'who')).toBe('shop');
+    expect(await cli('reachshop', '-h', 'reachlegacy-db', 'get', 'who')).toBe('legacy');
+    const env = await octopod.exec('reachshop', 'db', ['sh', '-c', 'echo "$REACHLEGACY_DB_URL"']);
+    expect(env.output.trim()).toBe('redis://reachlegacy-db:6379');
+    // The legacy project sees nothing of the shop's: its own network is not joined.
+    expect(docker('network', 'inspect', '--format', '{{json .Internal}}', NETWORK).trim()).toBe('true');
+    expect((await octopod.status('reachshop')).warnings ?? []).not.toEqual(expect.arrayContaining([expect.stringContaining('reach ')]));
+  });
+
+  it('joins the reached service again when its project comes back up, and takes the network away with the reaching one', async () => {
+    await octopod.down('reachlegacy');
+    await octopod.up('reachlegacy');
+    await cli('reachlegacy', 'set', 'who', 'legacy');
+    expect(await cli('reachshop', '-h', 'reachlegacy-db', 'get', 'who')).toBe('legacy');
+    await octopod.down('reachshop');
+    expect(spawnSync('docker', ['network', 'inspect', NETWORK]).status).not.toBe(0);
+    expect(await cli('reachlegacy', 'get', 'who')).toBe('legacy');
+  });
+
+  it('says in doctor when a container joined by hand sees one name for two services', async () => {
+    await octopod.up('reachshop');
+    const shop = docker('ps', '-q', '--filter', 'label=com.docker.compose.project=reachshop', '--filter', 'label=com.docker.compose.service=db').trim();
+    expect((await octopod.doctor()).checks.find((c) => c.name === 'names')?.ok).toBe(true);
+    docker('network', 'connect', 'reachlegacy_default', shop);
+    try {
+      const names = (await octopod.doctor()).checks.find((c) => c.name === 'names')!;
+      expect(names.ok).toBe(false);
+      expect(names.detail).toContain('sees "db" on');
+    } finally {
+      docker('network', 'disconnect', 'reachlegacy_default', shop);
+    }
+  });
+});
+
 describe.skipIf(!dockerAvailable())('the OIDC provider, seen from the browser and from the app (real docker)', { timeout: 600_000 }, () => {
   let base: string;
   let root: string;

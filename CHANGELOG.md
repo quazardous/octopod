@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A service reaches a service of another project with `reach: { <project>: [<service>] }`
+  in `octopod.yaml`: over a network of the two projects alone, under the name
+  `<project>-<service>`, its URL in `<PROJECT>_<SERVICE>_URL` when its recipe exports one.
+  The bare names (`db`) stay each project's own: joining another project's network by hand
+  made `db` answer for two databases. `octopod doctor` says when a container sees one name
+  answer for two services on two of its networks.
+
 - The console unregisters a project it cannot read (its folder gone, its `octopod.yaml`
   broken): *Unregister* on its card, two clicks, in place of the disk line and *Destroy…*
   such a project cannot show. The API takes `POST /v1/projects/:name/unregister` for it,

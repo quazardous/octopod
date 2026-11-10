@@ -15,7 +15,7 @@ import { basename, dirname, isAbsolute, join, relative } from 'node:path';
 import { DECLARATION_FILE, loadDeclaration, withInstance, type Declaration } from './declaration.js';
 import { lintDockerfile } from './recipes/lint.js';
 import { BUILTIN_RECIPES, envRecipeDirs, loadRecipes, type Shadowed } from './recipes/loader.js';
-import { BUILD_LABEL, formatPlan, PROJECT_LABEL, renderServices, SHARED_NETWORK, TOOL_PROFILE, type RenderedService, type Tenancy } from './recipes/render.js';
+import { BUILD_LABEL, formatPlan, PROJECT_LABEL, reachAlias, reachUrl, renderServices, SHARED_NETWORK, TOOL_PROFILE, type RenderedService, type RenderOptions, type Tenancy } from './recipes/render.js';
 import { ConsoleAccess } from './consoleAccess.js';
 import { cliDocker, composeUp, DockerError, type Docker } from './docker.js';
 import { bindSources, choosePort, projectAllowConfig, composePorts, CONSOLE_HOST, consoleContainer, consoleNginxConfig, DASHBOARD_HOST, DATA_DIR, dataVolumes, duplicationBlockers, edgeCompose, edgeContainer, imagePorts, localOnlyConfig, projectOverride, traefikConfig, type ComposeService, type ComposeVolume, type ResolvedPort } from './generate.js';
@@ -154,6 +154,8 @@ export interface KnownService {
   env?: { name: string; from?: string }[];
   /** The service it is the admin of (phpMyAdmin of a MariaDB): the console draws the two as one. */
   admin?: string;
+  /** Services of other projects it reaches (`reach:`): the name each answers to, the variable with its URL. */
+  reaches?: { project: string; service: string; alias: string; env?: string }[];
 }
 
 /** A server of the group this project uses, under the project's own name for it. */
@@ -415,6 +417,15 @@ async function writeIfChanged(file: string, content: string, mode?: number): Pro
   const tmp = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
   await writeFile(tmp, content, mode === undefined ? {} : { mode });
   await rename(tmp, file);
+}
+
+/** A service of another project a project reaches (`reach:`), and how: kept in `reach.json`. */
+interface Reach {
+  consumer: string;
+  target: string;
+  service: string;
+  network: string;
+  alias: string;
 }
 
 /** Who an OIDC sign-in on demand is for: a user of the provider, or a passing identity's claims. */
@@ -718,7 +729,8 @@ export class Octopod {
     ];
   }
 
-  private async render(declaration: Declaration, keepSecrets: boolean) {
+  private async render(declaration: Declaration, keepSecrets: boolean, withReach = true) {
+    const reach = withReach ? await this.reachWays(declaration, keepSecrets) : undefined;
     const book = await loadRecipes(this.recipeDirs(declaration)).catch((e: Error) => {
       throw new OctopodError(e.message);
     });
@@ -746,6 +758,7 @@ export class Octopod {
               }
             : {}),
           ...(declaration.instance ? { instance: declaration.instance } : {}),
+          ...(reach && Object.keys(reach).length > 0 ? { reach } : {}),
           ...(keepSecrets ? {} : { secretFactory: () => '‹generated›' }),
         }),
       };
@@ -1041,6 +1054,8 @@ export class Octopod {
     await this.writeJson(join('projects', declaration.project, 'hosts.json'), [...new Set([...declaration.expose.map((e) => e.host), ...sharedHosts])]);
     // compose builds an image only when it is missing: one whose recipe or build arguments
     // changed is built again here, before up recreates its container.
+    // Its networks to the other projects it reaches: compose joins them, it does not make them.
+    await this.prepareReach(declaration);
     const stale = await this.staleBuilds(declaration);
     if (stale.length > 0) await this.docker.run([...this.composeArgs(declaration, true), 'build', ...stale]);
     // --remove-orphans: a service the project no longer runs (now the group's, or gone from
@@ -1056,6 +1071,8 @@ export class Octopod {
     }
     await this.docker.run(['image', 'prune', '-f', '--filter', `label=com.docker.compose.project=${declaration.project}`]).catch(() => undefined);
     await this.connect(declaration.project);
+    // The services it reaches, and those that reach it: their containers may be new.
+    await this.wireReach(declaration.project);
     // Its routes answer the host and its own containers; a group's shared services, the
     // projects that use them too — this one among them, now that its network exists.
     const group = declaration.group;
@@ -1196,6 +1213,7 @@ export class Octopod {
     // Tools' profile too: their image goes with the others, and a one-off left behind with them.
     const tools = declaration.services ? ['--profile', TOOL_PROFILE] : [];
     await this.docker.run([...this.composeArgs(declaration, true), ...tools, 'down', ...(options.volumes ? ['--volumes'] : []), ...(options.images ? ['--rmi', 'local'] : [])]);
+    await this.unwireReach(declaration.project);
     if (instance > 1) await this.noteInstance(name, instance, false);
     if (declaration.sharedServices && declaration.shareGroup) await this.downSharedWhenIdle(declaration.shareGroup);
     return this.status(name, instance);
@@ -1321,6 +1339,130 @@ export class Octopod {
     await this.down(project);
   }
 
+  // ─── Another project's services ─────────────────────────────────────────────
+
+  /**
+   * The network between a project and another it reaches (`reach:`): one per pair, internal,
+   * made by octopod. The reached services join it under `<project>-<service>` alone, the
+   * reaching ones as they are: neither joins the other's own network, where a bare name
+   * (`db`) would answer for two services.
+   */
+  private reachNetwork(consumer: string, target: string): string {
+    return `${this.instance}-reach-${consumer}-${target}`;
+  }
+
+  /** What a project's services reach, as `reach.json` keeps it for both projects' `up`. */
+  private reachOf(declaration: Declaration): Reach[] {
+    const out: Reach[] = [];
+    for (const request of Object.values(declaration.services ?? {})) {
+      for (const [target, services] of Object.entries(request.reach ?? {})) {
+        for (const service of services) {
+          if (target === declaration.project || out.some((r) => r.target === target && r.service === service)) continue;
+          out.push({ consumer: declaration.project, target, service, network: this.reachNetwork(declaration.project, target), alias: reachAlias(target, service) });
+        }
+      }
+    }
+    return out;
+  }
+
+  /**
+   * For the rendering of a project that reaches others: each one's network, and the URL each
+   * reached service answers at on it, from what its recipe exports (with the reached
+   * project's secrets, or placeholders for a plan). A project not registered, or not made of
+   * recipes, gives no URL: the name still answers once it runs.
+   */
+  private async reachWays(declaration: Declaration, keepSecrets: boolean): Promise<RenderOptions['reach']> {
+    const wanted = this.reachOf(declaration);
+    if (wanted.length === 0) return undefined;
+    const registry = await this.registry();
+    const ways: NonNullable<RenderOptions['reach']> = {};
+    for (const target of new Set(wanted.map((r) => r.target))) {
+      const urls: Record<string, string> = {};
+      const root = registry[target];
+      const other = root ? await loadDeclaration(root).catch(() => undefined) : undefined;
+      if (other?.services) {
+        const settled = settleSharing(other, await this.shareDefault());
+        const exported = await this.render(settled, keepSecrets, false).then((r) => r.rendered.exports, () => ({}) as Record<string, Record<string, string>>);
+        for (const r of wanted.filter((w) => w.target === target)) {
+          const e = exported[r.service];
+          if (e?.url) urls[r.service] = reachUrl(e.url, e.host ?? r.service, r.alias);
+        }
+      }
+      ways[target] = { network: this.reachNetwork(declaration.project, target), urls };
+    }
+    return ways;
+  }
+
+  /** Before a project's `up`: its networks to the projects it reaches made, those it no longer reaches taken away. */
+  private async prepareReach(declaration: Declaration): Promise<void> {
+    const wanted = this.reachOf(declaration);
+    const kept = await this.readJson<Reach[]>('reach.json', []);
+    const before = kept.filter((r) => r.consumer === declaration.project);
+    if (wanted.length === 0 && before.length === 0) return;
+    for (const old of before.filter((b) => !wanted.some((w) => w.network === b.network && w.service === b.service))) await this.cutReach(old);
+    for (const network of new Set(before.map((b) => b.network))) {
+      if (!wanted.some((w) => w.network === network)) await this.docker.run(['network', 'rm', network]).catch(() => undefined);
+    }
+    for (const network of new Set(wanted.map((w) => w.network))) {
+      const exists = await this.docker.run(['network', 'inspect', network]).then(() => true, () => false);
+      if (!exists) await this.docker.run(['network', 'create', '--internal', '--label', `octopod.reach=${declaration.project}`, network]);
+    }
+    await this.writeJson('reach.json', [...kept.filter((r) => r.consumer !== declaration.project), ...wanted]);
+  }
+
+  /** The container a reached service runs in, if it runs. */
+  private async reachedContainer(r: Reach): Promise<string | undefined> {
+    const out = await this.docker.run(['ps', '-q', '--filter', `label=com.docker.compose.project=${r.target}`, '--filter', `label=com.docker.compose.service=${r.service}`]).catch(() => '');
+    return out.trim().split('\n').filter(Boolean)[0];
+  }
+
+  /** After an `up`: the reached services on their networks, under their names there — those of this project, and those it reaches. */
+  private async wireReach(project: string): Promise<void> {
+    for (const r of (await this.readJson<Reach[]>('reach.json', [])).filter((x) => x.consumer === project || x.target === project)) {
+      const id = await this.reachedContainer(r);
+      if (!id) continue;
+      // Already there: Docker refuses a second time, nothing to do.
+      await this.docker.run(['network', 'connect', '--alias', r.alias, r.network, id]).catch(() => undefined);
+    }
+  }
+
+  private async cutReach(r: Reach): Promise<void> {
+    const id = await this.reachedContainer(r);
+    if (id) await this.docker.run(['network', 'disconnect', '--force', r.network, id]).catch(() => undefined);
+  }
+
+  /** After a project's `down`: its networks to the others taken away; the projects it reached keep running. */
+  private async unwireReach(project: string): Promise<void> {
+    const kept = await this.readJson<Reach[]>('reach.json', []);
+    const mine = kept.filter((r) => r.consumer === project);
+    if (mine.length === 0) return;
+    for (const r of mine) await this.cutReach(r);
+    for (const network of new Set(mine.map((r) => r.network))) await this.docker.run(['network', 'rm', network]).catch(() => undefined);
+    await this.writeJson('reach.json', kept.filter((r) => r.consumer !== project));
+  }
+
+  /** What a project reaches and cannot: not registered, not running, not on the network yet. */
+  private async reachWarnings(declaration: Declaration): Promise<string[]> {
+    const wanted = this.reachOf(declaration);
+    if (wanted.length === 0) return [];
+    const registry = await this.registry();
+    const out: string[] = [];
+    for (const r of wanted) {
+      if (!registry[r.target]) {
+        out.push(`reach ${r.target}/${r.service}: no project "${r.target}" is registered`);
+        continue;
+      }
+      const id = await this.reachedContainer(r);
+      if (!id) {
+        out.push(`reach ${r.target}/${r.service}: not running — octopod up ${r.target}; it answers as ${r.alias} then`);
+        continue;
+      }
+      const networks = await this.docker.run(['inspect', '--format', '{{json .NetworkSettings.Networks}}', id]).then((o) => Object.keys(JSON.parse(o) as object), () => [] as string[]);
+      if (!networks.includes(r.network)) out.push(`reach ${r.target}/${r.service}: not on ${r.network} yet — octopod up ${declaration.base ?? declaration.project}`);
+    }
+    return out;
+  }
+
   async status(name: string, instance = 1): Promise<ProjectStatus> {
     const declaration = await this.declaration(name, instance);
     const out = await this.docker.run([...this.composeArgs(declaration, false), 'ps', '--all', '--format', 'json']).catch((e: DockerError) => {
@@ -1344,6 +1486,7 @@ export class Octopod {
       ...(await this.foreignBinds(declaration)),
       ...(await this.rootWarnings(rows)),
       ...(await this.sharedLeftovers(declaration)),
+      ...(await this.reachWarnings(declaration)),
       ...(await this.secretsDiffer(declaration)).map(
         (k) => `${k}: octopod's state and .octopod/secrets.${declaration.project}.json hold two values; the state's is used — if the data was made with the other, put it in the state (octopod secrets shows it)`,
       ),
@@ -1591,6 +1734,7 @@ export class Octopod {
         ...(s.gets ? { env: s.gets } : {}),
         ...(s.app ? { app: true } : {}),
         ...(s.app && s.uses ? { uses: s.uses } : {}),
+        ...(s.reaches ? { reaches: s.reaches } : {}),
       });
     }
     // An admin lends its address to what it administers.
@@ -1911,12 +2055,62 @@ export class Octopod {
       differ.length === 0 ? "each project's copy of its secrets agrees with octopod's" : `octopod's state and the project's .octopod/secrets.<project>.json differ for ${differ.join(', ')}`,
       `octopod status ${differ[0] ?? ''} says which; the state's are used: a database made with the other values refuses them`,
     );
+    // A container joined by hand to another project's network (`docker network connect`):
+    // where a name (`db`) answers on two of its networks, it may reach the wrong one.
+    if (server) {
+      const clashes = await this.nameClashes();
+      add('names', clashes.length === 0, clashes.length === 0 ? 'no container sees a name answer for two services' : clashes.join('; '), "take the hand-made link away (docker network disconnect), and reach the other project's service with reach: in octopod.yaml");
+    }
     // What may be lost, grown large: caches, temporary files, the leftovers of rebuilds.
     if (server) {
       const heavy = (await this.disk().catch(() => ({ projects: [] as DiskUse[] }))).projects.filter((p) => p.cache + p.temp + p.leftovers > PRUNE_HINT);
       add('disk', heavy.length === 0, heavy.length === 0 ? `no project keeps more than ${humanSize(PRUNE_HINT)} it could lose` : `${heavy.map((p) => `${p.name} (${humanSize(p.cache + p.temp + p.leftovers)})`).join(', ')}: caches, temporary files and leftover images`, heavy.map((p) => `octopod prune ${p.name}`).join('; '));
     }
     return { checks };
+  }
+
+  /**
+   * The running containers that see one name answer for two containers (themselves among
+   * them), on two of their networks. Left out: octopod's edge (it routes by host, never by those names), a
+   * group's shared servers and a reached service (they answer, they do not ask), on the
+   * networks that make them so.
+   */
+  private async nameClashes(): Promise<string[]> {
+    const ids = (await this.docker.run(['ps', '-q']).catch(() => '')).trim().split('\n').filter(Boolean);
+    if (ids.length === 0) return [];
+    type Seen = { Id: string; Name: string; Config: { Labels?: Record<string, string> | null }; NetworkSettings: { Networks?: Record<string, { Aliases?: string[] | null; DNSNames?: string[] | null }> | null } };
+    const seen = JSON.parse(await this.docker.run(['inspect', ...ids]).catch(() => '[]')) as Seen[];
+    const groups = this.path('groups');
+    const registry = await this.registry();
+    const sharedStacks = new Set(Object.entries(registry).filter(([, root]) => root.startsWith(groups)).map(([name]) => name));
+    const reach = await this.readJson<Reach[]>('reach.json', []);
+    // On each network, which containers each name answers for.
+    const answers = new Map<string, Map<string, Set<string>>>();
+    for (const c of seen) {
+      for (const [network, n] of Object.entries(c.NetworkSettings.Networks ?? {})) {
+        const names = answers.get(network) ?? new Map<string, Set<string>>();
+        answers.set(network, names);
+        for (const name of [...(n.DNSNames ?? n.Aliases ?? []), c.Name.replace(/^\//, '')]) (names.get(name) ?? names.set(name, new Set()).get(name)!).add(c.Id);
+      }
+    }
+    const out: string[] = [];
+    for (const c of seen) {
+      const labels = c.Config.Labels ?? {};
+      const project = labels['com.docker.compose.project'] ?? '';
+      if (labels['octopod.edge'] || sharedStacks.has(project)) continue;
+      const networks = Object.keys(c.NetworkSettings.Networks ?? {}).filter((n) => !reach.some((r) => r.network === n && r.target === project));
+      if (networks.length < 2) continue;
+      // Itself counts: its own service's name answering for another container elsewhere is the same trap.
+      const where = new Map<string, { network: string; owners: Set<string> }[]>();
+      for (const network of networks) {
+        for (const [name, owners] of answers.get(network) ?? []) where.set(name, [...(where.get(name) ?? []), { network, owners }]);
+      }
+      for (const [name, on] of where) {
+        const distinct = new Set(on.flatMap((o) => [...o.owners]));
+        if (on.length > 1 && distinct.size > 1) out.push(`${c.Name.replace(/^\//, '')} sees "${name}" on ${on.map((o) => o.network).join(' and ')}`);
+      }
+    }
+    return out;
   }
 
   // ─── Disk ───────────────────────────────────────────────────────────────────

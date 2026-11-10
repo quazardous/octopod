@@ -8,7 +8,7 @@ import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BUILTIN_RECIPES, digestOf, loadRecipes, RecipeError } from './loader.js';
-import { formatPlan, renderServices, userNameOf, withAdmins } from './render.js';
+import { formatPlan, reachUrl, renderServices, userNameOf, withAdmins } from './render.js';
 import { lintDockerfile } from './lint.js';
 
 let base: string;
@@ -374,6 +374,45 @@ describe('the built-in recipes', () => {
     // The secret goes on the command's input, never in it.
     expect(out.tenancies[0]!.command.join(' ')).not.toContain('s3cret');
     expect(() => renderServices({ project: 'shop', book, services: { db: { recipe: 'mariadb', shared: true } }, workspace: '/p' })).toThrow(/shared needs the project's group/);
+  });
+
+  it("reaches another project's service over a network of their own, under a prefixed name, its URL given", async () => {
+    const book = await loadRecipes([BUILTIN_RECIPES]);
+    const out = renderServices({
+      project: 'shop',
+      book,
+      services: { app: { recipe: 'node-app', reach: { legacy: ['db', 'cache'] } }, db: { recipe: 'mariadb' }, worker: { recipe: 'node-app' } },
+      workspace: '/p',
+      owner: '1:1',
+      secretFactory: () => 's3cret',
+      reach: { legacy: { network: 'octopod-reach-shop-legacy', urls: { db: 'mysql://admi:pw@legacy-db:3306/admi' } } },
+    });
+    const app = out.compose.services.app as Record<string, unknown>;
+    const env = app.environment as Record<string, string>;
+    // Its own base keeps its bare name; the other project's is a variable of its own.
+    expect(env.DATABASE_URL).toBe('mysql://app:s3cret@db:3306/app');
+    expect(env.LEGACY_DB_URL).toBe('mysql://admi:pw@legacy-db:3306/admi');
+    expect(env.LEGACY_CACHE_URL).toBeUndefined();
+    expect(app.networks).toEqual(['default', 'octopod_reach_legacy']);
+    expect((out.compose.services.worker as Record<string, unknown>).networks).toBeUndefined();
+    expect(out.compose.networks).toEqual({ octopod_reach_legacy: { name: 'octopod-reach-shop-legacy', external: true } });
+    const described = out.services.find((s) => s.name === 'app')!;
+    expect(described.reaches).toEqual([
+      { project: 'legacy', service: 'db', alias: 'legacy-db', env: 'LEGACY_DB_URL' },
+      { project: 'legacy', service: 'cache', alias: 'legacy-cache' },
+    ]);
+    expect(described.gets).toEqual(expect.arrayContaining([{ name: 'LEGACY_DB_URL', from: 'legacy/db' }]));
+    expect(formatPlan('shop', out.services, '/p')).toContain('reaches legacy/db as legacy-db, legacy/cache as legacy-cache');
+    // What each service exports, for the projects that reach it.
+    expect(out.exports.db).toEqual(expect.objectContaining({ host: 'db', url: 'mysql://app:s3cret@db:3306/app' }));
+    expect(() => renderServices({ project: 'shop', book, services: { app: { recipe: 'node-app', reach: { shop: ['db'] } } }, workspace: '/p' })).toThrow(/its own project/);
+  });
+
+  it("moves a reached URL's host to the name it answers to there, and nothing else", () => {
+    expect(reachUrl('mysql://db:pw@db:3306/db', 'db', 'legacy-db')).toBe('mysql://db:pw@legacy-db:3306/db');
+    expect(reachUrl('redis://cache:6379', 'cache', 'legacy-cache')).toBe('redis://legacy-cache:6379');
+    expect(reachUrl('http://api/x', 'api', 'legacy-api')).toBe('http://legacy-api/x');
+    expect(reachUrl('postgres://u:p@dbx:5432/db', 'db', 'legacy-db')).toBe('postgres://u:p@dbx:5432/db');
   });
 
   it("gives a shared database's actions to the project, as its tenant", async () => {

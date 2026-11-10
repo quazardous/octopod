@@ -37,6 +37,8 @@ export interface ServiceRequest {
   /** Folders that may be lost, beside the recipe's (a name they share is the project's). */
   caches?: Record<string, string>;
   temp?: Record<string, string>;
+  /** Services of other projects it reaches, by project: `{ admistore: [db] }`. See `RenderOptions.reach`. */
+  reach?: Record<string, string[]>;
 }
 
 export type ParamValue = string | number | boolean;
@@ -66,6 +68,12 @@ export interface RenderOptions {
    * tenant `tenant`: the recipe's `tenant` params and its own secret.
    */
   shared?: { project: string; network: string; tenant: string; domain?: string };
+  /**
+   * The other projects its services reach (`reach:`), by project: the network made for the
+   * two projects alone, and the URL each reached service answers at there, when its recipe
+   * exports one (see {@link reachUrl}).
+   */
+  reach?: Record<string, { network: string; urls: Record<string, string> }>;
 }
 
 export type HostOs = 'linux' | 'windows' | 'macos';
@@ -139,6 +147,8 @@ export interface RenderedService {
   uses?: string[];
   /** The names of the variables it gets, each with the service it comes from (none: its recipe's own). */
   gets?: { name: string; from?: string }[];
+  /** Services of other projects it reaches: under which name, and the variable that holds its URL. */
+  reaches?: { project: string; service: string; alias: string; env?: string }[];
   /** A service the group runs: its server, and the project's tenancy in it. */
   sharedAs?: { project: string; server: string; tenant?: string; params: Record<string, ParamValue> };
 }
@@ -165,10 +175,30 @@ export interface Rendered {
   shared: Record<string, { server: string; recipe: string; params: Record<string, unknown> }>;
   /** Its tenancies in them, to make before it starts. */
   tenancies: Tenancy[];
+  /** What each of its services made of a recipe exports (`url`, `host`…), secrets included: for the projects that reach it. */
+  exports: Record<string, Record<string, string>>;
 }
 
 /** The group's network, in a project's compose: joined by the services that require a shared one. */
 export const SHARED_NETWORK = 'octopod_shared';
+
+/** The network to another project, in a project's compose: `octopod_reach_<project>`. */
+export const reachNetworkKey = (project: string): string => `octopod_reach_${project}`;
+
+/** The name a reached service answers to, on the network to it: `<project>-<service>`, never its bare name. */
+export const reachAlias = (project: string, service: string): string => `${project}-${service}`;
+
+/** The variable a reaching service gets the URL in: `ADMISTORE_DB_URL`. */
+export const reachEnv = (project: string, service: string): string => `${project}_${service}_URL`.toUpperCase().replace(/[^A-Z0-9]/g, '_');
+
+/**
+ * A reached service's URL: the one its recipe exports, its host (the service's bare name, as
+ * its own project knows it) replaced by the name it answers to on the network to it.
+ */
+export function reachUrl(url: string, host: string, alias: string): string {
+  const escaped = host.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return url.replace(new RegExp(`(//(?:[^@/]*@)?)${escaped}(?=[:/?#]|$)`), `$1${alias}`);
+}
 
 export class RenderError extends Error {}
 
@@ -417,6 +447,24 @@ export function renderServices(options: RenderOptions): Rendered {
     const waits: { service: string; healthy: boolean }[] = [];
     const uses: string[] = [];
     let reachesShared = false;
+    // The other projects' services it reaches: over a network of the two projects alone.
+    const reaches: NonNullable<RenderedService['reaches']> = [];
+    const reachNetworks: string[] = [];
+    for (const [project, targets] of Object.entries(r.request.reach ?? {})) {
+      if (project === options.project) throw new RenderError(`service '${r.name}': reach names its own project; its services are on its own network`);
+      const way = options.reach?.[project];
+      if (!way) continue;
+      reachNetworks.push(reachNetworkKey(project));
+      for (const target of targets) {
+        const url = way.urls[target];
+        const name = reachEnv(project, target);
+        if (url !== undefined) {
+          env[name] = url;
+          gets.push({ name, from: `${project}/${target}` });
+        }
+        reaches.push({ project, service: target, alias: reachAlias(project, target), ...(url !== undefined ? { env: name } : {}) });
+      }
+    }
     for (const requirement of recipe.requires) {
       const providers = resolved.filter((o) => o.name !== r.name && o.entry.recipe.provides.includes(requirement.capability));
       if (providers.length === 0) {
@@ -529,10 +577,9 @@ export function renderServices(options: RenderOptions): Rendered {
       service.depends_on = Object.fromEntries(waits.map((w) => [w.service, { condition: w.healthy ? 'service_healthy' : 'service_started' }]));
     }
     if (recipe.port) service.expose = [String(recipe.port)];
-    if (reachesShared && options.shared) {
-      service.networks = ['default', SHARED_NETWORK];
-      joinsShared = true;
-    }
+    if (reachesShared && options.shared) joinsShared = true;
+    const networks = [...(reachesShared && options.shared ? [SHARED_NETWORK] : []), ...reachNetworks];
+    if (networks.length > 0) service.networks = ['default', ...networks];
     if (recipe.tool) service.profiles = [TOOL_PROFILE];
     else if (recipe.profiles.length > 0) service.profiles = recipe.profiles;
     if (recipe.limits.memory) service.mem_limit = recipe.limits.memory;
@@ -564,6 +611,7 @@ export function renderServices(options: RenderOptions): Rendered {
       ...(r.actions.info ? { info: true as const } : {}),
       ...(uses.length > 0 ? { uses } : {}),
       ...(gets.length > 0 ? { gets } : {}),
+      ...(reaches.length > 0 ? { reaches } : {}),
       ...(Object.keys(r.programs).length > 0 ? { programs: Object.keys(r.programs) } : {}),
       ...(recipe.supervisor ? { supervisor: recipe.supervisor.config } : {}),
       ...(recipe.tool ? { tool: true } : {}),
@@ -574,8 +622,18 @@ export function renderServices(options: RenderOptions): Rendered {
 
   const compose: Rendered['compose'] = { services };
   if (Object.keys(volumes).length > 0) compose.volumes = volumes;
-  if (joinsShared && options.shared) compose.networks = { [SHARED_NETWORK]: { name: options.shared.network, external: true } };
-  return { compose, files, services: described, secrets: Object.fromEntries(resolved.map((r) => [r.name, r.secrets])), shared, tenancies };
+  const networks: Record<string, unknown> = {};
+  if (joinsShared && options.shared) networks[SHARED_NETWORK] = { name: options.shared.network, external: true };
+  // Made by octopod before `up`, for the two projects alone.
+  for (const project of new Set(resolved.flatMap((r) => Object.keys(r.request.reach ?? {})))) {
+    const way = options.reach?.[project];
+    if (way) networks[reachNetworkKey(project)] = { name: way.network, external: true };
+  }
+  if (Object.keys(networks).length > 0) compose.networks = networks;
+  // What each exports, for the projects that reach it; a shared one is the group's to give.
+  const exports: Rendered['exports'] = {};
+  for (const r of resolved) if (!r.request.shared && Object.keys(r.entry.recipe.exports).length > 0) exports[r.name] = renderMap(r.entry.recipe.exports, scopes(r, options), `${r.name}.exports`);
+  return { compose, files, services: described, secrets: Object.fromEntries(resolved.map((r) => [r.name, r.secrets])), shared, tenancies, exports };
 }
 
 /** One screen, for an approval: what each service is, what it keeps, what it mounts. */
@@ -605,6 +663,7 @@ export function formatPlan(project: string, services: RenderedService[], workspa
     if (s.actions) lines.push(`    actions ${Object.keys(s.actions).join(', ')} (octopod run ${s.name} <action>)`);
     if (s.tool) lines.push(`    tool    never started by up: octopod shell ${project} ${s.name} -- <command…>`);
     if (s.gets) lines.push(`    gets    ${s.gets.map((g) => (g.from ? `${g.name} ← ${g.from}` : g.name)).join(', ')}`);
+    if (s.reaches) lines.push(`    reaches ${s.reaches.map((x) => `${x.project}/${x.service} as ${x.alias}`).join(', ')} (a network of the two projects alone)`);
     if (s.waits) lines.push(`    waits   for ${s.waits.map((w) => `${w.service} (${w.healthy ? 'healthy' : 'started'})`).join(', ')}`);
     if (s.route !== undefined) lines.push(`    served  ${s.route ? `${s.route}.` : ''}${domain}, port ${s.port ?? 'from the image'}`);
   }

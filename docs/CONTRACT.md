@@ -245,6 +245,19 @@ workspace: .               # the folder a recipe's workspace mounts; the project
   recipe's is the project's. `node-app` keeps npm's cache there (`npm_config_cache`),
   `python-app` uv's and pip's, `php-app` and `php-cli` composer's. `octopod prune` empties
   them; nothing else does.
+- **Another project's service.** `reach: { legacy: [db] }` on a service in `octopod.yaml`
+  lets it reach the service `db` of the registered project `legacy`, under the name
+  `legacy-db` alone. octopod makes a network for the two projects only,
+  `octopod-reach-<project>-<other>` (internal), before `up`. The reaching service joins it,
+  and the reached one is connected to it under that name, after either project's `up`.
+  Neither joins the other's own network, where a bare name (`db`) would answer for two
+  services. When the reached service's recipe exports a `url`, the reaching service gets it
+  as `LEGACY_DB_URL`, its host moved to `legacy-db`: the other project's account,
+  read-write. `status` warns while the other project is not registered or not running;
+  `down` of the reaching project takes its networks away, the other keeps running.
+  `doctor` checks that no container sees one name answer for two others on two of its
+  networks, as a container joined by hand (`docker network connect`) to another project's
+  network does.
 - **Where the console's icon leads.** A routed recipe's icon leads to its route, at the
   recipe's `link:` (`/admin/` for `oidc`); a database's, to the admin wired to it. An app's
   (a recipe with a workspace: its address is listed beside it) leads to its info page: what
@@ -393,7 +406,7 @@ first time, kept after), and answers only a request that carries that token in t
 | POST | `/v1/edge/up` · `/v1/edge/down` | | `{ running, port, dashboard, console }` |
 | GET | `/v1/projects?group=&tag=` | | `Project[]` — every registered project, or those of a group, or carrying a tag; a group's shared services (`<group>-shared`) are listed with `sharedOf: <group>`: not a project, the console shows them in the projects that use them |
 | POST | `/v1/projects` | `{ root }` | `Project` (registered from `root/octopod.yaml`) |
-| GET | `/v1/projects/:name` | | `ProjectStatus`; each of its `services` made of a recipe carries `recipe` (its id), `link` (where the console's icon leads: its route at the recipe's `link:`, or for a database the route of the admin wired to it) `app` (it works on the project's files), for an app `uses` (its own services it is wired to), for an admin `admin` (the service it administers: the console draws the two as one), `info` (it has an `info` action: `GET …/info`), `env` (the names of the variables it gets, each with the service it comes from: `{ name, from? }`, never the values). `shared`: the group's servers the project uses, `{ service, server, stack, state, health?, recipe, link?, admin? }` — `service` its own name for it, `server` the group's (`mariadb-11-4`), `stack` the group's stack that runs it (`<group>-shared`: its logs are there), `url` its address at the edge when routed |
+| GET | `/v1/projects/:name` | | `ProjectStatus`; each of its `services` made of a recipe carries `recipe` (its id), `link` (where the console's icon leads: its route at the recipe's `link:`, or for a database the route of the admin wired to it) `app` (it works on the project's files), for an app `uses` (its own services it is wired to), for an admin `admin` (the service it administers: the console draws the two as one), `info` (it has an `info` action: `GET …/info`), `env` (the names of the variables it gets, each with the service it comes from: `{ name, from? }`, never the values), `reaches` (the other projects' services it reaches: `{ project, service, alias, env? }`). `shared`: the group's servers the project uses, `{ service, server, stack, state, health?, recipe, link?, admin? }` — `service` its own name for it, `server` the group's (`mariadb-11-4`), `stack` the group's stack that runs it (`<group>-shared`: its logs are there), `url` its address at the edge when routed |
 | POST | `/v1/projects/:name/up` · `/down` | `{ volumes?: boolean, instance? }` for down, `{ instance? }` for up | `ProjectStatus` — with prune, destroy and unregister, the only POSTs the console's relay lets through, with `X-Octopod-Console: 1`; a down with `volumes: true` and that header is refused (403) |
 | POST | `/v1/projects/:name/restart` | `{ service? }` | `ProjectStatus` |
 | POST | `/v1/projects/:name/exec` | `{ service, argv: string[], timeoutMs? }` | `{ ok, mode, output, truncated }` — argv, never a shell string built by octopod; output bounded; a failure says how it ended (exit code, timeout). `mode: "run"` when the service was not running (stopped, restarting in a loop): the command ran in a one-off container of it (same image, mounts, user, network), kept out of the edge's routes |
