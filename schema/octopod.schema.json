@@ -267,6 +267,58 @@
         "type": "string",
         "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"
       }
+    },
+    "variants": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]{0,30}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "summary": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "workspace": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 400
+          },
+          "compose": {
+            "maxItems": 16,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "services": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {}
+            }
+          },
+          "on-switch": {
+            "maxItems": 16,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]*\\/[a-z][a-z0-9_-]*$"
+            }
+          }
+        },
+        "additionalProperties": false
+      }
     }
   },
   "additionalProperties": false

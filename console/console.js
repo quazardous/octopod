@@ -736,6 +736,8 @@ function card(p, base, nested = false, inGroup = false) {
       el('h2', {}, nested || inGroup ? el('a', { href: pageOf(base, instance) }, p.name) : p.name, nested ? el('span', { class: 'muted' }, ` (instance ${instance})`) : null),
       el('span', { class: `pill ${tone}` }, label),
       nested ? null : (p.tags || []).map((t) => el('span', { class: 'tag' }, `#${t}`)),
+      // The variant it runs (`octopod up --variant`): chosen on the command line, shown here.
+      p.variant ? el('span', { class: 'tag', title: ((p.variants || []).find((v) => v.name === p.variant) || {}).summary || 'octopod up --variant -: back to the declaration' }, `variant ${p.variant}`) : null,
       el('span', { class: 'spacer' }),
       el('button', { type: 'button', onclick: () => openLogs({ project: base, instance, service: '' }) }, 'All logs'),
       state.busy.has(key) ? actButton(base, instance, 'up') : [actButton(base, instance, 'up'), actButton(base, instance, 'down')],

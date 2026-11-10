@@ -180,6 +180,9 @@ export interface ProjectStatus extends Project {
   services: ({ service: string; state: string; health?: string; programs?: { program: string; state: string; detail: string }[] } & KnownService)[];
   /** The group's servers the project uses, each in the state the group's stack has it. */
   shared?: SharedService[];
+  /** The variant it runs (`up --variant`), and those it declares. */
+  variant?: string;
+  variants?: { name: string; summary?: string }[];
   /** Things the operator should fix, e.g. data written by a service that runs as another user. */
   warnings?: string[];
 }
@@ -417,6 +420,11 @@ async function writeIfChanged(file: string, content: string, mode?: number): Pro
   const tmp = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
   await writeFile(tmp, content, mode === undefined ? {} : { mode });
   await rename(tmp, file);
+}
+
+/** The image octopod builds for a service: compose's own name, tagged with the variant when one runs. */
+function builtImage(project: string, service: string, variant?: string): string {
+  return variant ? `${project}-${service}:${variant}` : `${project}-${service}`;
 }
 
 /** A service of another project a project reaches (`reach:`), and how: kept in `reach.json`. */
@@ -704,8 +712,19 @@ export class Octopod {
     return this.withRecipes(await this.declarationOf(name, root, registry, instance), true);
   }
 
+  /** Where the variant a project's instance runs is kept (`up --variant`): octopod's state, never the project. */
+  private variantFile(name: string, instance: number): string {
+    return join('projects', instanceName(name, instance), 'variant.json');
+  }
+
+  private async chosenVariant(name: string, instance: number): Promise<string | undefined> {
+    return (await this.readJson<{ variant?: string }>(this.variantFile(name, instance), {})).variant;
+  }
+
   private async declarationOf(name: string, root: string, registry: Record<string, string>, instance: number): Promise<Declaration> {
-    const declaration = await loadDeclaration(root);
+    // The variant chosen at `up`; one no longer declared leaves the declaration as it is (status says so).
+    const chosen = await this.chosenVariant(name, instance);
+    const declaration = chosen ? await loadDeclaration(root, chosen).catch(() => loadDeclaration(root)) : await loadDeclaration(root);
     if (instance === 1) return declaration;
     let copy: Declaration;
     try {
@@ -759,6 +778,7 @@ export class Octopod {
             : {}),
           ...(declaration.instance ? { instance: declaration.instance } : {}),
           ...(reach && Object.keys(reach).length > 0 ? { reach } : {}),
+          ...(declaration.variant ? { variant: declaration.variant } : {}),
           ...(keepSecrets ? {} : { secretFactory: () => '‹generated›' }),
         }),
       };
@@ -877,8 +897,8 @@ export class Octopod {
   }
 
   /** What `up` would run for a project folder, registered or not: for an approval. Writes nothing. */
-  async plan(root: string, instance = 1): Promise<{ project: string; text: string; services: RenderedService[]; compose: unknown }> {
-    let declaration = await loadDeclaration(root).catch((e: Error) => {
+  async plan(root: string, instance = 1, variant?: string): Promise<{ project: string; text: string; services: RenderedService[]; compose: unknown }> {
+    let declaration = await loadDeclaration(root, variant).catch((e: Error) => {
       throw new OctopodError(e.message);
     });
     if (instance > 1) declaration = withInstance(declaration, instance);
@@ -1026,7 +1046,12 @@ export class Octopod {
     return [...this.composeArgs(declaration, false), ...tools, 'config', '--format', 'json'];
   }
 
-  async up(name: string, instance = 1): Promise<ProjectStatus> {
+  /**
+   * `options.variant`: switch to that variant, `null` back to the declaration as it is;
+   * absent, the variant chosen last stays.
+   */
+  async up(name: string, instance = 1, options: { variant?: string | null } = {}): Promise<ProjectStatus> {
+    const switched = options.variant !== undefined ? await this.chooseVariant(name, instance, options.variant) : undefined;
     const declaration = await this.declaration(name, instance);
     const config = JSON.parse(await this.docker.run(this.configArgs(declaration))) as {
       services?: Record<string, ComposeService>;
@@ -1079,7 +1104,45 @@ export class Octopod {
     await this.writeAllowList(declaration.project, group && declaration.project === this.sharedOf(group).project ? await this.sharedMembers(group) : []);
     if (declaration.shareGroup && declaration.sharedServices) await this.writeAllowList(this.sharedOf(declaration.shareGroup).project, await this.sharedMembers(declaration.shareGroup));
     if (instance > 1) await this.noteInstance(name, instance, true);
-    return this.status(name, instance);
+    const failed = switched ? await this.onSwitch(name, instance, declaration, switched) : [];
+    const status = await this.status(name, instance);
+    return failed.length > 0 ? { ...status, warnings: [...(status.warnings ?? []), ...failed] } : status;
+  }
+
+  /**
+   * Keep the variant chosen for an instance, a declared one only. Returns what the switch
+   * was, or nothing when it is the one already running.
+   */
+  private async chooseVariant(name: string, instance: number, variant: string | null): Promise<{ from?: string; to?: string } | undefined> {
+    const root = (await this.registry())[name];
+    if (!root) throw new OctopodError(`no project "${name}"; register it first`);
+    if (variant) {
+      await loadDeclaration(root, variant).catch((e: Error) => {
+        throw new OctopodError(e.message);
+      });
+    }
+    const from = await this.chosenVariant(name, instance);
+    const to = variant ?? undefined;
+    if (from === to) return undefined;
+    await this.writeJson(this.variantFile(name, instance), to ? { variant: to } : {});
+    return { ...(from ? { from } : {}), ...(to ? { to } : {}) };
+  }
+
+  /**
+   * After an `up` that switched variants: the actions of the variant switched to, or of the
+   * one left for the declaration (a cache to empty, a worker to start again). What fails is
+   * said, the project stays up.
+   */
+  private async onSwitch(name: string, instance: number, declaration: Declaration, switched: { from?: string; to?: string }): Promise<string[]> {
+    const which = switched.to ?? switched.from;
+    const actions = declaration.variants?.find((v) => v.name === which)?.onSwitch ?? [];
+    const failed: string[] = [];
+    for (const step of actions) {
+      const [service, action] = step.split('/') as [string, string];
+      const done = await this.runAction(name, service, action, { instance }).catch((e: Error) => ({ ok: false, code: -1, stderr: e.message }));
+      if (!done.ok) failed.push(`on-switch ${step} failed: ${done.stderr.trim().split('\n').slice(-1)[0] || `exit ${done.code}`}`);
+    }
+    return failed;
   }
 
   /**
@@ -1214,6 +1277,11 @@ export class Octopod {
     const tools = declaration.services ? ['--profile', TOOL_PROFILE] : [];
     await this.docker.run([...this.composeArgs(declaration, true), ...tools, 'down', ...(options.volumes ? ['--volumes'] : []), ...(options.images ? ['--rmi', 'local'] : [])]);
     await this.unwireReach(declaration.project);
+    // `--rmi local` leaves an image compose was told the name of: a variant's.
+    if (options.images) {
+      const ids = (await this.docker.run(['image', 'ls', '-q', '--filter', `label=${PROJECT_LABEL}=${declaration.project}`]).catch(() => '')).trim().split('\n').filter(Boolean);
+      if (ids.length > 0) await this.docker.run(['image', 'rm', '-f', ...new Set(ids)]).catch(() => undefined);
+    }
     if (instance > 1) await this.noteInstance(name, instance, false);
     if (declaration.sharedServices && declaration.shareGroup) await this.downSharedWhenIdle(declaration.shareGroup);
     return this.status(name, instance);
@@ -1487,6 +1555,7 @@ export class Octopod {
       ...(await this.rootWarnings(rows)),
       ...(await this.sharedLeftovers(declaration)),
       ...(await this.reachWarnings(declaration)),
+      ...(await this.variantWarnings(name, instance, declaration)),
       ...(await this.secretsDiffer(declaration)).map(
         (k) => `${k}: octopod's state and .octopod/secrets.${declaration.project}.json hold two values; the state's is used — if the data was made with the other, put it in the state (octopod secrets shows it)`,
       ),
@@ -1506,8 +1575,16 @@ export class Octopod {
         .concat(tools)
         .map((s) => ({ ...s, ...known.get(s.service) })),
       ...(shared.length > 0 ? { shared } : {}),
+      ...(declaration.variant ? { variant: declaration.variant } : {}),
+      ...(declaration.variants ? { variants: declaration.variants.map(({ name: v, summary }) => ({ name: v, ...(summary ? { summary } : {}) })) } : {}),
       ...(warnings.length > 0 ? { warnings } : {}),
     };
+  }
+
+  /** A variant chosen at `up` that the declaration no longer has: the project runs as declared. */
+  private async variantWarnings(name: string, instance: number, declaration: Declaration): Promise<string[]> {
+    const chosen = await this.chosenVariant(name, instance);
+    return chosen && declaration.variant !== chosen ? [`variant ${chosen} is chosen but no longer declared, or no longer valid: it runs as declared — octopod up --variant <another>, or --variant -`] : [];
   }
 
   /**
@@ -1704,7 +1781,7 @@ export class Octopod {
     for (const s of await this.recipeServices(declaration)) {
       if (!s.buildTag || s.tool) continue;
       const built = await this.docker
-        .run(['image', 'inspect', `${declaration.project}-${s.name}`, '--format', `{{index .Config.Labels "${BUILD_LABEL}"}}`])
+        .run(['image', 'inspect', builtImage(declaration.project, s.name, declaration.variant), '--format', `{{index .Config.Labels "${BUILD_LABEL}"}}`])
         .catch(() => undefined);
       if (built !== undefined && built.trim() !== s.buildTag) stale.push(s.name);
     }

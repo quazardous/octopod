@@ -137,6 +137,46 @@ describe('loadDeclaration', () => {
     await expect(loadDeclaration(root)).rejects.toThrow(/reach/);
   });
 
+  it('lays a variant over the declaration only when asked: its workspace, its compose files, its services merged key by key', async () => {
+    await mkdir(join(root, 'next'));
+    await writeFile(
+      join(root, 'octopod.yaml'),
+      [
+        'services:',
+        '  app: { recipe: php-app, php: "5.6", workdir: /srv }',
+        '  db: { recipe: mariadb }',
+        'variants:',
+        '  php71:',
+        '    summary: PHP 7.1',
+        '    workspace: next',
+        '    compose: [compose.php71.yaml]',
+        '    services:',
+        '      app: { php: "7.1" }',
+        '      cache: { recipe: valkey }',
+        '    on-switch: [app/cache-clear]',
+        '',
+      ].join('\n'),
+    );
+    const plain = await loadDeclaration(root);
+    expect(plain.variant).toBeUndefined();
+    expect(plain.services?.app?.params).toEqual({ php: '5.6' });
+    expect(plain.variants).toEqual([{ name: 'php71', summary: 'PHP 7.1', onSwitch: ['app/cache-clear'] }]);
+    const next = await loadDeclaration(root, 'php71');
+    expect(next.variant).toBe('php71');
+    expect(next.services?.app).toEqual({ recipe: 'php-app', params: { php: '7.1' }, workdir: '/srv' });
+    expect(next.services?.db).toEqual({ recipe: 'mariadb', params: {} });
+    expect(next.services?.cache).toEqual({ recipe: 'valkey', params: {} });
+    expect(next.workspace).toBe(join(root, 'next'));
+    expect(next.compose.at(-1)).toBe(join(root, 'compose.php71.yaml'));
+    await expect(loadDeclaration(root, 'php8')).rejects.toThrow(/no variant "php8"; declared: php71/);
+  });
+
+  it("refuses a variant that makes the declaration wrong, saying which", async () => {
+    await writeFile(join(root, 'octopod.yaml'), 'services:\n  app: { recipe: node-app }\nvariants:\n  broken:\n    services:\n      app: { recipe: "" }\n');
+    await expect(loadDeclaration(root)).resolves.toBeDefined();
+    await expect(loadDeclaration(root, 'broken')).rejects.toThrow(/variant broken: /);
+  });
+
   it('refuses a declaration with nothing to serve', async () => {
     await writeFile(join(root, 'octopod.yaml'), 'project: demo\n');
     await expect(loadDeclaration(root)).rejects.toThrow(/nothing to serve/);

@@ -13,12 +13,12 @@ const INSTANCE: [string, string] = ['--instance N', 'instance N of the project (
 const JSON_FLAG: [string, string] = ['--json', 'the API\'s JSON, for a program'];
 
 export const HELP: Record<string, CommandHelp> = {
-  up: { usage: 'octopod up [project] [--instance N]', about: 'Start the edge if needed, then the project (the one declared here, registered the first time), or apply what changed.', flags: [INSTANCE, JSON_FLAG] },
+  up: { usage: 'octopod up [project] [--instance N] [--variant name|-]', about: 'Start the edge if needed, then the project (the one declared here, registered the first time), or apply what changed.', flags: [INSTANCE, ['--variant name', 'switch to that variant of octopod.yaml (variants:), - back to the declaration; the last one chosen stays otherwise'], JSON_FLAG] },
   down: { usage: 'octopod down [project] [--volumes] [--instance N]', about: 'Stop the project: its containers go, its data stays.', flags: [['--volumes', "also remove Docker's volume objects (the data in .octopod/data stays)"], INSTANCE, JSON_FLAG] },
   status: { usage: 'octopod status [project] [--instance N]', about: "The project's services (state, health, programs), routes, the group's servers it uses with their addresses, and warnings.", flags: [INSTANCE, JSON_FLAG] },
   logs: { usage: 'octopod logs [project] [--service s] [--tail n]', about: "The project's logs, one service's or all.", flags: [['--service s', 'one service'], ['--tail n', 'the last n lines (200)'], INSTANCE] },
   restart: { usage: 'octopod restart [project] [--service s]', about: 'Restart the project, or one service.', flags: [['--service s', 'one service'], INSTANCE, JSON_FLAG] },
-  plan: { usage: 'octopod plan [dir] [--instance N]', about: 'What up would run, writing nothing: each service, its image, the variables it gets and from where, its data, its address.', flags: [INSTANCE, JSON_FLAG] },
+  plan: { usage: 'octopod plan [dir] [--instance N] [--variant name]', about: 'What up would run, writing nothing: each service, its image, the variables it gets and from where, its data, its address.', flags: [INSTANCE, ['--variant name', 'with that variant of octopod.yaml over the declaration'], JSON_FLAG] },
   register: { usage: 'octopod register [dir]', about: 'Declare a project without starting it.', flags: [JSON_FLAG] },
   disk: { usage: 'octopod disk [project] [--all]', about: "What a project takes on disk (every project's, outside one): its data, homes, caches, temporary files, images and the leftovers of its rebuilds; and the machine's build cache.", flags: [['--all', 'every project'], JSON_FLAG] },
   prune: {

@@ -158,15 +158,15 @@ export function mcpServer(octopod: Octopod, options: McpOptions): McpServer {
     {
       description:
         'Starts the project (registered from the current folder the first time), or applies what changed. A build that takes long answers "still running" and goes on: call octopod_status. Call octopod_plan and show it to the user before a first up.',
-      inputSchema: { project, instance },
+      inputSchema: { project, instance, variant: z.string().min(1).max(31).optional().describe('Switch to this variant of octopod.yaml (`variants:`), or `-` back to the declaration; the one chosen last stays otherwise.') },
       annotations: { destructiveHint: false, idempotentHint: true },
     },
-    guarded(async ({ project: named, instance: n }) => {
+    guarded(async ({ project: named, instance: n, variant }) => {
       const { name: declared, root } = await resolve(named);
       const name = root ? (await octopod.ensureRegistered(root)).name : declared;
       const key = `${name}#${n ?? 1}`;
       if (ups.has(key)) return text(`an up of ${name} is already running: call octopod_status`);
-      const up = octopod.up(name, n).finally(() => ups.delete(key));
+      const up = octopod.up(name, n, variant === undefined ? {} : { variant: variant === '-' ? null : variant }).finally(() => ups.delete(key));
       ups.set(key, up);
       // Its failure, once nobody waits for it, is what octopod_status will show.
       up.catch(() => undefined);

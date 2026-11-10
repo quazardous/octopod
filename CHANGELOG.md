@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Variants: `variants:` in `octopod.yaml` declares sets of changes over the declaration (a
+  workspace, compose files added, services merged key by key, actions to run on a switch),
+  and `octopod up --variant <name>` runs one without editing the versioned file;
+  `--variant -` goes back. The choice is kept in octopod's state, per instance. Images
+  octopod builds are tagged per variant, so switching back and forth builds nothing again.
+  `status`, the console and the API say which variant runs; `plan --variant` shows one.
+
 - A service reaches a service of another project with `reach: { <project>: [<service>] }`
   in `octopod.yaml`: over a network of the two projects alone, under the name
   `<project>-<service>`, its URL in `<PROJECT>_<SERVICE>_URL` when its recipe exports one.

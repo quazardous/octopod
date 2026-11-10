@@ -163,9 +163,9 @@ export function handler(octopod: Octopod) {
         return;
       }
       if (resource === 'plan' && !name && method === 'POST') {
-        const { root, instance } = await body(req);
+        const { root, instance, variant } = await body(req);
         if (typeof root !== 'string' || !root.startsWith('/')) return send(res, 400, { error: '"root" must be an absolute path' });
-        return send(res, 200, await octopod.plan(root, instanceValue(instance)));
+        return send(res, 200, await octopod.plan(root, instanceValue(instance), typeof variant === 'string' ? variant : undefined));
       }
       if (resource === 'projects' && !name && method === 'POST') {
         const { root } = await body(req);
@@ -185,8 +185,9 @@ export function handler(octopod: Octopod) {
         return send(res, 200, {});
       }
       if (resource === 'projects' && name && action === 'up' && method === 'POST') {
-        const { instance } = await body(req);
-        return send(res, 200, await octopod.up(name, instanceValue(instance)));
+        const { instance, variant } = await body(req);
+        if (variant !== undefined && variant !== null && typeof variant !== 'string') return send(res, 400, { error: '"variant" must be a string, or null' });
+        return send(res, 200, await octopod.up(name, instanceValue(instance), variant === undefined ? {} : { variant: (variant as string | null) || null }));
       }
       if (resource === 'projects' && name && action === 'down' && method === 'POST') {
         const { volumes, instance } = await body(req);

@@ -33,6 +33,26 @@ export interface ProgramSpec {
 /** A service's folders that may be lost, beside its recipe's: `{ media: /app/media }` (see the recipe's `caches`, `temp`). */
 const Folders = z.record(z.string().regex(/^[a-z][a-z0-9-]{0,30}$/, 'a name: a-z, 0-9 and -'), z.string().regex(/^\/[A-Za-z0-9._/-]*$/, 'an absolute path in the container'));
 
+/** A variant's name: `php71`. */
+const VARIANT_RE = /^[a-z][a-z0-9-]{0,30}$/;
+
+/**
+ * A variant: a set of changes over the declaration, chosen at `up` (`--variant php71`),
+ * never by editing the versioned file. Its services are merged over the declaration's, key
+ * by key; a service it names that the declaration has not is added.
+ */
+const Variant = z
+  .object({
+    summary: z.string().max(200).optional(),
+    workspace: z.string().min(1).max(400).optional(),
+    /** Compose files added after the project's own. */
+    compose: z.array(z.string().min(1).max(200)).max(16).optional(),
+    services: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
+    /** Actions run once after an `up` that switched to or from it: `app/cache-clear`. */
+    'on-switch': z.array(z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_.-]*\/[a-z][a-z0-9_-]*$/, 'service/action')).max(16).optional(),
+  })
+  .strict();
+
 export const DeclarationSchema = z
   .object({
     project: z.string().regex(LABEL_RE, 'must be a DNS label: a-z, 0-9 and -, at most 63').optional(),
@@ -67,8 +87,16 @@ export const DeclarationSchema = z
     // At most 57: its domain is the label group-<group>.
     group: z.string().regex(LABEL_RE, 'must be a DNS label: a-z, 0-9 and -').max(57).optional(),
     tags: z.array(z.string().regex(LABEL_RE, 'must be a DNS label: a-z, 0-9 and -, at most 63')).max(16).optional(),
+    variants: z.record(z.string().regex(VARIANT_RE, 'a variant: a-z, 0-9 and -, at most 31'), Variant).optional(),
   })
   .strict();
+
+export interface VariantInfo {
+  name: string;
+  summary?: string;
+  /** Its actions after an `up` that switched to it or from it: `service/action`. */
+  onSwitch?: string[];
+}
 
 export interface Exposure {
   service: string;
@@ -107,11 +135,32 @@ export interface Declaration {
   /** Compose profiles the recipes put services in: activated, or those services would not start. */
   profiles?: string[];
   expose: Exposure[];
+  /** The variant it was loaded with (`up --variant`), and the variants it declares. */
+  variant?: string;
+  variants?: VariantInfo[];
 }
 
 export class DeclarationError extends Error {}
 
-export async function loadDeclaration(root: string): Promise<Declaration> {
+/**
+ * The declaration with a variant's changes over it: its workspace, its services merged key
+ * by key. Validated again whole: a variant may say only what the declaration could.
+ */
+function overlay(data: z.infer<typeof DeclarationSchema>, name: string, file: string): z.infer<typeof DeclarationSchema> {
+  const variant = data.variants?.[name];
+  if (!variant) throw new DeclarationError(`${file}: no variant "${name}"; declared: ${Object.keys(data.variants ?? {}).join(', ') || 'none'}`);
+  const services: Record<string, unknown> = { ...data.services };
+  for (const [service, changes] of Object.entries(variant.services ?? {})) services[service] = { ...(data.services?.[service] ?? {}), ...changes };
+  const merged = DeclarationSchema.safeParse({
+    ...data,
+    ...(variant.workspace ? { workspace: variant.workspace } : {}),
+    ...(Object.keys(services).length > 0 ? { services } : {}),
+  });
+  if (!merged.success) throw new DeclarationError(`${file}: variant ${name}: ${merged.error.issues.map(said).join('; ')}`);
+  return merged.data;
+}
+
+export async function loadDeclaration(root: string, variant?: string): Promise<Declaration> {
   const file = join(root, DECLARATION_FILE);
   let raw: unknown;
   try {
@@ -119,10 +168,12 @@ export async function loadDeclaration(root: string): Promise<Declaration> {
   } catch (e) {
     throw new DeclarationError(`${file}: ${(e as Error).message}`);
   }
-  const parsed = DeclarationSchema.safeParse(raw);
+  let parsed = DeclarationSchema.safeParse(raw);
   if (!parsed.success) {
     throw new DeclarationError(`${file}: ${parsed.error.issues.map(said).join('; ')}`);
   }
+  const declared = parsed.data;
+  if (variant) parsed = { ...parsed, data: overlay(declared, variant, file) };
   const project = parsed.data.project ?? slugify(basename(root));
   const reserved = reservedName(project, parsed.data.group);
   if (reserved) throw new DeclarationError(`${file}: ${reserved}`);
@@ -147,6 +198,8 @@ export async function loadDeclaration(root: string): Promise<Declaration> {
       compose = [found[0], ...present.slice(0, 1)];
     }
   }
+  // A variant's compose files come after the project's own: they change what those say.
+  if (variant) compose.push(...(declared.variants?.[variant]?.compose ?? []).map((f) => join(root, f)));
 
   const expose: Exposure[] = [];
   const seen = new Set<string>();
@@ -212,6 +265,8 @@ export async function loadDeclaration(root: string): Promise<Declaration> {
     ...(parsed.data.group ? { group: parsed.data.group } : {}),
     ...(parsed.data.shared !== undefined ? { shared: parsed.data.shared } : {}),
     ...(parsed.data.tags?.length ? { tags: [...new Set(parsed.data.tags)] } : {}),
+    ...(variant ? { variant } : {}),
+    ...(declared.variants ? { variants: Object.entries(declared.variants).map(([name, v]) => ({ name, ...(v.summary ? { summary: v.summary } : {}), ...(v['on-switch'] ? { onSwitch: v['on-switch'] } : {}) })) } : {}),
   };
 }
 

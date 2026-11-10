@@ -71,7 +71,7 @@ function print(value: unknown, json: boolean): void {
   }
 }
 
-const VALUED = new Set(['--service', '--tail', '--socket', '--timeout', '--instance', '--group', '--tag', '--claims', '--password', '--issuers', '--attr', '--description', '--url', '--cookie-jar', '--issuer', '--client', '--scope']);
+const VALUED = new Set(['--service', '--tail', '--socket', '--timeout', '--instance', '--group', '--tag', '--claims', '--password', '--issuers', '--attr', '--description', '--url', '--cookie-jar', '--issuer', '--client', '--scope', '--variant']);
 
 /** Every value of a flag given more than once (`--group a --group b`). */
 function flags(args: string[], name: string): string[] {
@@ -358,7 +358,9 @@ async function main(argv: string[]): Promise<void> {
         if (found.registered) console.error(`registered ${found.name} from ${process.cwd()}`);
         name = found.name;
       }
-      return print(await octopod.up(name, instanceOf(rest)), json);
+      // --variant <name> switches, --variant - goes back to the declaration; without it, the last one chosen stays.
+      const variant = flag(rest, '--variant');
+      return print(await octopod.up(name, instanceOf(rest), variant === undefined ? {} : { variant: variant === '-' ? null : variant }), json);
     }
     case 'down':
       return print(await octopod.down(await projectName(rest), { volumes: rest.includes('--volumes'), instance: instanceOf(rest) }), json);
@@ -439,7 +441,7 @@ async function main(argv: string[]): Promise<void> {
     }
     case 'plan': {
       // octopod plan [dir]: what up would run for that folder's octopod.yaml. Writes nothing.
-      const out = await octopod.plan(resolve(positional(rest)[0] ?? '.'), instanceOf(rest));
+      const out = await octopod.plan(resolve(positional(rest)[0] ?? '.'), instanceOf(rest), flag(rest, '--variant'));
       return json ? print(out, true) : console.log(out.text);
     }
     case 'console': {

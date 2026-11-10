@@ -43,6 +43,31 @@ Rules, checked when the project is registered and every time it is brought up:
   `redis`). A group's name is at most 57 characters (`group-<group>` is a label).
 - Every `service` exists in the compose configuration; every host is used once.
 
+**Variants.** A variant is a set of changes over the declaration, declared once and chosen
+at `up`, never by editing the versioned file: the step below making another project, for a
+migration of a version (PHP, a database, a library) on the same code, or a branch close to
+it, and the same data.
+
+```yaml
+variants:
+  php71:
+    summary: PHP 7.1, the PHP 7 branch
+    workspace: ../php7               # instead of the declaration's
+    compose: [compose.php71.yaml]    # added after the project's own files
+    services:
+      app: { php: "7.1" }            # merged over the declaration's app, key by key; a new service is added
+    on-switch: [app/cache-clear]     # actions run once after an up that switched to it or from it
+```
+
+`octopod up --variant php71` runs it; the choice is kept in octopod's state, per instance:
+a plain `up` keeps it, `--variant -` goes back to the declaration. The variant is merged
+over the declaration and the whole validated again. An image octopod builds for a recipe is
+tagged with the variant (`<project>-<service>:php71`), so going back and forth builds
+nothing again; an image the project's own compose files build is not. `status` gives
+`variant` and the declared `variants`; a variant chosen and no longer declared leaves the
+project as declared, with a warning. An action of `on-switch` that fails is a warning, the
+project stays up.
+
 ## What octopod does
 
 - **The edge**: one Traefik (`traefik:v3.6.1`), container `octopod-edge`, published on
@@ -407,7 +432,7 @@ first time, kept after), and answers only a request that carries that token in t
 | GET | `/v1/projects?group=&tag=` | | `Project[]` — every registered project, or those of a group, or carrying a tag; a group's shared services (`<group>-shared`) are listed with `sharedOf: <group>`: not a project, the console shows them in the projects that use them |
 | POST | `/v1/projects` | `{ root }` | `Project` (registered from `root/octopod.yaml`) |
 | GET | `/v1/projects/:name` | | `ProjectStatus`; each of its `services` made of a recipe carries `recipe` (its id), `link` (where the console's icon leads: its route at the recipe's `link:`, or for a database the route of the admin wired to it) `app` (it works on the project's files), for an app `uses` (its own services it is wired to), for an admin `admin` (the service it administers: the console draws the two as one), `info` (it has an `info` action: `GET …/info`), `env` (the names of the variables it gets, each with the service it comes from: `{ name, from? }`, never the values), `reaches` (the other projects' services it reaches: `{ project, service, alias, env? }`). `shared`: the group's servers the project uses, `{ service, server, stack, state, health?, recipe, link?, admin? }` — `service` its own name for it, `server` the group's (`mariadb-11-4`), `stack` the group's stack that runs it (`<group>-shared`: its logs are there), `url` its address at the edge when routed |
-| POST | `/v1/projects/:name/up` · `/down` | `{ volumes?: boolean, instance? }` for down, `{ instance? }` for up | `ProjectStatus` — with prune, destroy and unregister, the only POSTs the console's relay lets through, with `X-Octopod-Console: 1`; a down with `volumes: true` and that header is refused (403) |
+| POST | `/v1/projects/:name/up` · `/down` | `{ volumes?: boolean, instance? }` for down, `{ instance?, variant? }` for up (`variant`: a declared variant to switch to, `null` back to the declaration) | `ProjectStatus` — with prune, destroy and unregister, the only POSTs the console's relay lets through, with `X-Octopod-Console: 1`; a down with `volumes: true` and that header is refused (403) |
 | POST | `/v1/projects/:name/restart` | `{ service? }` | `ProjectStatus` |
 | POST | `/v1/projects/:name/exec` | `{ service, argv: string[], timeoutMs? }` | `{ ok, mode, output, truncated }` — argv, never a shell string built by octopod; output bounded; a failure says how it ended (exit code, timeout). `mode: "run"` when the service was not running (stopped, restarting in a loop): the command ran in a one-off container of it (same image, mounts, user, network), kept out of the edge's routes |
 | GET | `/v1/projects/:name/logs?service=&tail=` | | `{ lines: string[] }` |
@@ -419,7 +444,7 @@ first time, kept after), and answers only a request that carries that token in t
 | GET | `/v1/recipes/:id/icon?project=` | | the recipe's icon, an SVG served as an image (`sandbox` policy: no script runs from it); a plain one for a recipe without |
 | GET | `/v1/projects/:name/secrets?instance=` | | `{ values: string[] }` — the secrets octopod generated for the project's recipes, every running instance's unless one is named: for a client to mask them. Refused (403) through the console's relay |
 | GET | `/v1/recipes?root=` | | `{ recipes: {id,title,summary,dir,digest}[], shadowed: {id,dir,by}[] }` |
-| POST | `/v1/plan` | `{ root, instance? }` | `{ project, text, services, compose }` — writes nothing |
+| POST | `/v1/plan` | `{ root, instance?, variant? }` | `{ project, text, services, compose }` — writes nothing |
 | DELETE | `/v1/projects/:name` | | `{}` (brought down first) |
 | POST | `/v1/projects/:name/unregister` | | `{}` — the same, as a POST: the console's relay passes no DELETE |
 | GET | `/` · `/console.js` · `/console.css` | | the console's page and files |
@@ -453,6 +478,8 @@ interface ProjectStatus extends Project {
   instances?: number[];     // the project's other instances up (on instance 1's status)
   services: { service: string; state: string; health?: string;
     programs?: { program: string; state: string; detail: string }[] }[];  // programs: a running supervised service's
+  variant?: string;         // the variant it runs (up --variant)
+  variants?: { name: string; summary?: string }[];  // those octopod.yaml declares
   warnings?: string[];
 }
 ```
@@ -464,7 +491,7 @@ The CLI speaks the same operations and prints the same JSON with `--json`:
 `octopod run [project] <service> [<action> [file]] [--yes]`,
 `octopod program start|stop|restart [project] <service>/<program>`,
 `octopod program reload [project] <service>` —
-`up`, `down`, `status`, `logs`, `restart` and `exec` take `--instance N`;
+`up`, `down`, `status`, `logs`, `restart` and `exec` take `--instance N`, `up` and `plan` `--variant <name>` (`up --variant -`: back to the declaration);
 `octopod shell [project] [service] [--instance N] [--root] [--oneshot] [-- command…]` (a
 shell in a running service, as its user — or root — in its working directory; bash when
 the image has it; `--oneshot` for a service that is not running; CLI only: it needs a

@@ -1189,6 +1189,77 @@ describe.skipIf(!dockerAvailable())("a service reaching another project's (real 
   });
 });
 
+describe.skipIf(!dockerAvailable())('a variant chosen at up (real docker)', { timeout: 600_000 }, () => {
+  let base: string;
+  let octopod: Octopod;
+
+  beforeAll(async () => {
+    base = await mkdtemp(join(tmpdir(), 'octopod-variant-'));
+    await mkdir(join(base, 'varshop'));
+    await writeFile(
+      join(base, 'varshop', 'octopod.yaml'),
+      [
+        'services:',
+        '  cache:',
+        '    recipe: valkey',
+        '    actions:',
+        '      mark: { command: [valkey-cli, set, switched, "yes"] }',
+        'variants:',
+        '  v80:',
+        '    summary: Valkey 8.0',
+        '    services:',
+        '      cache: { version: "8.0" }',
+        '    on-switch: [cache/mark]',
+        '',
+      ].join('\n'),
+    );
+    octopod = new Octopod({ stateDir: join(base, 'state'), instance: INSTANCE, ports: [PORT] });
+    await octopod.register(join(base, 'varshop'));
+  }, 600_000);
+
+  afterAll(async () => {
+    await octopod.unregister('varshop').catch(() => undefined);
+    await octopod.edgeDown();
+    await rm(base, { recursive: true, force: true });
+  }, 600_000);
+
+  const version = () => octopod.exec('varshop', 'cache', ['valkey-cli', 'info', 'server']).then((r) => /valkey_version:(\d+\.\d+)/.exec(r.output)?.[1]);
+  const imageId = (ref: string) => docker('image', 'inspect', '--format', '{{.Id}}', ref).trim();
+
+  it('switches to a variant without touching octopod.yaml, its own image built, its actions run once', async () => {
+    const declared = await readFile(join(base, 'varshop', 'octopod.yaml'), 'utf8');
+    const plain = await octopod.up('varshop');
+    expect(plain.variant).toBeUndefined();
+    expect(plain.variants).toEqual([{ name: 'v80', summary: 'Valkey 8.0' }]);
+    expect(await version()).toBe('8.1');
+    const first = imageId('varshop-cache');
+    const switched = await octopod.up('varshop', 1, { variant: 'v80' });
+    expect(switched.variant).toBe('v80');
+    expect((switched.warnings ?? []).filter((w) => w.startsWith('on-switch'))).toEqual([]);
+    expect(await version()).toBe('8.0');
+    expect(imageId('varshop-cache:v80')).not.toBe(first);
+    expect((await octopod.exec('varshop', 'cache', ['valkey-cli', 'get', 'switched'])).output.trim()).toBe('yes');
+    // A plain up keeps it; the file never changed.
+    expect((await octopod.up('varshop')).variant).toBe('v80');
+    expect(await readFile(join(base, 'varshop', 'octopod.yaml'), 'utf8')).toBe(declared);
+    await expect(octopod.up('varshop', 1, { variant: 'v9' })).rejects.toThrow(/no variant "v9"/);
+  });
+
+  it('goes back to the declaration on the image it had, nothing built again', async () => {
+    const first = imageId('varshop-cache');
+    const back = await octopod.up('varshop', 1, { variant: null });
+    expect(back.variant).toBeUndefined();
+    expect(await version()).toBe('8.1');
+    expect(imageId('varshop-cache')).toBe(first);
+  });
+
+  it('removes every variant\'s image with the project', async () => {
+    await octopod.unregister('varshop');
+    expect(spawnSync('docker', ['image', 'inspect', 'varshop-cache:v80']).status).not.toBe(0);
+    expect(spawnSync('docker', ['image', 'inspect', 'varshop-cache']).status).not.toBe(0);
+  });
+});
+
 describe.skipIf(!dockerAvailable())('the OIDC provider, seen from the browser and from the app (real docker)', { timeout: 600_000 }, () => {
   let base: string;
   let root: string;

@@ -408,6 +408,16 @@ describe('the built-in recipes', () => {
     expect(() => renderServices({ project: 'shop', book, services: { app: { recipe: 'node-app', reach: { shop: ['db'] } } }, workspace: '/p' })).toThrow(/its own project/);
   });
 
+  it("tags the image it builds with the variant that runs, so each keeps its own", async () => {
+    const book = await loadRecipes([BUILTIN_RECIPES]);
+    const options = { project: 'shop', book, services: { cache: { recipe: 'valkey' }, mail: { recipe: 'memcached' } }, workspace: '/p', owner: '1:1' };
+    expect((renderServices(options).compose.services.cache as Record<string, unknown>).image).toBeUndefined();
+    const next = renderServices({ ...options, variant: 'v80' }).compose.services;
+    expect((next.cache as Record<string, unknown>).image).toBe('shop-cache:v80');
+    // An image pulled as it is keeps its name.
+    expect((next.mail as Record<string, unknown>).image).toBe((renderServices(options).compose.services.mail as Record<string, unknown>).image);
+  });
+
   it("moves a reached URL's host to the name it answers to there, and nothing else", () => {
     expect(reachUrl('mysql://db:pw@db:3306/db', 'db', 'legacy-db')).toBe('mysql://db:pw@legacy-db:3306/db');
     expect(reachUrl('redis://cache:6379', 'cache', 'legacy-cache')).toBe('redis://legacy-cache:6379');

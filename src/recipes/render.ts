@@ -74,6 +74,8 @@ export interface RenderOptions {
    * exports one (see {@link reachUrl}).
    */
   reach?: Record<string, { network: string; urls: Record<string, string> }>;
+  /** The variant it runs: the images it builds are tagged with it, so each variant keeps its own. */
+  variant?: string;
 }
 
 export type HostOs = 'linux' | 'windows' | 'macos';
@@ -504,6 +506,8 @@ export function renderServices(options: RenderOptions): Rendered {
       const args = { ...extra, BASE_IMAGE: image, UID: uid, GID: gid, USER_NAME: userNameOf(options.project), ...workspaceArg };
       buildTag = createHash('sha256').update(r.entry.digest).update(JSON.stringify(args)).digest('hex').slice(0, 12);
       service.build = { context, args, labels: { [BUILD_LABEL]: buildTag, [PROJECT_LABEL]: options.project } };
+      // Compose's own name for it, `<project>-<service>`, tagged with the variant.
+      if (options.variant) service.image = `${options.project}-${r.name}:${options.variant}`;
     } else {
       service.image = image;
     }
