@@ -547,6 +547,8 @@ and refuses to run below the version it needs. What it may rely on, from 0.1.0:
   - `secrets` (0.2.0): `octopod secrets <project> [--instance N] --json` → `{ values }`.
   - `mcp` (0.7.0): `octopod mcp`, the MCP server and its tools.
   - `disk` (0.8.0): `octopod disk`, `prune` and `destroy`, and their API.
+  - `reach` (0.9.0): `reach:` on a service, another project's service under `<project>-<service>`.
+  - `variants` (0.9.0): `variants:` in `octopod.yaml`, `up --variant`, `variant` in a status.
 - **The CLI, with `--json`**: `version`, `register <dir>`, `plan <dir>`, `recipes`,
   `up <project>`, `status <project>`, `restart <project> --service <s>`,
   `exec <project> <service> --timeout <ms> -- <argv…>` (its answer's `mode` included),

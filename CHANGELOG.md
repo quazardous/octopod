@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-10
+
+After upgrading, run `octopod edge up`: the console's relay passes *Unregister*.
+
 ### Added
 
 - Variants: `variants:` in `octopod.yaml` declares sets of changes over the declaration (a
@@ -260,7 +264,8 @@ The first preview: tested on Linux with Docker.
 - Traefik's dashboard and the console answer only from the host: a project's containers, which reach the edge over their edge network, get a 403.
 - `octopod` and `traefik` can no longer be project names: they are the edge's own hosts.
 
-[Unreleased]: https://github.com/quazardous/octopod/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/quazardous/octopod/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/quazardous/octopod/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/quazardous/octopod/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/quazardous/octopod/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/quazardous/octopod/compare/v0.6.0...v0.6.1
