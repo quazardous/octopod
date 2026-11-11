@@ -50,6 +50,8 @@ const CONSOLE_FILES: Record<string, { file: string; type: string; icon?: true }>
   '/favicon.ico': { file: '../assets/octopod.ico', type: 'image/x-icon', icon: true },
   // Traefik's own logo, from its dashboard, on the link to it.
   '/traefik.png': { file: '../assets/traefik-32.png', type: 'image/png', icon: true },
+  // A site's globe, drawn as a mask in its colour: a file, since the page's policy loads no data: URL.
+  '/globe.svg': { file: 'globe.svg', type: 'image/svg+xml', icon: true },
 };
 const CONSOLE_DIR = new URL('../console/', import.meta.url);
 
