@@ -67,7 +67,14 @@ function print(value: unknown, json: boolean): void {
       const where = [...new Set([s.url, s.link].filter(Boolean))].join(', ');
       console.log(`  [${s.state}${s.health ? `, ${s.health}` : ''}] ${s.service} — group ${p.group ?? 'default'}'s ${s.server}${where ? ` · ${where}` : ''}`);
     }
-    for (const w of (p as ProjectStatus).warnings ?? []) console.log(`  ! ${w}`);
+    const status = p as ProjectStatus;
+    if (status.variant) console.log(`  variant ${status.variant} (octopod up --variant - goes back)`);
+    for (const b of status.beside ?? []) {
+      console.log(`  beside: variant ${b.variant} (${b.project}) — octopod down --variant ${b.variant} stops it`);
+      for (const r of b.routes) console.log(`    ${r.service} → ${r.url}`);
+      for (const s of b.services) console.log(`    [${s.state}${s.health ? `, ${s.health}` : ''}] ${s.service}`);
+    }
+    for (const w of status.warnings ?? []) console.log(`  ! ${w}`);
   }
 }
 

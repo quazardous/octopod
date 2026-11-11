@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   switching back and forth. It runs only what it changes, and the routed services in front
   of it; the others are the project's, under their usual names. The project's `up` and
   `down` take it along; `down --variant php71` stops it for good. `exec --variant` runs a
-  command in it, and `status` lists it under `beside`. A variant that runs beside the
+  command in it, and `status` lists it (`beside` in its JSON). A variant that runs beside the
   project says what it changes in `services:` (no `compose:`, no `on-switch`), and a
   service of its own may not keep data.
 
