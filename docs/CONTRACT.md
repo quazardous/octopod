@@ -590,7 +590,7 @@ and refuses to run below the version it needs. What it may rely on, from 0.1.0:
   - `disk` (0.8.0): `octopod disk`, `prune` and `destroy`, and their API.
   - `reach` (0.9.0): `reach:` on a service, another project's service under `<project>-<service>`.
   - `variants` (0.9.0): `variants:` in `octopod.yaml`, `up --variant`, `variant` in a status.
-  - `beside`: a variant's `url:`, run beside the project; `down --variant`, `exec --variant`,
+  - `beside` (0.10.0): a variant's `url:`, run beside the project; `down --variant`, `exec --variant`,
     `beside` in a status.
 - **The CLI, with `--json`**: `version`, `register <dir>`, `plan <dir>`, `recipes`,
   `up <project>`, `status <project>`, `restart <project> --service <s>`,
