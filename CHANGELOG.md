@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-11
+
 ### Changed
 
 - The console lists a variant run beside the project in the Route column of each service it
@@ -320,7 +322,8 @@ The first preview: tested on Linux with Docker.
 - Traefik's dashboard and the console answer only from the host: a project's containers, which reach the edge over their edge network, get a 403.
 - `octopod` and `traefik` can no longer be project names: they are the edge's own hosts.
 
-[Unreleased]: https://github.com/quazardous/octopod/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/quazardous/octopod/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/quazardous/octopod/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/quazardous/octopod/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/quazardous/octopod/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/quazardous/octopod/compare/v0.9.0...v0.10.0
