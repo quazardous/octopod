@@ -406,21 +406,38 @@ function stackParts(p) {
   const mine = (s) => !absorbed.has(s) && !appNames.has(s.service);
   return {
     admins,
-    apps: apps.map((a) => ({ app: a, route: routes.find((r) => r.service === a.service), own: services.filter((s) => (a.uses || []).includes(s.service) && mine(s)) })),
+    apps: apps.map((a) => ({
+      app: a,
+      route: routes.find((r) => r.service === a.service),
+      // The same app run beside the project by a variant: its own address.
+      beside: (p.beside || []).flatMap((b) =>
+        b.routes.filter((r) => r.service === a.service).map((r) => ({ variant: b.variant, url: r.url, state: (b.services.find((c) => c.service === a.service) || {}).state || 'not created' })),
+      ),
+      own: services.filter((s) => (a.uses || []).includes(s.service) && mine(s)),
+    })),
     loose: services.filter((s) => s.recipe && !s.app && !wired.has(s.service) && mine(s)),
     shared: shared.filter((s) => !absorbed.has(s)),
   };
 }
 
-/** An app's line: its icon, its name (a link when given), its address, its own services. */
+/**
+ * A site's link: a globe, its address in its title. The project's is the first colour, each
+ * variant beside it the next; one that does not run is greyed.
+ */
+function siteLink(url, n, title, running) {
+  return el('a', { href: url, target: '_blank', rel: 'noreferrer', class: `site site-${n % 4}${running ? '' : ' off'}`, title: `${title}\n${url}`, 'aria-label': title });
+}
+
+/** An app's line: its icon, its name (a link when given), its sites, its own services. */
 function appRow(part, icon, name, href) {
-  const { app, route, own } = part;
+  const { app, route, own, beside = [] } = part;
   return el(
     'div',
     { class: 'app-row' },
     app.recipe ? icon(app) : el('span', { class: `dot ${serviceTone(app)}` }),
     href ? el('a', { href, class: 'mono app-name' }, name) : el('span', { class: 'mono app-name' }, name),
-    route ? el('a', { href: route.url, target: '_blank', rel: 'noreferrer', class: 'mono' }, route.url.replace(/^http:\/\//, '')) : null,
+    route ? siteLink(route.url, 0, beside.length ? 'as declared' : 'the site', app.state === 'running') : null,
+    beside.map((b, i) => siteLink(b.url, i + 1, `variant ${b.variant} (${b.state})`, b.state === 'running')),
     own.map(icon),
   );
 }

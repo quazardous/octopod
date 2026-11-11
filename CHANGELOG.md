@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The console lists a variant run beside the project in the Route column of each service it
   copies: its address, the variant's name and the copy's state, under the project's own
   address. Only a tag in the page's head named it before.
+- In a project's summary (its tile, its page, its group's page), an app's address is a globe
+  that links to it, its address in its title, instead of the address written out. A variant
+  run beside the project adds a globe of another colour; one that does not run is grey.
 
 ## [0.12.0] - 2026-11-11
 

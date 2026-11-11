@@ -366,6 +366,17 @@ a.deco:hover { background: var(--code); text-decoration: none; }
 .app-row .app-name { font-weight: 600; }
 .app-row a.mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .card > .stack { margin: 8px 0; }
+/* A site: a globe in its colour, the project's then each variant's. */
+.site { display: inline-block; flex-shrink: 0; width: 16px; height: 16px; background: var(--site); vertical-align: middle;
+  -webkit-mask: var(--globe) center / contain no-repeat; mask: var(--globe) center / contain no-repeat; }
+.site:hover { opacity: 0.7; }
+.site.off { background: var(--idle); }
+.site-0 { --site: var(--accent); }
+.site-1 { --site: #8a3ffc; }
+.site-2 { --site: #d02670; }
+.site-3 { --site: #007d79; }
+:root { --globe: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20'/%3E%3C/svg%3E"); }
+@media (prefers-color-scheme: dark) { .site-1 { --site: #be95ff; } .site-2 { --site: #ff7eb6; } .site-3 { --site: #3ddbd9; } }
 
 /* A service's info page: its sections, their rows. */
 .info-section { margin: 10px 0; }
