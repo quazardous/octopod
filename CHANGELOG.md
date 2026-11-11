@@ -21,6 +21,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   project says what it changes in `services:` (no `compose:`, no `on-switch`), and a
   service of its own may not keep data.
 
+### Fixed
+
+- A project registered under a name its `octopod.yaml` no longer says (renamed with
+  `project:`, then registered again) was listed twice under its new name, and
+  `octopod unregister <old name>` would have stopped the renamed project and removed its
+  images. That entry is now a project octopod cannot read, which says so, and the console
+  offers to unregister it; unregistering it removes only the entry. `octopod doctor` lists
+  such entries.
+
 ## [0.9.0] - 2026-11-10
 
 After upgrading, run `octopod edge up`: the console's relay passes *Unregister*.

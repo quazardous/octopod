@@ -199,6 +199,11 @@ export interface ProjectStatus extends Project {
 }
 
 /** What docker says when a service's container cannot take an exec right now. */
+/** Why a registered name is not a project any more: its folder now declares another. */
+function renamed(name: string, now: string): string {
+  return `"${name}" is registered from a folder whose ${DECLARATION_FILE} now says project ${now}: octopod unregister ${name}`;
+}
+
 /** On a variant's own containers, beside its project: the project's name. */
 const BESIDE_LABEL = 'octopod.beside';
 
@@ -741,6 +746,9 @@ export class Octopod {
     // The variant chosen at `up`; one no longer declared leaves the declaration as it is (status says so).
     const chosen = await this.chosenVariant(name, instance);
     const declaration = chosen ? await loadDeclaration(root, chosen).catch(() => loadDeclaration(root)) : await loadDeclaration(root);
+    // Registered under a name its octopod.yaml no longer says: read as the other, it would act
+    // on the other's containers (a down, an unregister). It is a problem to clear, not a project.
+    if (declaration.project !== name) throw new OctopodError(renamed(name, declaration.project));
     if (instance === 1) return declaration;
     let copy: Declaration;
     try {
@@ -1571,7 +1579,7 @@ export class Octopod {
     for (const [name, root] of Object.entries(await this.registry())) {
       if (name === this.sharedOf(group).project) continue;
       const declared = await loadDeclaration(root).catch(() => undefined);
-      if (!declared) continue;
+      if (!declared || declared.project !== name) continue;
       const settled = settleSharing(declared, machine);
       if (settled.shareGroup !== group) continue;
       const prepared = await this.withRecipes(settled, false).catch(() => undefined);
@@ -2378,6 +2386,12 @@ export class Octopod {
       if (!(await stat(join(root, DECLARATION_FILE)).then(() => true, () => false))) gone.push(name);
     }
     add('projects', gone.length === 0, gone.length === 0 ? `${Object.keys(registry).length} registered, each folder in place` : `no ${DECLARATION_FILE} any more for ${gone.join(', ')}`, gone.map((n) => `octopod unregister ${n}`).join('; '));
+    const moved: string[] = [];
+    for (const [name, root] of Object.entries(registry)) {
+      const declared = gone.includes(name) ? undefined : await loadDeclaration(root).catch(() => undefined);
+      if (declared && declared.project !== name) moved.push(renamed(name, declared.project));
+    }
+    add('renamed', moved.length === 0, moved.length === 0 ? 'each project registered under the name its octopod.yaml says' : moved.join('; '), 'octopod unregister <the old name>: only its entry goes, the project it became is left running');
     const differ: string[] = [];
     for (const [name, root] of Object.entries(registry)) {
       if (gone.includes(name)) continue;
