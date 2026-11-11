@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `{{variant}}` in a recipe's `env`, `exports`, `command` and health: the variant the
+  service runs for, beside the project or in its place, empty for the project as declared.
+  A recipe keeps two variants apart on a shared service (a queue's prefix) without a
+  parameter every variant must repeat.
+
 ## [0.10.0] - 2026-11-11
 
 ### Added

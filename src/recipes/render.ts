@@ -330,6 +330,7 @@ export function programsConfig(programs: Record<string, ProgramSpec>, directory?
 /**
  * What a recipe's templates read of a service. `{{url}}`: its address at the edge, for a
  * routed service — the same from the host's browser and from the project's containers.
+ * `{{variant}}`: the variant it is rendered for, empty for the project as declared.
  */
 function scopes(r: Resolved, options: RenderOptions) {
   const route = r.entry.recipe.route;
@@ -343,7 +344,8 @@ function scopes(r: Resolved, options: RenderOptions) {
         ? options.beside.domain
         : (options.domain ?? projectDomain(options.project));
   const url = routed ? `http://${route === true ? '' : `${route.subdomain}.`}${domain}${port}` : '';
-  return { service: r.name, recipe: r.entry.id, params: tenantParams(r, options), secrets: r.secrets, url };
+  // `{{variant}}`: the variant that renders it, beside the project or in its place; empty for the project as declared.
+  return { service: r.name, recipe: r.entry.id, params: tenantParams(r, options), secrets: r.secrets, url, variant: options.variant ?? '' };
 }
 
 /** A shared service seen by this project: its params with the recipe's tenant ones (its own database, its own user). */

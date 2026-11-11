@@ -449,6 +449,19 @@ describe('the built-in recipes', () => {
     expect((first.compose.services.back as { build: { context: string } }).build.context).toBe('.octopod/build/back');
   });
 
+  it('tells a recipe the variant it runs for, and nothing for the project as declared', async () => {
+    await recipe(base, 'worker', 'title: W\nsummary: s\nimage: w:1\nunpinned: true\nenv:\n  PREFIX: "{{variant}}"\n  NAME: "q-{{variant}}"\ncommand: [run, "--queue={{variant}}"]\n');
+    const book = await loadRecipes([base]);
+    const options = { project: 'shop', book, services: { app: { recipe: 'worker' } }, workspace: '/p' };
+    const plain = renderServices(options).compose.services.app as { environment: Record<string, string>; command: string[] };
+    // Empty, an entry made of it alone is left out: the project behaves as it did.
+    expect(plain.environment).toEqual({ NAME: 'q-' });
+    expect(plain.command).toEqual(['run', '--queue=']);
+    const next = renderServices({ ...options, variant: 'php71' }).compose.services.app as { environment: Record<string, string>; command: string[] };
+    expect(next.environment).toEqual({ PREFIX: 'php71', NAME: 'q-php71' });
+    expect(next.command).toEqual(['run', '--queue=php71']);
+  });
+
   it("moves a reached URL's host to the name it answers to there, and nothing else", () => {
     expect(reachUrl('mysql://db:pw@db:3306/db', 'db', 'legacy-db')).toBe('mysql://db:pw@legacy-db:3306/db');
     expect(reachUrl('redis://cache:6379', 'cache', 'legacy-cache')).toBe('redis://legacy-cache:6379');

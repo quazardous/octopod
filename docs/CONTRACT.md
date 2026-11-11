@@ -330,6 +330,11 @@ workspace: .               # the folder a recipe's workspace mounts; the project
   routed service's address at the edge (`http://id.demo.octopod.localhost`, with `:<port>` when
   the edge is not on 80), empty for a service not routed: the same URL from the host's
   browser and from the project's containers.
+- **The variant.** `{{variant}}`, in the same places, is the name of the variant the service
+  runs for — beside the project (`url:`) or in its place (`up --variant`) — and empty for the
+  project as declared, so an env entry made of it alone is left out there. What one variant
+  must keep apart from another on a shared service (a queue's prefix, a cache's key) is
+  written once in the recipe: `env: { QUEUE_PREFIX: "{{variant}}" }`.
 - **A group's shared services.** A service the group runs instead of the project: one
   server for all the group's projects instead of one each. Which ones:
   - `shared: [mariadb, oidc]` at the top of `octopod.yaml` names recipes; `shared: true`
