@@ -6,21 +6,25 @@ ARG BASE_IMAGE
 FROM mlocati/php-extension-installer:2 AS extensions
 FROM composer:2 AS composer
 FROM ${BASE_IMAGE}
-ARG UID=1000
-ARG GID=1000
-ARG USER_NAME=app
-ARG WORKSPACE=/app
+# Each ARG just before its first use: a RUN after an ARG is built again when its value
+# changes, used or not. The heavy layers depend on the PHP image and its extensions only,
+# and are shared by every project that asks for the same; the project's own (its user, its
+# folder) come last, and are light.
 ARG EXTENSIONS="intl opcache zip"
-ARG DOCROOT=public
 
 COPY --from=extensions /usr/bin/install-php-extensions /usr/local/bin/
 COPY --from=composer /usr/bin/composer /usr/local/bin/composer
 # nginx and supervisord run the app; unzip and git are what composer needs to work.
+# octopod's shell settings (prompt, history) are mounted at /etc/octopod/bashrc when it runs.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends nginx supervisor unzip git \
  && rm -rf /var/lib/apt/lists/* \
- && install-php-extensions ${EXTENSIONS}
+ && install-php-extensions ${EXTENSIONS} \
+ && echo '[ -f /etc/octopod/bashrc ] && . /etc/octopod/bashrc' >> /etc/bash.bashrc
 
+ARG UID=1000
+ARG GID=1000
+ARG USER_NAME=app
 # The image's www-data, renamed after the project and moved to the operator's uid/gid:
 # what the app writes in the project is the operator's, and no chown runs at start.
 RUN groupmod -o -g "$GID" -n "$USER_NAME" www-data \
@@ -55,6 +59,8 @@ http {
   }
 }
 EOF
+ARG WORKSPACE=/app
+ARG DOCROOT=public
 RUN sed -i -e "s#__WORKSPACE__#${WORKSPACE}#" -e "s#__DOCROOT__#${DOCROOT}#" /etc/octopod/nginx.conf
 
 COPY <<'EOF' /etc/octopod/supervisord.conf
@@ -92,9 +98,6 @@ autorestart=true
 [include]
 files = /etc/octopod/programs.conf /etc/octopod/supervisord.d/*.conf
 EOF
-
-# octopod's shell settings (prompt, history), mounted at /etc/octopod/bashrc when it runs.
-RUN echo '[ -f /etc/octopod/bashrc ] && . /etc/octopod/bashrc' >> /etc/bash.bashrc
 
 USER ${USER_NAME}
 WORKDIR ${WORKSPACE}

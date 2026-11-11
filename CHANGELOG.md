@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The built-in recipes that build (`php-app`, `php-cli`, `python-app`, `node-app`) declare
+  each build argument just before its first use. Their heavy layer (system packages, PHP
+  extensions) no longer depends on the project's name, folder or uid, so the projects that
+  ask for the same PHP or Python and extensions share it instead of each building it.
+  Each image is built again once, at the first `up` after upgrading.
+
+### Added
+
+- `octopod recipes --check` says when a build argument is declared above a `RUN` that does
+  not use it: that layer is built again whenever the argument changes.
+
 ## [0.11.0] - 2026-11-11
 
 ### Added

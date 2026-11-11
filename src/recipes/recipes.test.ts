@@ -164,6 +164,13 @@ describe('a recipe\'s Dockerfile, checked', () => {
     const staged = ['ARG BASE_IMAGE', 'FROM ${BASE_IMAGE} AS tool', "COPY <<'P' /t/package.json", '{}', 'P', 'RUN npm ci', 'FROM ${BASE_IMAGE}', 'COPY --from=tool /t/dist /opt/t', 'USER app'].join('\n');
     expect(lintDockerfile(staged)).toEqual([]);
   });
+
+  it("says when an ARG of the project's sits above a heavy RUN that does not use it", () => {
+    const early = ['ARG BASE_IMAGE', 'FROM ${BASE_IMAGE}', 'ARG USER_NAME=app', 'ARG EXTENSIONS', 'RUN install ${EXTENSIONS}', 'RUN useradd "$USER_NAME"', 'USER ${USER_NAME}'].join('\n');
+    expect(lintDockerfile(early)).toEqual([expect.stringMatching(/^line 3: ARG USER_NAME is declared above the RUN of line 5, which does not use it: .* just before line 6/)]);
+    const late = ['ARG BASE_IMAGE', 'FROM ${BASE_IMAGE}', 'ARG EXTENSIONS', 'RUN install ${EXTENSIONS}', 'ARG USER_NAME=app', 'RUN useradd "$USER_NAME"', 'USER ${USER_NAME}'].join('\n');
+    expect(lintDockerfile(late)).toEqual([]);
+  });
 });
 
 describe('the built-in recipes', () => {

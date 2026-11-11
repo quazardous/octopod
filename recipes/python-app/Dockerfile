@@ -5,10 +5,9 @@
 ARG BASE_IMAGE
 FROM ghcr.io/astral-sh/uv:0.9 AS uv
 FROM ${BASE_IMAGE}
-ARG UID=1000
-ARG GID=1000
-ARG USER_NAME=app
-ARG WORKSPACE=/app
+# Each ARG just before its first use: a RUN after an ARG is built again when its value
+# changes. The heavy layer depends on the Python image and the drivers only, shared by the
+# projects that ask for the same; the project's own come last.
 ARG DRIVERS=""
 
 COPY --from=uv /uv /uvx /usr/local/bin/
@@ -24,10 +23,14 @@ RUN set -e; packages="supervisor git"; \
  && apt-get install -y --no-install-recommends $packages \
  && rm -rf /var/lib/apt/lists/*
 
+ARG UID=1000
+ARG GID=1000
+ARG USER_NAME=app
 # The image has no user of its own: one named after the project, at the operator's uid/gid.
 RUN groupadd -o -g "$GID" "$USER_NAME" \
  && useradd -o -m -u "$UID" -g "$GID" -d "/home/$USER_NAME" -s /bin/bash "$USER_NAME"
 
+ARG WORKSPACE=/app
 # The project's .venv first: its uvicorn, its python, its tools.
 ENV PATH="${WORKSPACE}/.venv/bin:${PATH}"
 

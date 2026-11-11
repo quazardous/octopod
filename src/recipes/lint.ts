@@ -62,6 +62,20 @@ export function lintDockerfile(text: string): string[] {
     }
   }
   const afterLast = last ? all.filter((x) => x.line > last.line) : [];
+  // A RUN after an ARG is built again when the ARG's value changes, whether it uses it or not
+  // (BuildKit passes it in the environment). An ARG of the project's (its user, its folder)
+  // declared above a heavy RUN that does not use it keeps that layer from being shared.
+  for (const [i, x] of afterLast.entries()) {
+    if (x.keyword !== 'ARG') continue;
+    const name = /^([A-Za-z_][A-Za-z0-9_]*)/.exec(x.args)?.[1];
+    if (!name) continue;
+    const uses = new RegExp(`\\$\\{?${name}\\b`);
+    const rest = afterLast.slice(i + 1);
+    const first = rest.findIndex((y) => uses.test(y.args));
+    if (first < 0) continue;
+    const before = rest.slice(0, first).find((y) => y.keyword === 'RUN');
+    if (before) problems.push(`line ${x.line}: ARG ${name} is declared above the RUN of line ${before.line}, which does not use it: that layer is built again whenever ${name} changes — declare it just before line ${rest[first].line}, where it is first used`);
+  }
   const user = afterLast.filter((x) => x.keyword === 'USER').at(-1);
   // No USER is not flagged: a database image's entrypoint starts as root and drops to its own
   // user by itself. What really runs as root, `octopod status` reads from the process.

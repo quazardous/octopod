@@ -3,15 +3,16 @@
 # runs at start. Nothing is installed: dependencies belong to the project.
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
+# octopod's shell settings (prompt, history), mounted at /etc/octopod/bashrc when it runs:
+# before the project's ARGs, so the layer is every project's.
+RUN echo '[ -f /etc/octopod/bashrc ] && . /etc/octopod/bashrc' >> /etc/bash.bashrc
 ARG UID=1000
 ARG GID=1000
 ARG USER_NAME=app
-ARG WORKSPACE=/app
 # -o: the operator's ids may already be taken in the image (1000 is node's own).
 RUN groupmod -o -g "$GID" -n "$USER_NAME" node \
  && usermod -o -u "$UID" -g "$GID" -l "$USER_NAME" -d "/home/$USER_NAME" -m node
-# octopod's shell settings (prompt, history), mounted at /etc/octopod/bashrc when it runs.
-RUN echo '[ -f /etc/octopod/bashrc ] && . /etc/octopod/bashrc' >> /etc/bash.bashrc
 
+ARG WORKSPACE=/app
 USER ${USER_NAME}
 WORKDIR ${WORKSPACE}
