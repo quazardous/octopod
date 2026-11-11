@@ -11,6 +11,8 @@ program. What each answer holds is in [CONTRACT.md](./CONTRACT.md).
 octopod up                    # start the edge if needed, then the project (registered the first time)
 octopod up --instance 2       # the same project a second time, at demo-2.octopod.localhost
 octopod up --variant php71    # switch to a variant of octopod.yaml (variants:); --variant - goes back; the file is untouched
+                              # a variant with a url runs beside the project instead, at php71.<project>…
+octopod down --variant php71  # that variant beside the project only; up no longer starts it
 octopod status                # its services, URLs and warnings
 octopod logs --service web --tail 100
 octopod restart [--service s]

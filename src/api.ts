@@ -190,10 +190,11 @@ export function handler(octopod: Octopod) {
         return send(res, 200, await octopod.up(name, instanceValue(instance), variant === undefined ? {} : { variant: (variant as string | null) || null }));
       }
       if (resource === 'projects' && name && action === 'down' && method === 'POST') {
-        const { volumes, instance } = await body(req);
+        const { volumes, instance, variant } = await body(req);
         // The console stops a project, it never deletes its data.
         if (volumes === true && req.headers[CONSOLE_HEADER.toLowerCase()] !== undefined) return send(res, 403, { error: 'the console does not remove volumes: octopod down --volumes' });
-        return send(res, 200, await octopod.down(name, { volumes: volumes === true, instance: instanceValue(instance) }));
+        if (variant !== undefined && typeof variant !== 'string') return send(res, 400, { error: '"variant" must be a string' });
+        return send(res, 200, await octopod.down(name, { volumes: volumes === true, instance: instanceValue(instance), ...(variant ? { variant: variant as string } : {}) }));
       }
       if (resource === 'disk' && !name && method === 'GET') return send(res, 200, await octopod.disk());
       if (resource === 'build-cache' && name === 'prune' && method === 'POST') return send(res, 200, { freed: await octopod.pruneBuildCache() });
@@ -215,12 +216,13 @@ export function handler(octopod: Octopod) {
         return send(res, 200, await octopod.restart(name, typeof service === 'string' ? service : undefined, instanceValue(instance)));
       }
       if (resource === 'projects' && name && action === 'exec' && method === 'POST') {
-        const { service, argv, timeoutMs, instance } = await body(req);
+        const { service, argv, timeoutMs, instance, variant } = await body(req);
         if (typeof service !== 'string' || !Array.isArray(argv) || !argv.every((a) => typeof a === 'string')) {
           return send(res, 400, { error: '"service" must be a string and "argv" an array of strings' });
         }
         const timeout = typeof timeoutMs === 'number' ? Math.min(Math.max(timeoutMs, 1000), 600_000) : undefined;
-        return send(res, 200, await octopod.exec(name, service, argv as string[], { timeoutMs: timeout, instance: instanceValue(instance) }));
+        if (variant !== undefined && typeof variant !== 'string') return send(res, 400, { error: '"variant" must be a string' });
+        return send(res, 200, await octopod.exec(name, service, argv as string[], { timeoutMs: timeout, instance: instanceValue(instance), ...(variant ? { variant: variant as string } : {}) }));
       }
       if (resource === 'projects' && name && action === 'secrets' && method === 'GET') {
         const raw = url.searchParams.get('instance');

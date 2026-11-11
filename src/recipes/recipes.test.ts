@@ -8,7 +8,7 @@ import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BUILTIN_RECIPES, digestOf, loadRecipes, RecipeError } from './loader.js';
-import { formatPlan, reachUrl, renderServices, userNameOf, withAdmins } from './render.js';
+import { besideServices, formatPlan, reachUrl, renderServices, userNameOf, withAdmins } from './render.js';
 import { lintDockerfile } from './lint.js';
 
 let base: string;
@@ -416,6 +416,37 @@ describe('the built-in recipes', () => {
     expect((next.cache as Record<string, unknown>).image).toBe('shop-cache:v80');
     // An image pulled as it is keeps its name.
     expect((next.mail as Record<string, unknown>).image).toBe((renderServices(options).compose.services.mail as Record<string, unknown>).image);
+  });
+
+  it('runs beside the project what a variant changes and the routed services in front of it, apart from the project', async () => {
+    await recipe(base, 'kv', 'title: KV\nsummary: s\nimage: kv:1\nunpinned: true\nprovides: [kv]\nexports:\n  url: "kv://{{service}}:1"\n');
+    await recipe(
+      base,
+      'back',
+      'title: Back\nsummary: s\nimage: back:1\nunpinned: true\nbuild: true\nprovides: [backend]\nport: 80\nroute: { subdomain: api }\ncaches: { c: /c }\nexports:\n  url: "http://{{service}}:80"\nrequires:\n  - capability: kv\n    env: { KV: "{{provider.url}}" }\nenv:\n  SELF: "{{url}}"\n',
+      'ARG BASE_IMAGE\nFROM ${BASE_IMAGE}\n',
+    );
+    await recipe(base, 'front', 'title: Front\nsummary: s\nimage: front:1\nunpinned: true\nport: 80\nroute: true\nrequires:\n  - capability: backend\n    env: { BACK: "{{provider.url}}" }\nenv:\n  SELF: "{{url}}"\n');
+    const book = await loadRecipes([base]);
+    const options = { project: 'shop', book, services: { kv: { recipe: 'kv' }, back: { recipe: 'back' }, web: { recipe: 'front' } }, workspace: '/p', owner: '1:1', variant: 'v2' };
+    const first = renderServices(options);
+    // The front wired to the changed service goes with it; the store behind it stays the project's.
+    const own = besideServices(first.services, ['back']);
+    expect(own).toEqual(['back', 'web']);
+    // A changed store takes the routed services that use it along: they must talk to it.
+    expect(besideServices(first.services, ['kv'])).toEqual(['kv', 'back', 'web']);
+    const out = renderServices({ ...options, beside: { services: own, domain: 'v2.shop.octopod.localhost' } });
+    const env = (s: string) => (out.compose.services[s] as { environment: Record<string, string> }).environment;
+    expect(env('web').SELF).toBe('http://v2.shop.octopod.localhost');
+    expect(env('back').SELF).toBe('http://api.v2.shop.octopod.localhost');
+    expect(env('back').KV).toBe('kv://kv:1');
+    const back = out.compose.services.back as { build: { context: string }; image: string; volumes: string[] };
+    expect(back.build.context).toBe('.octopod/build/@v2/back');
+    expect(back.image).toBe('shop-back:v2');
+    expect(back.volumes).toContain('./.octopod/cache/@v2/back/c:/c');
+    expect(Object.keys(out.files)).toContain('.octopod/build/@v2/back/Dockerfile');
+    // The project's own rendering is left as it was.
+    expect((first.compose.services.back as { build: { context: string } }).build.context).toBe('.octopod/build/back');
   });
 
   it("moves a reached URL's host to the name it answers to there, and nothing else", () => {

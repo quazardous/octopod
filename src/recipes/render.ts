@@ -76,6 +76,31 @@ export interface RenderOptions {
   reach?: Record<string, { network: string; urls: Record<string, string> }>;
   /** The variant it runs: the images it builds are tagged with it, so each variant keeps its own. */
   variant?: string;
+  /**
+   * The variant runs beside the project (its `url:`), these services of its own: at their
+   * routes under `domain`, with their files, homes, caches and temporary folders apart from
+   * the project's (`@<variant>`). The others are the project's, as rendered for it.
+   */
+  beside?: { services: string[]; domain: string };
+}
+
+/**
+ * The services a variant that runs beside its project runs of its own: those it changes, and
+ * every routed service wired to one of them — a front in the way of a changed service would
+ * otherwise send the variant's address to the project's. What they use behind them (a
+ * database, a cache) stays the project's.
+ */
+export function besideServices(services: RenderedService[], changed: string[]): string[] {
+  const own = new Set(changed);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const s of services) {
+      if (own.has(s.name) || s.route === undefined || !(s.uses ?? []).some((u) => own.has(u))) continue;
+      own.add(s.name);
+      grew = true;
+    }
+  }
+  return services.filter((s) => own.has(s.name)).map((s) => s.name);
 }
 
 export type HostOs = 'linux' | 'windows' | 'macos';
@@ -311,7 +336,12 @@ function scopes(r: Resolved, options: RenderOptions) {
   const routed = route !== undefined && r.request.route !== false;
   const port = options.edgePort && options.edgePort !== 80 ? `:${options.edgePort}` : '';
   // A shared service is served under the group's domain, not this project's.
-  const domain = r.request.shared && options.shared ? (options.shared.domain ?? projectDomain(options.shared.project)) : (options.domain ?? projectDomain(options.project));
+  const domain =
+    r.request.shared && options.shared
+      ? (options.shared.domain ?? projectDomain(options.shared.project))
+      : options.beside?.services.includes(r.name)
+        ? options.beside.domain
+        : (options.domain ?? projectDomain(options.project));
   const url = routed ? `http://${route === true ? '' : `${route.subdomain}.`}${domain}${port}` : '';
   return { service: r.name, recipe: r.entry.id, params: tenantParams(r, options), secrets: r.secrets, url };
 }
@@ -497,9 +527,11 @@ export function renderServices(options: RenderOptions): Rendered {
     const service: Record<string, unknown> = recipe.tool ? {} : { restart: 'unless-stopped' };
     const image = render(recipe.image, { params: r.params }, `${r.name}.image`);
     let buildTag: string | undefined;
+    // A service of a variant beside the project: its files apart from the project's.
+    const apart = options.beside?.services.includes(r.name) && options.variant ? `@${options.variant}/` : '';
     if (recipe.build) {
       // An empty context: the Dockerfile alone. The project never goes to the Docker daemon.
-      const context = `.octopod/build/${r.name}`;
+      const context = `.octopod/build/${apart}${r.name}`;
       files[`${context}/Dockerfile`] = r.entry.dockerfile!;
       const extra = renderMap(recipe.buildArgs, { params: r.params }, `${r.name}.buildArgs`);
       const workspaceArg = recipe.workspace ? { WORKSPACE: r.request.workdir ?? recipe.workspace } : {};
@@ -544,7 +576,7 @@ export function renderServices(options: RenderOptions): Rendered {
       mounts.push('./.octopod/bashrc:/etc/octopod/bashrc:ro');
       if (r.request.home) {
         const n = options.instance ?? 1;
-        home = r.request.home === true ? `.octopod/home/${n > 1 ? `${n}/` : ''}${r.name}` : r.request.home;
+        home = r.request.home === true ? `.octopod/home/${n > 1 ? `${n}/` : ''}${apart}${r.name}` : r.request.home;
         // A folder of the project is absolute (a drive letter on Windows); octopod's, relative.
         mounts.push(`${isAbsolute(home) ? home : `./${home}`}:/home/${userNameOf(options.project)}`);
       }
@@ -554,7 +586,7 @@ export function renderServices(options: RenderOptions): Rendered {
     for (const [kind, folders] of [['cache', { ...recipe.caches, ...r.request.caches }], ['temp', { ...recipe.temp, ...r.request.temp }]] as const) {
       const n = options.instance ?? 1;
       for (const [key, path] of Object.entries(folders)) {
-        const dir = `.octopod/${kind}/${n > 1 ? `${n}/` : ''}${r.name}/${key}`;
+        const dir = `.octopod/${kind}/${n > 1 ? `${n}/` : ''}${apart}${r.name}/${key}`;
         lost[kind].push(dir);
         mounts.push(`./${dir}:${path}`);
       }
@@ -563,7 +595,7 @@ export function renderServices(options: RenderOptions): Rendered {
       // Always there, empty or not, so the recipe's configuration can include it; its digest
       // as a label, so a change of programs recreates the container, whose supervisor reads
       // them at start.
-      const file = `.octopod/programs.${options.project}.${r.name}.conf`;
+      const file = `.octopod/programs.${options.project}.${apart ? `${options.variant}.` : ''}${r.name}.conf`;
       files[file] = programsConfig(r.programs, workdir);
       mounts.push(`./${file}:${PROGRAMS_FILE}:ro`);
       if (r.supervisorD) mounts.push(`${r.supervisorD}:${SUPERVISOR_D}:ro`);

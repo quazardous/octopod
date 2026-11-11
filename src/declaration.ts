@@ -44,6 +44,11 @@ const VARIANT_RE = /^[a-z][a-z0-9-]{0,30}$/;
 const Variant = z
   .object({
     summary: z.string().max(200).optional(),
+    /**
+     * Its address, a label under the project's domain (`php71` → `php71.<project>…`): it then
+     * runs beside the declaration instead of in its place. See `besideServices`.
+     */
+    url: z.string().regex(LABEL_RE, 'a DNS label: a-z, 0-9 and -').optional(),
     workspace: z.string().min(1).max(400).optional(),
     /** Compose files added after the project's own. */
     compose: z.array(z.string().min(1).max(200)).max(16).optional(),
@@ -94,6 +99,10 @@ export const DeclarationSchema = z
 export interface VariantInfo {
   name: string;
   summary?: string;
+  /** Its address under the project's domain: it runs beside the declaration, not in its place. */
+  url?: string;
+  /** The services it changes (its `services:`). */
+  services?: string[];
   /** Its actions after an `up` that switched to it or from it: `service/action`. */
   onSwitch?: string[];
 }
@@ -138,6 +147,11 @@ export interface Declaration {
   /** The variant it was loaded with (`up --variant`), and the variants it declares. */
   variant?: string;
   variants?: VariantInfo[];
+  /**
+   * A variant run beside the project (its `url:`): `project` is then `<base>-<variant>`, and
+   * these are the services it runs of its own; the others it uses are the project's.
+   */
+  beside?: { variant: string; services: string[] };
 }
 
 export class DeclarationError extends Error {}
@@ -160,6 +174,24 @@ function overlay(data: z.infer<typeof DeclarationSchema>, name: string, file: st
   return merged.data;
 }
 
+/**
+ * A variant with a `url` runs beside the declaration: what it changes must be said service by
+ * service (octopod cannot tell which services a compose file changes), it never switches,
+ * and no two such variants share an address.
+ */
+function besideRules(data: z.infer<typeof DeclarationSchema>, file: string): void {
+  const urls = new Map<string, string>();
+  for (const [name, v] of Object.entries(data.variants ?? {})) {
+    if (!v.url) continue;
+    if (v.compose) throw new DeclarationError(`${file}: variant ${name}: url and compose do not go together; a variant that runs beside the project says what it changes in services:`);
+    if (v['on-switch']) throw new DeclarationError(`${file}: variant ${name}: on-switch is for a variant that switches; one with a url runs beside the project`);
+    if (!v.services || Object.keys(v.services).length === 0) throw new DeclarationError(`${file}: variant ${name}: a url needs services: the ones it runs of its own`);
+    const other = urls.get(v.url);
+    if (other) throw new DeclarationError(`${file}: variants ${other} and ${name} both have the url ${v.url}`);
+    urls.set(v.url, name);
+  }
+}
+
 export async function loadDeclaration(root: string, variant?: string): Promise<Declaration> {
   const file = join(root, DECLARATION_FILE);
   let raw: unknown;
@@ -173,6 +205,7 @@ export async function loadDeclaration(root: string, variant?: string): Promise<D
     throw new DeclarationError(`${file}: ${parsed.error.issues.map(said).join('; ')}`);
   }
   const declared = parsed.data;
+  besideRules(declared, file);
   if (variant) parsed = { ...parsed, data: overlay(declared, variant, file) };
   const project = parsed.data.project ?? slugify(basename(root));
   const reserved = reservedName(project, parsed.data.group);
@@ -266,7 +299,7 @@ export async function loadDeclaration(root: string, variant?: string): Promise<D
     ...(parsed.data.shared !== undefined ? { shared: parsed.data.shared } : {}),
     ...(parsed.data.tags?.length ? { tags: [...new Set(parsed.data.tags)] } : {}),
     ...(variant ? { variant } : {}),
-    ...(declared.variants ? { variants: Object.entries(declared.variants).map(([name, v]) => ({ name, ...(v.summary ? { summary: v.summary } : {}), ...(v['on-switch'] ? { onSwitch: v['on-switch'] } : {}) })) } : {}),
+    ...(declared.variants ? { variants: Object.entries(declared.variants).map(([name, v]) => ({ name, ...(v.summary ? { summary: v.summary } : {}), ...(v.url ? { url: v.url } : {}), ...(v.services ? { services: Object.keys(v.services) } : {}), ...(v['on-switch'] ? { onSwitch: v['on-switch'] } : {}) })) } : {}),
   };
 }
 

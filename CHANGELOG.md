@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A variant with a `url:` runs beside the project instead of switching it: `octopod up
+  --variant php71` starts it at `php71.<project's domain>`, on the project's data and
+  services, while the project keeps running as it is — two versions side by side, no
+  switching back and forth. It runs only what it changes, and the routed services in front
+  of it; the others are the project's, under their usual names. The project's `up` and
+  `down` take it along; `down --variant php71` stops it for good. `exec --variant` runs a
+  command in it, and `status` lists it under `beside`. A variant that runs beside the
+  project says what it changes in `services:` (no `compose:`, no `on-switch`), and a
+  service of its own may not keep data.
+
 ## [0.9.0] - 2026-11-10
 
 After upgrading, run `octopod edge up`: the console's relay passes *Unregister*.

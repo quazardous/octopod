@@ -115,11 +115,11 @@ export function mcpServer(octopod: Octopod, options: McpOptions): McpServer {
     'octopod_exec',
     {
       description: `Runs a command in a service of the project: argv, an array, never a shell string (["sh", "-c", "…"] when a shell is meant). Output bounded. A stopped service runs it in a one-off container of it. ${UNTRUSTED}`,
-      inputSchema: { project, instance, service: z.string().min(1).max(64), argv: z.array(z.string().max(8192)).min(1).max(256), timeoutMs: z.number().int().min(1000).max(600_000).optional() },
+      inputSchema: { project, instance, service: z.string().min(1).max(64), argv: z.array(z.string().max(8192)).min(1).max(256), timeoutMs: z.number().int().min(1000).max(600_000).optional(), variant: z.string().min(1).max(31).optional().describe('In this variant beside the project (one with a url), one of its own services.') },
     },
-    guarded(async ({ project: named, instance: n, service, argv, timeoutMs }) => {
+    guarded(async ({ project: named, instance: n, service, argv, timeoutMs, variant }) => {
       const { name } = await resolve(named);
-      return text(await octopod.exec(name, service, argv, { timeoutMs, instance: n, maxBytes: BOUND }));
+      return text(await octopod.exec(name, service, argv, { timeoutMs, instance: n, maxBytes: BOUND, ...(variant ? { variant } : {}) }));
     }),
   );
 
@@ -158,7 +158,7 @@ export function mcpServer(octopod: Octopod, options: McpOptions): McpServer {
     {
       description:
         'Starts the project (registered from the current folder the first time), or applies what changed. A build that takes long answers "still running" and goes on: call octopod_status. Call octopod_plan and show it to the user before a first up.',
-      inputSchema: { project, instance, variant: z.string().min(1).max(31).optional().describe('Switch to this variant of octopod.yaml (`variants:`), or `-` back to the declaration; the one chosen last stays otherwise.') },
+      inputSchema: { project, instance, variant: z.string().min(1).max(31).optional().describe('Switch to this variant of octopod.yaml (`variants:`), or `-` back to the declaration; the one chosen last stays otherwise. A variant with a url runs beside the project instead, at its own address.') },
       annotations: { destructiveHint: false, idempotentHint: true },
     },
     guarded(async ({ project: named, instance: n, variant }) => {
@@ -178,14 +178,14 @@ export function mcpServer(octopod: Octopod, options: McpOptions): McpServer {
   server.registerTool(
     'octopod_down',
     {
-      description: "Stops the project: its containers go, its data stays. volumes: true also removes Docker's volume objects, and needs confirm: true.",
-      inputSchema: { project, instance, volumes: z.boolean().optional(), confirm: z.boolean().optional() },
+      description: "Stops the project and the variants beside it: its containers go, its data stays. variant: only that variant beside the project, which up then no longer starts. volumes: true also removes Docker's volume objects, and needs confirm: true.",
+      inputSchema: { project, instance, volumes: z.boolean().optional(), confirm: z.boolean().optional(), variant: z.string().min(1).max(31).optional() },
       annotations: { destructiveHint: true },
     },
-    guarded(async ({ project: named, instance: n, volumes, confirm }) => {
+    guarded(async ({ project: named, instance: n, volumes, confirm, variant }) => {
       if (volumes && !confirm) throw new Error('down with volumes removes them: ask the user, then call again with confirm: true');
       const { name } = await resolve(named);
-      return text(await octopod.down(name, { volumes: volumes === true, instance: n }));
+      return text(await octopod.down(name, { volumes: volumes === true, instance: n, ...(variant ? { variant } : {}) }));
     }),
   );
 

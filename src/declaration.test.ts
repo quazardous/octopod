@@ -160,7 +160,7 @@ describe('loadDeclaration', () => {
     const plain = await loadDeclaration(root);
     expect(plain.variant).toBeUndefined();
     expect(plain.services?.app?.params).toEqual({ php: '5.6' });
-    expect(plain.variants).toEqual([{ name: 'php71', summary: 'PHP 7.1', onSwitch: ['app/cache-clear'] }]);
+    expect(plain.variants).toEqual([{ name: 'php71', summary: 'PHP 7.1', services: ['app', 'cache'], onSwitch: ['app/cache-clear'] }]);
     const next = await loadDeclaration(root, 'php71');
     expect(next.variant).toBe('php71');
     expect(next.services?.app).toEqual({ recipe: 'php-app', params: { php: '7.1' }, workdir: '/srv' });
@@ -169,6 +169,22 @@ describe('loadDeclaration', () => {
     expect(next.workspace).toBe(join(root, 'next'));
     expect(next.compose.at(-1)).toBe(join(root, 'compose.php71.yaml'));
     await expect(loadDeclaration(root, 'php8')).rejects.toThrow(/no variant "php8"; declared: php71/);
+  });
+
+  it('takes a url on a variant that says what it changes in services:, never with compose files or on-switch', async () => {
+    const write = (variant: string[]) => writeFile(join(root, 'octopod.yaml'), ['services:', '  app: { recipe: php-app }', 'variants:', ...variant, ''].join('\n'));
+    await write(['  php71:', '    url: php71', '    services:', '      app: { php: "7.1" }']);
+    expect((await loadDeclaration(root)).variants).toEqual([{ name: 'php71', url: 'php71', services: ['app'] }]);
+    await write(['  php71:', '    url: php71', '    compose: [x.yaml]', '    services:', '      app: { php: "7.1" }']);
+    await expect(loadDeclaration(root)).rejects.toThrow(/url and compose do not go together/);
+    await write(['  php71:', '    url: php71', '    on-switch: [app/x]', '    services:', '      app: { php: "7.1" }']);
+    await expect(loadDeclaration(root)).rejects.toThrow(/on-switch is for a variant that switches/);
+    await write(['  php71:', '    url: php71', '    workspace: next']);
+    await expect(loadDeclaration(root)).rejects.toThrow(/a url needs services/);
+    await write(['  a:', '    url: next', '    services:', '      app: { php: "7.1" }', '  b:', '    url: next', '    services:', '      app: { php: "8.3" }']);
+    await expect(loadDeclaration(root)).rejects.toThrow(/variants a and b both have the url next/);
+    await write(['  php71:', '    url: Not_A_Label', '    services:', '      app: { php: "7.1" }']);
+    await expect(loadDeclaration(root)).rejects.toThrow(/a DNS label/);
   });
 
   it("refuses a variant that makes the declaration wrong, saying which", async () => {

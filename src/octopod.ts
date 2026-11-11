@@ -15,12 +15,12 @@ import { basename, dirname, isAbsolute, join, relative } from 'node:path';
 import { DECLARATION_FILE, loadDeclaration, withInstance, type Declaration } from './declaration.js';
 import { lintDockerfile } from './recipes/lint.js';
 import { BUILTIN_RECIPES, envRecipeDirs, loadRecipes, type Shadowed } from './recipes/loader.js';
-import { BUILD_LABEL, formatPlan, PROJECT_LABEL, reachAlias, reachUrl, renderServices, SHARED_NETWORK, TOOL_PROFILE, type RenderedService, type RenderOptions, type Tenancy } from './recipes/render.js';
+import { besideServices, BUILD_LABEL, formatPlan, PROJECT_LABEL, reachAlias, reachUrl, renderServices, SHARED_NETWORK, TOOL_PROFILE, type RenderedService, type RenderOptions, type Tenancy } from './recipes/render.js';
 import { ConsoleAccess } from './consoleAccess.js';
 import { cliDocker, composeUp, DockerError, type Docker } from './docker.js';
 import { bindSources, choosePort, projectAllowConfig, composePorts, CONSOLE_HOST, consoleContainer, consoleNginxConfig, DASHBOARD_HOST, DATA_DIR, dataVolumes, duplicationBlockers, edgeCompose, edgeContainer, imagePorts, localOnlyConfig, projectOverride, traefikConfig, type ComposeService, type ComposeVolume, type ResolvedPort } from './generate.js';
 import { dockerBytes, empty, humanSize, sizeOf } from './disk.js';
-import { edgeNetwork, fullHost, instanceName, projectDomain, RESERVED_PROJECTS, reservedName } from './names.js';
+import { edgeNetwork, fullHost, instanceName, LABEL_RE, projectDomain, RESERVED_PROJECTS, reservedName } from './names.js';
 
 /** Past this, what a project could lose is worth a word from doctor. */
 const PRUNE_HINT = 5e9;
@@ -33,7 +33,7 @@ export const CONTRACT = 1;
  * What this octopod adds to contract 1, by name: a client checks for the feature it needs,
  * since an older octopod speaks contract 1 too without it. Absent before 0.2.0: none.
  */
-export const FEATURES = ['secrets', 'mcp', 'disk', 'reach', 'variants'];
+export const FEATURES = ['secrets', 'mcp', 'disk', 'reach', 'variants', 'beside'];
 
 export async function version(): Promise<{ version: string; contract: number; features: string[] }> {
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
@@ -71,6 +71,15 @@ export interface Secret {
 
 export const PREFERRED_PORT = 80;
 export const FALLBACK_PORT = 8480;
+
+/** A variant run beside its project (`up --variant <one with a url>`). */
+export interface BesideStatus {
+  variant: string;
+  /** Its compose project: `<project>-<variant>`. */
+  project: string;
+  routes: Route[];
+  services: { service: string; state: string; health?: string }[];
+}
 
 export interface Route {
   /** The container port the edge routes to, once the project has been up, and where it came from. */
@@ -182,12 +191,17 @@ export interface ProjectStatus extends Project {
   shared?: SharedService[];
   /** The variant it runs (`up --variant`), and those it declares. */
   variant?: string;
-  variants?: { name: string; summary?: string }[];
+  variants?: { name: string; summary?: string; url?: string }[];
+  /** The variants run beside it (those with a `url:`): their compose project, routes and services. */
+  beside?: BesideStatus[];
   /** Things the operator should fix, e.g. data written by a service that runs as another user. */
   warnings?: string[];
 }
 
 /** What docker says when a service's container cannot take an exec right now. */
+/** On a variant's own containers, beside its project: the project's name. */
+const BESIDE_LABEL = 'octopod.beside';
+
 const NOT_RUNNING = /is restarting|is not running|no container found|service ".*" is not running|cannot exec in a stopped state/i;
 
 export interface ExecResult {
@@ -235,6 +249,8 @@ type Prepared = Declaration & {
   sharedServices?: Record<string, { server: string; recipe: string; params: Record<string, unknown> }>;
   /** Its tenancies in them: its own database and user, made before it starts. */
   tenancies?: Tenancy[];
+  /** A variant beside the project: its services as rendered for it (as the project, not under its own name). */
+  made?: RenderedService[];
 };
 
 /** One finding of `octopod doctor`: what was checked, how it is, and what to do when it is wrong. */
@@ -748,7 +764,7 @@ export class Octopod {
     ];
   }
 
-  private async render(declaration: Declaration, keepSecrets: boolean, withReach = true) {
+  private async render(declaration: Declaration, keepSecrets: boolean, withReach = true, beside?: RenderOptions['beside']) {
     const reach = withReach ? await this.reachWays(declaration, keepSecrets) : undefined;
     const book = await loadRecipes(this.recipeDirs(declaration)).catch((e: Error) => {
       throw new OctopodError(e.message);
@@ -779,6 +795,7 @@ export class Octopod {
           ...(declaration.instance ? { instance: declaration.instance } : {}),
           ...(reach && Object.keys(reach).length > 0 ? { reach } : {}),
           ...(declaration.variant ? { variant: declaration.variant } : {}),
+          ...(beside ? { beside } : {}),
           ...(keepSecrets ? {} : { secretFactory: () => '‹generated›' }),
         }),
       };
@@ -793,13 +810,18 @@ export class Octopod {
    * exposed unless the project exposes them itself. Secrets generated for it are kept in
    * octopod's state, never in the project.
    */
-  private async withRecipes(asDeclared: Declaration, write: boolean): Promise<Prepared> {
+  private async withRecipes(asDeclared: Declaration, write: boolean, beside?: { variant: string; changed: string[]; name: string; domain: string }): Promise<Prepared> {
     if (!asDeclared.services) return asDeclared;
     // Which services the group runs, as the project or the machine says: settled first.
     const declaration = settleSharing(asDeclared, await this.shareDefault());
     let { rendered } = await this.render(declaration, write);
+    // A variant beside the project: rendered as the project (its secrets, its providers),
+    // its own services at its address. Which they are, the first rendering says.
+    const own = beside ? besideServices(rendered.services, beside.changed) : undefined;
+    const apart = beside && own ? { services: own, domain: beside.domain } : undefined;
+    if (apart) ({ rendered } = await this.render(declaration, write, true, apart));
     const dir = join(declaration.root, '.octopod');
-    const composeFile = join(dir, `recipes.${declaration.project}.json`);
+    const composeFile = join(dir, `recipes.${beside ? beside.name : declaration.project}.json`);
     if (write) {
       // Every read of a project renders it (status, logs, the console's refresh): its secrets
       // are written only when one is new, and a secret kept is never replaced — not by this
@@ -814,7 +836,7 @@ export class Octopod {
         await this.writeSecret(file, merged);
         // Another process kept other values first: render with those.
         if (Object.entries(rendered.secrets).some(([service, values]) => Object.entries(values).some(([k, v]) => merged[service][k] !== v))) {
-          ({ rendered } = await this.render(declaration, write));
+          ({ rendered } = await this.render(declaration, write, true, apart));
         }
       }
       await mkdir(dir, { recursive: true });
@@ -842,10 +864,15 @@ export class Octopod {
       }
     }
     const declared = new Set(declaration.expose.map((e) => e.service));
-    const expose = [...declaration.expose];
+    // Beside the project, its own services only, under its address.
+    const domain = projectDomain(declaration.project, declaration.group);
+    const expose =
+      beside && own
+        ? declaration.expose.filter((e) => own.includes(e.service)).map((e) => ({ ...e, host: `${e.host.slice(0, -domain.length)}${beside.domain}` }))
+        : [...declaration.expose];
     for (const service of rendered.services) {
-      if (service.route === undefined || declared.has(service.name)) continue;
-      const host = fullHost(declaration.project, service.route || undefined, declaration.group);
+      if (service.route === undefined || declared.has(service.name) || (own && !own.includes(service.name))) continue;
+      const host = beside ? [...(service.route ? [service.route] : []), beside.domain].join('.') : fullHost(declaration.project, service.route || undefined, declaration.group);
       const taken = expose.find((e) => e.host === host);
       if (taken) throw new OctopodError(`services ${taken.service} and ${service.name} both want ${host}: expose one of them under a host of its own`);
       expose.push({ service: service.name, host });
@@ -854,7 +881,8 @@ export class Octopod {
     const profiles = [...new Set(Object.values(rendered.compose.services).flatMap((svc) => (svc.profiles as string[] | undefined) ?? []))].filter((p) => p !== TOOL_PROFILE);
     const tools = rendered.services.filter((s) => s.tool).map((s) => s.name);
     const shared = Object.keys(rendered.shared).length > 0 ? { sharedServices: rendered.shared, tenancies: rendered.tenancies } : {};
-    return { ...declaration, compose: [composeFile, ...declaration.compose], expose, ...(profiles.length > 0 ? { profiles } : {}), ...(tools.length > 0 ? { tools } : {}), ...shared };
+    const prepared: Prepared = { ...declaration, compose: [composeFile, ...declaration.compose], expose, ...(profiles.length > 0 ? { profiles } : {}), ...(tools.length > 0 ? { tools } : {}), ...shared };
+    return beside && own ? { ...prepared, project: beside.name, base: declaration.project, beside: { variant: beside.variant, services: own }, made: rendered.services } : prepared;
   }
 
   /** The recipes a project (or any project) can name, and where each comes from. */
@@ -1051,7 +1079,10 @@ export class Octopod {
    * absent, the variant chosen last stays.
    */
   async up(name: string, instance = 1, options: { variant?: string | null } = {}): Promise<ProjectStatus> {
-    const switched = options.variant !== undefined ? await this.chooseVariant(name, instance, options.variant) : undefined;
+    // A variant with a url runs beside the project: the project itself stays as it is.
+    const beside = options.variant ? await this.besideUrl(name, options.variant) : undefined;
+    if (beside && instance > 1) throw new OctopodError(`variant ${options.variant} runs beside the project, which instance ${instance} cannot: octopod up ${name} --variant ${options.variant}`);
+    const switched = options.variant !== undefined && !beside ? await this.chooseVariant(name, instance, options.variant) : undefined;
     const declaration = await this.declaration(name, instance);
     const config = JSON.parse(await this.docker.run(this.configArgs(declaration))) as {
       services?: Record<string, ComposeService>;
@@ -1100,13 +1131,209 @@ export class Octopod {
     await this.wireReach(declaration.project);
     // Its routes answer the host and its own containers; a group's shared services, the
     // projects that use them too — this one among them, now that its network exists.
-    const group = declaration.group;
-    await this.writeAllowList(declaration.project, group && declaration.project === this.sharedOf(group).project ? await this.sharedMembers(group) : []);
+    await this.writeAllowList(declaration.project, await this.allowMembers(declaration));
     if (declaration.shareGroup && declaration.sharedServices) await this.writeAllowList(this.sharedOf(declaration.shareGroup).project, await this.sharedMembers(declaration.shareGroup));
     if (instance > 1) await this.noteInstance(name, instance, true);
     const failed = switched ? await this.onSwitch(name, instance, declaration, switched) : [];
+    // The variants beside it, as `up --variant` left them, and the one asked for now: after
+    // the project, whose services they use. One that does not start is said, the project stays up.
+    if (instance === 1) {
+      const wanted = [...new Set([...(await this.besideVariants(name)), ...(beside ? [options.variant!] : [])])];
+      for (const v of wanted) {
+        try {
+          await this.upBeside(name, v);
+        } catch (e) {
+          if (v === options.variant) throw e;
+          failed.push(`variant ${v} beside the project did not start: ${(e as Error).message}`);
+        }
+      }
+    }
     const status = await this.status(name, instance);
     return failed.length > 0 ? { ...status, warnings: [...(status.warnings ?? []), ...failed] } : status;
+  }
+
+  // ─── Variants beside the project ────────────────────────────────────────────
+
+  /** The variants run beside a project, as `up --variant` and `down --variant` left them: its `up` starts them again. */
+  private async besideVariants(name: string): Promise<string[]> {
+    return this.readJson<string[]>(join('projects', name, 'beside.json'), []);
+  }
+
+  private async noteBeside(name: string, variant: string, running: boolean): Promise<void> {
+    const now = new Set(await this.besideVariants(name));
+    if (running) now.add(variant);
+    else now.delete(variant);
+    await this.writeJson(join('projects', name, 'beside.json'), [...now].sort());
+  }
+
+  /** The url of a variant of a registered project, when it has one: it then runs beside the project. */
+  private async besideUrl(name: string, variant: string): Promise<string | undefined> {
+    const root = (await this.registry())[name];
+    if (!root) throw new OctopodError(`no project "${name}"; register it first`);
+    const declaration = await loadDeclaration(root).catch((e: Error) => {
+      throw new OctopodError(e.message);
+    });
+    return declaration.variants?.find((v) => v.name === variant)?.url;
+  }
+
+  /**
+   * A variant run beside the project: rendered as the project — its secrets, the services it
+   * uses — under the compose project `<project>-<variant>`, its own services at
+   * `<url>.<project's domain>`.
+   */
+  private async besideDeclaration(name: string, variant: string): Promise<Prepared> {
+    const registry = await this.registry();
+    const root = registry[name];
+    if (!root) throw new OctopodError(`no project "${name}"; register it first`);
+    const declaration = await loadDeclaration(root, variant).catch((e: Error) => {
+      throw new OctopodError(e.message);
+    });
+    const info = declaration.variants?.find((v) => v.name === variant);
+    if (!info?.url) throw new OctopodError(`variant ${variant} of "${name}" has no url: it switches the project (octopod up --variant ${variant}), it does not run beside it`);
+    const copy = `${name}-${variant}`;
+    if (!LABEL_RE.test(copy)) throw new OctopodError(`variant ${variant} of "${name}" would run as "${copy}", which is not a DNS label: a shorter name`);
+    if (registry[copy]) throw new OctopodError(`variant ${variant} of "${name}" would run as "${copy}", which is a registered project`);
+    return this.withRecipes(declaration, true, { variant, changed: info.services ?? [], name: copy, domain: `${info.url}.${projectDomain(name, declaration.group)}` });
+  }
+
+  /**
+   * The network between a variant beside the project and the project: made by octopod,
+   * internal. The project's services the variant does not run join it under their names
+   * (`db` there is the project's); the variant's, under none — on it, the project never
+   * sees the variant's `cache` for its own. Each side's own network is left as it is.
+   */
+  private besideNetwork(copy: string): string {
+    return `${this.instance}-beside-${copy}`;
+  }
+
+  /** A variant beside the project up: its own services only (`--no-deps`), then wired to the project's others. */
+  private async upBeside(name: string, variant: string): Promise<void> {
+    const base = await this.declaration(name);
+    const copy = await this.besideDeclaration(name, variant);
+    const own = copy.beside!.services;
+    const grouped = (copy.made ?? []).filter((s) => own.includes(s.name) && s.shared).map((s) => s.name);
+    if (grouped.length > 0) throw new OctopodError(`variant ${variant}: ${grouped.join(', ')} is run by the group, not by the project: it cannot run beside it`);
+    for (const e of copy.expose) {
+      const taken = base.expose.find((b) => b.host === e.host);
+      if (taken) throw new OctopodError(`variant ${variant}: ${e.host} is already the project's ${taken.service}: another url`);
+    }
+    const config = JSON.parse(await this.docker.run(this.configArgs(copy))) as { services?: Record<string, ComposeService> };
+    const services = config.services ?? {};
+    // Its data is the project's: two containers on one database's files would break it.
+    for (const s of own) {
+      const kept = (services[s]?.volumes ?? []).filter((v) => typeof v === 'object' && v.type === 'volume' && v.source);
+      if (kept.length > 0) throw new OctopodError(`variant ${variant}: ${s} keeps data, which the project's ${s} has: a variant that changes it switches (no url)`);
+    }
+    const binds = bindSources(copy.root, Object.fromEntries(own.filter((s) => services[s]).map((s) => [s, services[s]])));
+    for (const source of binds) {
+      if (!(await stat(source).then(() => true, () => false))) await mkdir(source, { recursive: true });
+    }
+    const ports = await this.resolvePorts(copy, services);
+    await this.writeJson(join('projects', copy.project, 'ports.json'), ports);
+    const override = projectOverride(this.instance, copy, services, {}, Object.fromEntries(Object.entries(ports).map(([h, r]) => [h, r.port])));
+    const labelled = override.services as Record<string, { labels?: Record<string, string> }>;
+    for (const s of own) labelled[s] = { ...labelled[s], labels: { ...labelled[s]?.labels, [BESIDE_LABEL]: name } };
+    await this.writeJson(join('projects', copy.project, 'override.json'), override);
+    // Its containers reach its own hosts, and the project's, at the browser's URLs.
+    const hosts = await this.readJson<string[]>(join('projects', name, 'hosts.json'), []);
+    await this.writeJson(join('projects', copy.project, 'hosts.json'), [...new Set([...copy.expose.map((e) => e.host), ...hosts])]);
+    const stale = (await this.staleBuilds(copy)).filter((s) => own.includes(s));
+    if (stale.length > 0) await this.docker.run([...this.composeArgs(copy, true), 'build', ...stale]);
+    await composeUp(this.docker, [...this.composeArgs(copy, true), 'up', '-d', '--no-deps', '--remove-orphans', ...own]);
+    await this.connect(copy.project);
+    const network = this.besideNetwork(copy.project);
+    if (!(await this.docker.run(['network', 'inspect', network]).then(() => true, () => false))) {
+      await this.docker.run(['network', 'create', '--internal', '--label', `${BESIDE_LABEL}=${name}`, network]);
+    }
+    await this.wireBeside(name, copy.project, own);
+    // Its routes answer it and the project; the project's (and its group's), it too.
+    await this.noteBeside(name, variant, true);
+    await this.writeAllowList(copy.project, [name]);
+    await this.writeAllowList(name, await this.allowMembers(base));
+    if (base.shareGroup && base.sharedServices) await this.writeAllowList(this.sharedOf(base.shareGroup).project, await this.sharedMembers(base.shareGroup));
+  }
+
+  /** Who a project's routes answer besides itself: the group's projects for its shared stack, its variants beside it. */
+  private async allowMembers(declaration: Declaration): Promise<string[]> {
+    const group = declaration.group;
+    const members = group && declaration.project === this.sharedOf(group).project ? await this.sharedMembers(group) : [];
+    const besides = declaration.instance && declaration.instance > 1 ? [] : (await this.besideVariants(declaration.project)).map((v) => `${declaration.project}-${v}`);
+    return [...members, ...besides];
+  }
+
+  /** The containers of a compose project, with their service: running ones, or all. */
+  private async composeContainers(project: string, all = false): Promise<{ id: string; service: string }[]> {
+    const out = await this.docker
+      .run(['ps', ...(all ? ['-a'] : []), '--filter', `label=com.docker.compose.project=${project}`, '--format', '{{.ID}} {{.Label "com.docker.compose.service"}}'])
+      .catch(() => '');
+    return out
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => {
+        const [id, service = ''] = l.split(' ');
+        return { id, service };
+      });
+  }
+
+  /** On the network between them: the variant's containers under no name, the project's others under their own. */
+  private async wireBeside(name: string, copy: string, own: string[]): Promise<void> {
+    const network = this.besideNetwork(copy);
+    // Already there: Docker refuses a second time, nothing to do.
+    for (const c of await this.composeContainers(copy)) await this.docker.run(['network', 'connect', network, c.id]).catch(() => undefined);
+    for (const c of await this.composeContainers(name)) {
+      if (!c.service || own.includes(c.service)) continue;
+      await this.docker.run(['network', 'connect', '--alias', c.service, network, c.id]).catch(() => undefined);
+    }
+  }
+
+  /**
+   * A variant beside the project down — its containers, its networks, the one between them
+   * once both sides are off it. `forget`: not started again by the project's `up` (`down --variant`).
+   */
+  private async downBeside(name: string, variant: string, forget: boolean): Promise<void> {
+    const copy = `${name}-${variant}`;
+    await this.disconnect(copy);
+    const network = this.besideNetwork(copy);
+    for (const c of [...(await this.composeContainers(name, true)), ...(await this.composeContainers(copy, true))]) {
+      await this.docker.run(['network', 'disconnect', '--force', network, c.id]).catch(() => undefined);
+    }
+    const declaration = await this.besideDeclaration(name, variant).catch(() => undefined);
+    const done = declaration ? await this.docker.run([...this.composeArgs(declaration, true), 'down', '--remove-orphans']).then(() => true, () => false) : false;
+    if (!done) {
+      // No longer declared, or never up: what runs under its name, by Docker's labels.
+      const ids = (await this.composeContainers(copy, true)).map((c) => c.id);
+      if (ids.length > 0) await this.docker.run(['rm', '-f', ...ids]).catch(() => undefined);
+      for (const network of [`${copy}_default`, edgeNetwork(this.instance, copy)]) await this.docker.run(['network', 'rm', network]).catch(() => undefined);
+    }
+    await this.docker.run(['network', 'rm', network]).catch(() => undefined);
+    if (forget) {
+      await this.noteBeside(name, variant, false);
+      await rm(this.path('edge', 'dynamic', `from-${copy}.yml`), { force: true });
+      await rm(this.path('projects', copy), { recursive: true, force: true });
+    }
+  }
+
+  /** The variants beside a project as they run, or why one cannot be read. */
+  private async besideStates(name: string): Promise<{ beside: BesideStatus[]; warnings: string[] }> {
+    const beside: BesideStatus[] = [];
+    const warnings: string[] = [];
+    for (const variant of await this.besideVariants(name)) {
+      const copy = await this.besideDeclaration(name, variant).catch((e: Error) => e);
+      if (copy instanceof Error) {
+        warnings.push(`variant ${variant} beside the project: ${copy.message} — octopod down --variant ${variant}`);
+        continue;
+      }
+      const running = new Map((await this.composeContainers(copy.project, true)).map((c) => [c.service, c.id]));
+      const rows = await this.docker.run([...this.composeArgs(copy, false), 'ps', '--all', '--format', 'json']).catch(() => '');
+      const parsed = rows.trim().startsWith('[') ? (JSON.parse(rows) as Record<string, string>[]) : rows.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l) as Record<string, string>);
+      const services = copy.beside!.services.map((s) => {
+        const r = parsed.find((x) => x.Service === s);
+        return { service: s, state: r?.State ?? (running.has(s) ? 'created' : 'down'), ...(r?.Health ? { health: r.Health } : {}) };
+      });
+      beside.push({ variant, project: copy.project, routes: await this.routes(copy), services });
+    }
+    return { beside, warnings };
   }
 
   /**
@@ -1267,8 +1494,22 @@ export class Octopod {
     return out;
   }
 
-  async down(name: string, options: { volumes?: boolean; instance?: number; images?: boolean } = {}): Promise<ProjectStatus> {
+  /**
+   * `options.variant`: only that variant beside the project (one with a url), which the
+   * project's `up` then no longer starts. Without it, the project and the variants beside
+   * it, which its next `up` starts again.
+   */
+  async down(name: string, options: { volumes?: boolean; instance?: number; images?: boolean; variant?: string } = {}): Promise<ProjectStatus> {
     const instance = options.instance ?? 1;
+    if (options.variant) {
+      const remembered = (await this.besideVariants(name)).includes(options.variant);
+      if (!remembered && !(await this.besideUrl(name, options.variant))) {
+        throw new OctopodError(`variant ${options.variant} does not run beside "${name}": a variant without a url switches the project — octopod up ${name} --variant -`);
+      }
+      await this.downBeside(name, options.variant, true);
+      return this.status(name);
+    }
+    if (instance === 1) for (const v of await this.besideVariants(name)) await this.downBeside(name, v, false);
     const declaration = await this.declaration(name, instance);
     // Before `down`: compose cannot remove a network the edge is still attached to.
     await this.disconnect(declaration.project);
@@ -1342,7 +1583,13 @@ export class Octopod {
 
   /** The names of the projects that use a group's shared services: who their routes answer. */
   private async sharedMembers(group: string): Promise<string[]> {
-    return (await this.membersOf(group)).map((m) => m.name);
+    const out: string[] = [];
+    for (const m of await this.membersOf(group)) {
+      out.push(m.name);
+      // Its variants beside it use the same shared services.
+      if (m.instance === 1) out.push(...(await this.besideVariants(m.base)).map((v) => `${m.base}-${v}`));
+    }
+    return out;
   }
 
   /**
@@ -1562,6 +1809,8 @@ export class Octopod {
       ...failing,
     ];
     const others = instance === 1 ? await this.instances(name) : [];
+    const besides = instance === 1 ? await this.besideStates(name) : { beside: [], warnings: [] };
+    warnings.push(...besides.warnings);
     const known = await this.knownServices(declaration, made);
     const shared = await this.sharedStates(declaration);
     return {
@@ -1576,7 +1825,8 @@ export class Octopod {
         .map((s) => ({ ...s, ...known.get(s.service) })),
       ...(shared.length > 0 ? { shared } : {}),
       ...(declaration.variant ? { variant: declaration.variant } : {}),
-      ...(declaration.variants ? { variants: declaration.variants.map(({ name: v, summary }) => ({ name: v, ...(summary ? { summary } : {}) })) } : {}),
+      ...(declaration.variants ? { variants: declaration.variants.map(({ name: v, summary, url }) => ({ name: v, ...(summary ? { summary } : {}), ...(url ? { url } : {}) })) } : {}),
+      ...(besides.beside.length > 0 ? { beside: besides.beside } : {}),
       ...(warnings.length > 0 ? { warnings } : {}),
     };
   }
@@ -1735,10 +1985,14 @@ export class Octopod {
    * a one-off container of the service (its image, mounts, user, network), with argv as
    * the whole command as exec would, and a label that keeps the edge from routing to it.
    */
-  async exec(name: string, service: string, argv: string[], options: { timeoutMs?: number; maxBytes?: number; instance?: number } = {}): Promise<ExecResult> {
+  /** `options.variant`: in that variant beside the project, one of its own services. */
+  async exec(name: string, service: string, argv: string[], options: { timeoutMs?: number; maxBytes?: number; instance?: number; variant?: string } = {}): Promise<ExecResult> {
     if (argv.length === 0) throw new OctopodError('exec needs a command');
     const instance = options.instance ?? 1;
-    const declaration = await this.declaration(name, instance);
+    const declaration = options.variant ? await this.besideDeclaration(name, options.variant) : await this.declaration(name, instance);
+    if (declaration.beside && !declaration.beside.services.includes(service)) {
+      throw new OctopodError(`variant ${options.variant} runs ${declaration.beside.services.join(', ')} of its own: ${service} is the project's — octopod exec ${name} ${service}`);
+    }
     const maxBytes = options.maxBytes ?? 64 * 1024;
     const bounded = (text: string): Pick<ExecResult, 'output' | 'truncated'> => ({ output: text.length > maxBytes ? text.slice(-maxBytes) : text, truncated: text.length > maxBytes });
     const attempt = async (mode: ExecResult['mode']): Promise<ExecResult> => {
@@ -1755,7 +2009,9 @@ export class Octopod {
     };
     // A service in a crash loop is "running" between two restarts: its state, read first,
     // cannot be trusted. Exec when it looks up, and fall back when docker says it is not.
-    const running = (await this.status(name, instance)).services.some((s) => s.service === service && s.state === 'running');
+    const running = declaration.beside
+      ? (await this.composeContainers(declaration.project)).some((c) => c.service === service)
+      : (await this.status(name, instance)).services.some((s) => s.service === service && s.state === 'running');
     if (!running) return attempt('run');
     const first = await attempt('exec');
     return !first.ok && NOT_RUNNING.test(first.output) ? attempt('run') : first;
@@ -1781,7 +2037,7 @@ export class Octopod {
     for (const s of await this.recipeServices(declaration)) {
       if (!s.buildTag || s.tool) continue;
       const built = await this.docker
-        .run(['image', 'inspect', builtImage(declaration.project, s.name, declaration.variant), '--format', `{{index .Config.Labels "${BUILD_LABEL}"}}`])
+        .run(['image', 'inspect', builtImage(declaration.beside ? declaration.base! : declaration.project, s.name, declaration.variant), '--format', `{{index .Config.Labels "${BUILD_LABEL}"}}`])
         .catch(() => undefined);
       if (built !== undefined && built.trim() !== s.buildTag) stale.push(s.name);
     }
@@ -1880,6 +2136,8 @@ export class Octopod {
 
   private async recipeServices(declaration: Declaration): Promise<RenderedService[]> {
     if (!declaration.services) return [];
+    // Rendered as the project, not under its own name.
+    if ((declaration as Prepared).made) return (declaration as Prepared).made!;
     return (await this.render(declaration, false)).rendered.services;
   }
 
@@ -2161,10 +2419,16 @@ export class Octopod {
     const registry = await this.registry();
     const sharedStacks = new Set(Object.entries(registry).filter(([, root]) => root.startsWith(groups)).map(([name]) => name));
     const reach = await this.readJson<Reach[]>('reach.json', []);
+    // A variant beside its project: its own containers answer on its own network only — on
+    // a group's network, its `app` beside the project's is no one's business, as no shared
+    // server calls an app — and they are not asked what they see.
     // On each network, which containers each name answers for.
     const answers = new Map<string, Map<string, Set<string>>>();
     for (const c of seen) {
+      const copyOf = c.Config.Labels?.[BESIDE_LABEL];
+      const own = copyOf ? `${c.Config.Labels?.['com.docker.compose.project']}_default` : undefined;
       for (const [network, n] of Object.entries(c.NetworkSettings.Networks ?? {})) {
+        if (own && network !== own) continue;
         const names = answers.get(network) ?? new Map<string, Set<string>>();
         answers.set(network, names);
         for (const name of [...(n.DNSNames ?? n.Aliases ?? []), c.Name.replace(/^\//, '')]) (names.get(name) ?? names.set(name, new Set()).get(name)!).add(c.Id);
@@ -2174,7 +2438,7 @@ export class Octopod {
     for (const c of seen) {
       const labels = c.Config.Labels ?? {};
       const project = labels['com.docker.compose.project'] ?? '';
-      if (labels['octopod.edge'] || sharedStacks.has(project)) continue;
+      if (labels['octopod.edge'] || labels[BESIDE_LABEL] || sharedStacks.has(project)) continue;
       const networks = Object.keys(c.NetworkSettings.Networks ?? {}).filter((n) => !reach.some((r) => r.network === n && r.target === project));
       if (networks.length < 2) continue;
       // Itself counts: its own service's name answering for another container elsewhere is the same trap.

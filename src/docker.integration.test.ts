@@ -1260,6 +1260,83 @@ describe.skipIf(!dockerAvailable())('a variant chosen at up (real docker)', { ti
   });
 });
 
+describe.skipIf(!dockerAvailable())('a variant beside the project, at its own address (real docker)', { timeout: 600_000 }, () => {
+  let base: string;
+  let octopod: Octopod;
+
+  beforeAll(async () => {
+    base = await mkdtemp(join(tmpdir(), 'octopod-beside-'));
+    await mkdir(join(base, 'bside'));
+    await writeFile(
+      join(base, 'bside', 'octopod.yaml'),
+      [
+        'services:',
+        '  web: { recipe: whoami }',
+        '  cache: { recipe: valkey }',
+        '  store: { recipe: valkey }',
+        'variants:',
+        '  next:',
+        '    url: next',
+        '    services:',
+        '      cache: { version: "8.0" }',
+        '      web: { link: /next }',
+        '',
+      ].join('\n'),
+    );
+    octopod = new Octopod({ stateDir: join(base, 'state'), instance: INSTANCE, ports: [PORT] });
+    await octopod.register(join(base, 'bside'));
+  }, 600_000);
+
+  afterAll(async () => {
+    await octopod.unregister('bside').catch(() => undefined);
+    await octopod.edgeDown();
+    await rm(base, { recursive: true, force: true });
+  }, 600_000);
+
+  const version = (options: { variant?: string } = {}) => octopod.exec('bside', 'cache', ['valkey-cli', 'info', 'server'], options).then((r) => /valkey_version:(\d+\.\d+)/.exec(r.output)?.[1]);
+  const hostname = (body: string): string | undefined => /Hostname: (\S+)/.exec(body)?.[1];
+
+  it('runs the services a variant changes beside the project, at its address, on the services it does not change', async () => {
+    await octopod.up('bside');
+    const status = await octopod.up('bside', 1, { variant: 'next' });
+    // The project itself is as it was.
+    expect(status.variant).toBeUndefined();
+    expect(status.variants).toEqual([{ name: 'next', url: 'next' }]);
+    expect(status.beside).toEqual([
+      {
+        variant: 'next',
+        project: 'bside-next',
+        routes: [expect.objectContaining({ service: 'web', url: `http://next.bside.octopod.localhost:${PORT}` })],
+        services: [expect.objectContaining({ service: 'web', state: 'running' }), expect.objectContaining({ service: 'cache', state: 'running' })],
+      },
+    ]);
+    const mine = await eventually('bside.octopod.localhost', 200);
+    const next = await eventually('next.bside.octopod.localhost', 200);
+    expect(next.status).toBe(200);
+    expect(hostname(next.body)).not.toBe(hostname(mine.body));
+    expect(await version()).toBe('8.1');
+    expect(await version({ variant: 'next' })).toBe('8.0');
+    // The variant reaches the project's store under its name; the project's names are its own.
+    expect((await octopod.exec('bside', 'cache', ['valkey-cli', '-h', 'store', 'ping'], { variant: 'next' })).output.trim()).toBe('PONG');
+    expect(/valkey_version:(\d+\.\d+)/.exec((await octopod.exec('bside', 'store', ['valkey-cli', '-h', 'cache', 'info', 'server'])).output)?.[1]).toBe('8.1');
+    await expect(octopod.exec('bside', 'store', ['true'], { variant: 'next' })).rejects.toThrow(/store is the project's/);
+    expect((await octopod.doctor()).checks.find((c) => c.name === 'names')?.ok).toBe(true);
+  });
+
+  it('goes down with the project and comes back with its up, until down --variant', async () => {
+    await octopod.down('bside');
+    expect(docker('ps', '-q', '--filter', 'label=com.docker.compose.project=bside-next').trim()).toBe('');
+    expect((await octopod.up('bside')).beside?.[0]?.services.every((s) => s.state === 'running')).toBe(true);
+    expect((await eventually('next.bside.octopod.localhost', 200)).status).toBe(200);
+    const gone = await octopod.down('bside', { variant: 'next' });
+    expect(gone.beside).toBeUndefined();
+    expect(gone.services.every((s) => s.state === 'running')).toBe(true);
+    expect(docker('network', 'ls', '-q', '--filter', 'name=bside-next').trim()).toBe('');
+    expect((await octopod.up('bside')).beside).toBeUndefined();
+    await expect(octopod.down('bside', { variant: 'nope' })).rejects.toThrow(/does not run beside/);
+  });
+});
+
 describe.skipIf(!dockerAvailable())('the OIDC provider, seen from the browser and from the app (real docker)', { timeout: 600_000 }, () => {
   let base: string;
   let root: string;

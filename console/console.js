@@ -738,6 +738,14 @@ function card(p, base, nested = false, inGroup = false) {
       nested ? null : (p.tags || []).map((t) => el('span', { class: 'tag' }, `#${t}`)),
       // The variant it runs (`octopod up --variant`): chosen on the command line, shown here.
       p.variant ? el('span', { class: 'tag', title: ((p.variants || []).find((v) => v.name === p.variant) || {}).summary || 'octopod up --variant -: back to the declaration' }, `variant ${p.variant}`) : null,
+      // The variants beside it (a url): each a tag that leads to its address.
+      (p.beside || []).map((b) =>
+        el(
+          b.routes.length ? 'a' : 'span',
+          { class: 'tag', ...(b.routes.length ? { href: b.routes[0].url, target: '_blank', rel: 'noopener' } : {}), title: `${b.services.map((s) => `${s.service}: ${s.state}`).join(', ')} — octopod down --variant ${b.variant}` },
+          `beside ${b.variant}`,
+        ),
+      ),
       el('span', { class: 'spacer' }),
       el('button', { type: 'button', onclick: () => openLogs({ project: base, instance, service: '' }) }, 'All logs'),
       state.busy.has(key) ? actButton(base, instance, 'up') : [actButton(base, instance, 'up'), actButton(base, instance, 'down')],

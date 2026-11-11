@@ -363,7 +363,7 @@ async function main(argv: string[]): Promise<void> {
       return print(await octopod.up(name, instanceOf(rest), variant === undefined ? {} : { variant: variant === '-' ? null : variant }), json);
     }
     case 'down':
-      return print(await octopod.down(await projectName(rest), { volumes: rest.includes('--volumes'), instance: instanceOf(rest) }), json);
+      return print(await octopod.down(await projectName(rest), { volumes: rest.includes('--volumes'), instance: instanceOf(rest), ...(flag(rest, '--variant') ? { variant: flag(rest, '--variant') } : {}) }), json);
     case 'status':
       return print(await octopod.status(await projectName(rest), instanceOf(rest)), json);
     case 'logs': {
@@ -404,12 +404,13 @@ async function main(argv: string[]): Promise<void> {
     case 'restart':
       return print(await octopod.restart(await projectName(rest), flag(rest, '--service'), instanceOf(rest)), json);
     case 'exec': {
-      // octopod exec <project> <service> [--timeout ms] -- <command...>
+      // octopod exec <project> <service> [--timeout ms] [--variant name] -- <command...>
       const dash = rest.indexOf('--');
       if (dash < 0) throw new Error('usage: octopod exec <project> <service> [--timeout ms] -- <command...>');
       const [project, service] = positional(rest.slice(0, dash));
       if (!project || !service) throw new Error('usage: octopod exec <project> <service> [--timeout ms] -- <command...>');
-      const result = await octopod.exec(project, service, rest.slice(dash + 1), { timeoutMs: Number(flag(rest.slice(0, dash), '--timeout') ?? 60_000), instance: instanceOf(rest.slice(0, dash)) });
+      const variant = flag(rest.slice(0, dash), '--variant');
+      const result = await octopod.exec(project, service, rest.slice(dash + 1), { timeoutMs: Number(flag(rest.slice(0, dash), '--timeout') ?? 60_000), instance: instanceOf(rest.slice(0, dash)), ...(variant ? { variant } : {}) });
       if (json) return print(result, true);
       process.stdout.write(result.output);
       if (!result.ok) process.exitCode = 1;
