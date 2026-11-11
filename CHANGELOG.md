@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The console lists a variant run beside the project in the Route column of each service it
+  copies: its address, the variant's name and the copy's state, under the project's own
+  address. Only a tag in the page's head named it before.
+
 ## [0.12.0] - 2026-11-11
 
 ### Changed

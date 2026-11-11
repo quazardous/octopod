@@ -541,6 +541,20 @@ function servicesTable(p, base, instance) {
               r.port ? el('span', { class: 'muted' }, ` → :${r.port}${r.portSource && r.portSource !== 'declared' ? ` (${r.portSource})` : ''}`) : null,
             ),
           ),
+          // The same service run beside the project by a variant: its own address, under the project's.
+          (s.server ? [] : p.beside || []).flatMap((b) =>
+            b.routes
+              .filter((r) => r.service === s.service)
+              .map((r) => {
+                const copy = b.services.find((c) => c.service === s.service);
+                return el(
+                  'div',
+                  {},
+                  el('a', { href: r.url, target: '_blank', rel: 'noreferrer' }, r.url.replace(/^http:\/\//, '')),
+                  el('span', { class: 'muted' }, ` · variant ${b.variant}${copy ? ` (${copy.state})` : ''}`),
+                );
+              }),
+          ),
         ),
         el('td', { class: 'disk-cell' }, s.server ? null : serviceDisk(base, instance, s.service)),
         el(
